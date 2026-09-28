@@ -155,10 +155,26 @@ def _best_track(candidates: Iterable[Any], artist: str, track: str, album: str |
     return ranked[0][1]
 
 
-def resolve_item(music, item: dict[str, Any]):
+def resolve_item(plex, music, item: dict[str, Any]):
     artist = str(item.get("artist", "")).strip()
     album = str(item.get("album", "")).strip()
     track = str(item.get("track", "")).strip()
+    rating_key = str(item.get("rating_key", "")).strip()
+
+    if rating_key:
+        try:
+            found = plex.fetchItem(int(rating_key))
+        except (ValueError, NotFound):
+            return [], Match(item, "missing", note=f"Track rating key {rating_key} not found")
+        if getattr(found, "TYPE", "") != "track" and getattr(found, "type", "") != "track":
+            return [], Match(item, "invalid", note=f"Rating key {rating_key} is not a track")
+        return [found], Match(
+            item,
+            "matched",
+            matched=f"{getattr(found, 'grandparentTitle', '')} - {getattr(found, 'parentTitle', '')} - {found.title}",
+            rating_key=str(found.ratingKey),
+            tracks=1,
+        )
 
     if album and artist and not track:
         candidates = music.searchAlbums(title=album)
@@ -200,12 +216,12 @@ def resolve_item(music, item: dict[str, Any]):
     )
 
 
-def resolve_playlist(music, spec: dict[str, Any]):
+def resolve_playlist(plex, music, spec: dict[str, Any]):
     tracks = []
     matches: list[Match] = []
     seen: set[str] = set()
     for item in spec.get("items", []):
-        item_tracks, match = resolve_item(music, item)
+        item_tracks, match = resolve_item(plex, music, item)
         matches.append(match)
         for track in item_tracks:
             key = str(track.ratingKey)
@@ -216,7 +232,7 @@ def resolve_playlist(music, spec: dict[str, Any]):
 
 
 def sync_playlist(plex, music, name: str, spec: dict[str, Any]):
-    tracks, matches = resolve_playlist(music, spec)
+    tracks, matches = resolve_playlist(plex, music, spec)
     problems = [m for m in matches if m.status != "matched"]
     strict = bool(spec.get("strict", True))
 
