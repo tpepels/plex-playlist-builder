@@ -8,6 +8,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Iterable
 
+import requests
+import urllib3
 from plexapi.server import PlexServer
 from plexapi.exceptions import NotFound
 
@@ -24,6 +26,13 @@ def _norm(value: str | None) -> str:
     value = "".join(ch for ch in value if not unicodedata.combining(ch))
     value = value.casefold().replace("&", "and")
     return re.sub(r"[^a-z0-9]+", " ", value).strip()
+
+
+def _env_bool(name: str, default: bool = True) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().casefold() not in {"0", "false", "no", "off"}
 
 
 def discover_token() -> str:
@@ -53,7 +62,21 @@ def connect():
     base_url = os.getenv("PLEX_URL", "http://host.docker.internal:32400").rstrip("/")
     token = discover_token()
     timeout = int(os.getenv("PLEX_TIMEOUT", "10"))
-    plex = PlexServer(base_url, token, timeout=timeout)
+    verify_ssl = _env_bool("PLEX_VERIFY_SSL", True)
+
+    session = requests.Session()
+    session.verify = verify_ssl
+    if not verify_ssl:
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    try:
+        plex = PlexServer(base_url, token, session=session, timeout=timeout)
+    except requests.exceptions.SSLError as exc:
+        raise RuntimeError(
+            "Could not verify Plex's HTTPS certificate. For a trusted local Plex "
+            "server using host.docker.internal, set PLEX_VERIFY_SSL=false."
+        ) from exc
+
     library_name = os.getenv("PLEX_LIBRARY", "Music")
     try:
         music = plex.library.section(library_name)
@@ -141,7 +164,6 @@ def resolve_item(music, item: dict[str, Any]):
         candidates = music.searchAlbums(title=album)
         found = _best_album(candidates, artist, album)
         if not found:
-            # Plex's title search can be unexpectedly strict; broaden once.
             candidates = music.searchAlbums()
             found = _best_album(candidates, artist, album)
         if not found:
