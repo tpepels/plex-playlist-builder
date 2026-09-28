@@ -38,7 +38,7 @@ playlists:
     strict: false
     items:
       - artist: Arvo Pärt
-        album: Arvo Pärt: Alina
+        album: "Arvo Pärt: Alina"
       - artist: Ryuichi Sakamoto
         album: Playing The Piano
       - artist: Goldmund
