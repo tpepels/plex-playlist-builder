@@ -1,0 +1,19 @@
+services:
+  plex-playlist-manager:
+    build:
+      context: ./plex-playlist-manager
+    container_name: plex-playlist-manager
+    ports:
+      - "5051:8000"
+    environment:
+      TZ: ${TZ}
+      PLEX_URL: http://host.docker.internal:32400
+      PLEX_LIBRARY: Music
+      PLAYLISTS_FILE: /data/playlists.yml
+      # PLEX_TOKEN is optional because the Plex config is mounted read-only below.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /srv/plex-playlist-manager:/data
+      - /srv/plex/config:/plex-config:ro
+    restart: unless-stopped
