@@ -1,0 +1,63 @@
+# Plex Playlist Manager
+#
+# Album item:  artist + album  -> all album tracks, in Plex album order
+# Track item:  artist + track  -> one track; optional album disambiguates
+# strict: true                -> do not touch Plex if anything is missing
+# enabled: false              -> skip during Sync all
+
+playlists:
+  Quiet Folk:
+    strict: true
+    items:
+      - artist: Nick Drake
+        album: Pink Moon
+      - artist: Cat Stevens
+        album: Tea for the Tillerman
+      - artist: John Martyn
+        album: Solid Air
+      - artist: Sibylle Baier
+        album: Colour Green
+      - artist: Jackson C. Frank
+        album: Jackson C. Frank
+
+  Desert Guitar:
+    strict: true
+    items:
+      - artist: Hermanos Gutiérrez
+        album: El bueno y el malo
+      - artist: Hermanos Gutiérrez
+        album: Sonido cósmico
+      - artist: Khruangbin
+        album: Con todo el mundo
+      - artist: Khruangbin
+        album: The Universe Smiles Upon You
+      - artist: Glass Beams
+        album: Mahal
+
+  Still / Minimal:
+    strict: false
+    items:
+      - artist: Arvo Pärt
+        album: Arvo Pärt: Alina
+      - artist: Ryuichi Sakamoto
+        album: Playing The Piano
+      - artist: Goldmund
+        album: Sometimes
+      - artist: Hania Rani
+        album: Esja
+      - artist: Keith Jarrett
+        album: The Melody At Night, With You
+
+  After Hours Jazz:
+    strict: false
+    items:
+      - artist: Miles Davis
+        album: Nefertiti
+      - artist: John Coltrane Quartet
+        album: Crescent
+      - artist: Bill Evans Trio
+        album: Sunday at the Village Vanguard
+      - artist: Bill Evans & Jim Hall
+        album: Undercurrent
+      - artist: Wayne Shorter
+        album: Speak No Evil
