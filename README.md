@@ -13,6 +13,7 @@ A tiny local web service for defining Plex music playlists in YAML, previewing m
 - Sync replaces the existing Plex playlist of the same name, making the YAML file the source of truth.
 - Reads the Plex token automatically from a **read-only** mount of Plex's `Preferences.xml`; `PLEX_TOKEN` can be used instead.
 - Includes a small browser editor at port 5051.
+- Exports the complete Plex Music library at track level as TSV for playlist design in ChatGPT (artist, album, title, disc/track number, year, duration, and Plex rating key).
 
 ## Install into your existing media-stack
 
