@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from .config_store import load, read_text, save_text
+from .config_store import load, merge_text, read_text, save_text
 from .plex_client import connect, resolve_playlist, sync_playlist
 
 
@@ -62,6 +62,15 @@ def get_config():
 def put_config(body: ConfigBody):
     try:
         data = save_text(body.text)
+        return {"ok": True, "playlists": list(data.get("playlists", {}).keys())}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/import-config")
+def import_config(body: ConfigBody):
+    try:
+        data = merge_text(body.text)
         return {"ok": True, "playlists": list(data.get("playlists", {}).keys())}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
