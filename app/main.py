@@ -133,7 +133,7 @@ def preview(name: str):
         if name not in playlists:
             raise HTTPException(status_code=404, detail="Unknown playlist")
         plex, music = connect()
-        tracks, matches = resolve_playlist(music, playlists[name])
+        tracks, matches = resolve_playlist(plex, music, playlists[name])
         return {
             "name": name,
             "server": plex.friendlyName,
