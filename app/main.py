@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import os
+import csv
+import io
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -12,7 +13,7 @@ from .config_store import load, read_text, save_text
 from .plex_client import connect, resolve_playlist, sync_playlist
 
 
-app = FastAPI(title="Plex Playlist Manager", version="1.0.0")
+app = FastAPI(title="Plex Playlist Manager", version="1.1.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
@@ -48,7 +49,11 @@ def health(response: Response):
 def get_config():
     try:
         data = load()
-        return {\n            "text": read_text(),\n            "playlists": list(data.get("playlists", {}).keys()),\n            "definitions": data.get("playlists", {}),\n        }
+        return {
+            "text": read_text(),
+            "playlists": list(data.get("playlists", {}).keys()),
+            "definitions": data.get("playlists", {}),
+        }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -60,6 +65,65 @@ def put_config(body: ConfigBody):
         return {"ok": True, "playlists": list(data.get("playlists", {}).keys())}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/library-export.tsv")
+def export_library():
+    """Download the Plex music library as a compact track-level TSV."""
+    try:
+        _, music = connect()
+        tracks = music.searchTracks()
+
+        rows = []
+        for track in tracks:
+            rows.append(
+                {
+                    "artist": getattr(track, "grandparentTitle", "") or "",
+                    "album": getattr(track, "parentTitle", "") or "",
+                    "title": getattr(track, "title", "") or "",
+                    "disc": getattr(track, "parentIndex", "") or "",
+                    "track": getattr(track, "index", "") or "",
+                    "year": getattr(track, "year", "") or "",
+                    "duration_ms": getattr(track, "duration", "") or "",
+                    "rating_key": str(getattr(track, "ratingKey", "") or ""),
+                }
+            )
+
+        rows.sort(
+            key=lambda row: (
+                str(row["artist"]).casefold(),
+                str(row["album"]).casefold(),
+                int(row["disc"]) if str(row["disc"]).isdigit() else 0,
+                int(row["track"]) if str(row["track"]).isdigit() else 0,
+                str(row["title"]).casefold(),
+            )
+        )
+
+        out = io.StringIO()
+        fieldnames = [
+            "artist",
+            "album",
+            "title",
+            "disc",
+            "track",
+            "year",
+            "duration_ms",
+            "rating_key",
+        ]
+        writer = csv.DictWriter(out, fieldnames=fieldnames, delimiter="\t", lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+        return Response(
+            content=out.getvalue(),
+            media_type="text/tab-separated-values; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="plex-music-library.tsv"',
+                "X-Plex-Track-Count": str(len(rows)),
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.get("/api/preview/{name}")
