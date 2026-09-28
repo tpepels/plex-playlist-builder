@@ -79,7 +79,11 @@ small { color:var(--muted); }
       <strong>Build playlists with ChatGPT</strong><br>
       <small>Export every song in your Plex Music library, then upload the file in chat.</small>
     </span>
-    <a class="button" href="/api/library-export.tsv" download="plex-music-library.tsv">Export music library</a>
+    <span style="display:flex;gap:8px;flex-wrap:wrap;">
+      <a class="button" href="/api/library-export.tsv" download="plex-music-library.tsv">Export music library</a>
+      <button id="importPack">Import playlist pack</button>
+      <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
+    </span>
   </div>
 
   <section id="cards" class="grid"></section>
@@ -130,7 +134,8 @@ function renderCards(definitions) {
     card.className = "card";
     card.innerHTML = `
       <h2>${esc(name)}</h2>
-      <div class="meta">${items.length} album/track ${items.length === 1 ? "entry" : "entries"}</div>
+      <div class="meta">${items.length} tracks</div>
+      ${spec.description ? `<div style="color:var(--muted);margin:0 0 12px;">${esc(spec.description)}</div>` : ""}
       <ul class="items">
         ${items.map(item => {
           const what = item.track ? item.track : item.album;
@@ -213,6 +218,26 @@ $("save").onclick = async () => {
   }
 };
 $("reload").onclick = () => loadConfig().catch(e => $("saveState").textContent = "Error: " + e.message);
+
+$("importPack").onclick = () => $("packFile").click();
+$("packFile").onchange = async () => {
+  const file = $("packFile").files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const d = await api("/api/config", {
+      method:"PUT",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text})
+    });
+    await loadConfig();
+    alert(`Imported ${d.playlists.length} playlists. You can now create them in Plex.`);
+  } catch (e) {
+    alert("Could not import playlist pack: " + e.message);
+  } finally {
+    $("packFile").value = "";
+  }
+};
 
 checkHealth();
 loadConfig().catch(e => {
