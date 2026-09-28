@@ -3,103 +3,212 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Plex Playlist Manager</title>
+<title>Plex Playlist Builder</title>
 <style>
-:root { color-scheme: dark; --bg:#111; --panel:#191919; --line:#333; --text:#eee; --muted:#aaa; --accent:#e5a00d; --bad:#ff7878; --good:#82d982; }
-* { box-sizing: border-box; }
-body { margin:0; font:15px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
-main { max-width:1180px; margin:0 auto; padding:28px 20px 60px; }
-h1 { margin:0 0 4px; font-size:28px; }
-.sub { color:var(--muted); margin-bottom:22px; }
-.grid { display:grid; grid-template-columns:minmax(0, 1.15fr) minmax(320px,.85fr); gap:18px; }
-.panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
-textarea { width:100%; min-height:610px; resize:vertical; background:#0b0b0b; color:#ddd; border:1px solid var(--line); border-radius:8px; padding:12px; font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
-button, select { background:#242424; color:#eee; border:1px solid #444; border-radius:7px; padding:9px 12px; }
-button { cursor:pointer; }
-button.primary { background:var(--accent); border-color:var(--accent); color:#111; font-weight:650; }
-.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
-.row select { flex:1; min-width:180px; }
-.status { padding:10px 12px; border-radius:8px; background:#101010; margin-bottom:12px; white-space:pre-wrap; }
-.status.good { border-left:3px solid var(--good); }
-.status.bad { border-left:3px solid var(--bad); }
-pre { margin:0; white-space:pre-wrap; word-break:break-word; background:#0b0b0b; border-radius:8px; padding:12px; max-height:520px; overflow:auto; }
+:root {
+  color-scheme: dark;
+  --bg:#0f0f0f; --panel:#191919; --panel2:#202020; --line:#303030;
+  --text:#f2f2f2; --muted:#a4a4a4; --accent:#e5a00d; --good:#83d98d; --bad:#ff8383;
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; background:var(--bg); color:var(--text);
+  font:15px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+main { max-width:980px; margin:0 auto; padding:32px 20px 60px; }
+h1 { margin:0; font-size:30px; }
+.sub { color:var(--muted); margin:5px 0 22px; }
+.status {
+  display:flex; align-items:center; gap:9px; margin-bottom:22px;
+  padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:#151515;
+}
+.dot { width:9px; height:9px; border-radius:50%; background:#777; flex:0 0 auto; }
+.status.good .dot { background:var(--good); }
+.status.bad .dot { background:var(--bad); }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+.card {
+  border:1px solid var(--line); background:var(--panel); border-radius:14px;
+  padding:17px; display:flex; flex-direction:column; min-height:230px;
+}
+.card h2 { margin:0 0 3px; font-size:20px; }
+.meta { color:var(--muted); font-size:13px; margin-bottom:13px; }
+.items { list-style:none; padding:0; margin:0 0 16px; flex:1; }
+.items li { padding:6px 0; border-top:1px solid #292929; }
+.items li:first-child { border-top:0; }
+.artist { color:#fff; }
+.release { color:var(--muted); }
+button {
+  appearance:none; border:1px solid #474747; border-radius:8px; padding:10px 13px;
+  background:#292929; color:var(--text); cursor:pointer; font:inherit;
+}
+button:hover { background:#333; }
+button.primary { background:var(--accent); border-color:var(--accent); color:#111; font-weight:700; }
+button:disabled { opacity:.55; cursor:default; }
+.result { margin-top:11px; padding:10px 11px; border-radius:8px; font-size:13px; display:none; }
+.result.good { display:block; background:#162419; color:#b9e9c0; }
+.result.bad { display:block; background:#2b1717; color:#ffc1c1; }
+.result.info { display:block; background:#171d25; color:#c9dcf4; }
+details {
+  margin-top:25px; border:1px solid var(--line); border-radius:12px; background:#151515;
+}
+summary { cursor:pointer; padding:14px 16px; color:var(--muted); }
+.advanced { padding:0 16px 16px; }
+textarea {
+  width:100%; min-height:420px; resize:vertical; background:#0b0b0b; color:#ddd;
+  border:1px solid var(--line); border-radius:8px; padding:12px;
+  font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.row { display:flex; gap:8px; align-items:center; margin:10px 0; flex-wrap:wrap; }
 small { color:var(--muted); }
-@media (max-width:850px) { .grid { grid-template-columns:1fr; } textarea { min-height:440px; } }
+.empty { padding:28px; color:var(--muted); text-align:center; border:1px dashed #333; border-radius:12px; }
+@media(max-width:600px){ main{padding:22px 14px 40px;} .grid{grid-template-columns:1fr;} }
 </style>
 </head>
 <body>
 <main>
-  <h1>Plex Playlist Manager</h1>
-  <div class="sub">Edit YAML, preview Plex matches, then sync. Sync replaces the Plex playlist with the YAML-defined order.</div>
-  <div class="grid">
-    <section class="panel">
+  <h1>Plex Playlist Builder</h1>
+  <div class="sub">Choose a playlist and create it in Plex. That’s it.</div>
+
+  <div id="health" class="status">
+    <span class="dot"></span><span>Connecting to Plex…</span>
+  </div>
+
+  <section id="cards" class="grid"></section>
+
+  <details>
+    <summary>Advanced - edit playlist definitions</summary>
+    <div class="advanced">
+      <p><small>You normally do not need this. The YAML below is the saved playlist definition file.</small></p>
+      <textarea id="yaml" spellcheck="false"></textarea>
       <div class="row">
-        <button id="save" class="primary">Save YAML</button>
-        <button id="reload">Reload</button>
+        <button id="save">Save changes</button>
+        <button id="reload">Discard changes</button>
         <small id="saveState"></small>
       </div>
-      <textarea id="yaml" spellcheck="false"></textarea>
-    </section>
-    <section class="panel">
-      <div id="health" class="status">Checking Plex…</div>
-      <div class="row">
-        <select id="playlist"></select>
-        <button id="preview">Preview</button>
-        <button id="sync" class="primary">Sync selected</button>
-      </div>
-      <div class="row"><button id="syncAll">Sync all enabled playlists</button></div>
-      <pre id="output">No preview yet.</pre>
-    </section>
-  </div>
+    </div>
+  </details>
 </main>
+
 <script>
 const $ = id => document.getElementById(id);
-async function json(url, options={}) {
+let config = null;
+
+async function api(url, options={}) {
   const r = await fetch(url, options);
-  const body = await r.json().catch(()=>({detail:`HTTP ${r.status}`}));
-  if (!r.ok) throw new Error(body.detail || JSON.stringify(body));
+  const body = await r.json().catch(() => ({detail:`HTTP ${r.status}`}));
+  if (!r.ok) throw new Error(body.detail || body.error || JSON.stringify(body));
   return body;
 }
-function setPlaylists(names) {
-  const old = $('playlist').value;
-  $('playlist').innerHTML = '';
-  for (const name of names) {
-    const o = document.createElement('option'); o.value=name; o.textContent=name; $('playlist').appendChild(o);
+
+function esc(value) {
+  return String(value ?? "")
+    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+}
+
+function renderCards(definitions) {
+  const cards = $("cards");
+  cards.innerHTML = "";
+  const entries = Object.entries(definitions || {});
+  if (!entries.length) {
+    cards.innerHTML = '<div class="empty">No playlists defined.</div>';
+    return;
   }
-  if (names.includes(old)) $('playlist').value=old;
+
+  for (const [name, spec] of entries) {
+    const items = spec.items || [];
+    const card = document.createElement("article");
+    card.className = "card";
+    card.innerHTML = `
+      <h2>${esc(name)}</h2>
+      <div class="meta">${items.length} album/track ${items.length === 1 ? "entry" : "entries"}</div>
+      <ul class="items">
+        ${items.map(item => {
+          const what = item.track ? item.track : item.album;
+          const kind = item.track ? "track" : "album";
+          return `<li><span class="artist">${esc(item.artist)}</span><br>
+            <span class="release">${esc(what)} · ${kind}</span></li>`;
+        }).join("")}
+      </ul>
+      <button class="primary build">Create / update in Plex</button>
+      <div class="result"></div>
+    `;
+
+    const button = card.querySelector(".build");
+    const result = card.querySelector(".result");
+
+    button.onclick = async () => {
+      button.disabled = true;
+      result.className = "result info";
+      result.textContent = "Checking your Plex library…";
+      try {
+        const data = await api("/api/sync/" + encodeURIComponent(name), {method:"POST"});
+        const missing = (data.matches || []).filter(x => x.status !== "matched");
+        if (data.status === "synced") {
+          result.className = "result good";
+          result.textContent = `Done - ${data.track_count} tracks are now in Plex.`;
+          if (missing.length) {
+            result.textContent += ` ${missing.length} item${missing.length === 1 ? "" : "s"} could not be found.`;
+          }
+        } else {
+          result.className = "result bad";
+          const names = missing.map(x => {
+            const r = x.requested || {};
+            return r.track || r.album || "Unknown item";
+          });
+          result.textContent = names.length
+            ? `Nothing changed. Plex could not find: ${names.join(", ")}.`
+            : (data.message || "Nothing changed.");
+        }
+      } catch (e) {
+        result.className = "result bad";
+        result.textContent = "Could not create playlist: " + e.message;
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    cards.appendChild(card);
+  }
 }
+
 async function loadConfig() {
-  const d = await json('/api/config');
-  $('yaml').value = d.text; setPlaylists(d.playlists);
+  config = await api("/api/config");
+  $("yaml").value = config.text;
+  renderCards(config.definitions);
 }
+
 async function checkHealth() {
-  const d = await json('/api/health');
-  $('health').className='status ' + (d.ok ? 'good':'bad');
-  $('health').textContent = d.ok ? `Connected: ${d.server}\nLibrary: ${d.library}\nPlex: ${d.version}` : `Plex error: ${d.error}`;
-}
-$('save').onclick = async () => {
   try {
-    const d = await json('/api/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:$('yaml').value})});
-    setPlaylists(d.playlists); $('saveState').textContent='Saved.';
-  } catch(e) { $('saveState').textContent='Error: '+e.message; }
+    const d = await api("/api/health");
+    $("health").className = "status good";
+    $("health").innerHTML = `<span class="dot"></span><span>Connected to <strong>${esc(d.server)}</strong> · ${esc(d.library)}</span>`;
+  } catch (e) {
+    $("health").className = "status bad";
+    $("health").innerHTML = `<span class="dot"></span><span>Plex connection failed: ${esc(e.message)}</span>`;
+  }
+}
+
+$("save").onclick = async () => {
+  $("saveState").textContent = "Saving…";
+  try {
+    const d = await api("/api/config", {
+      method:"PUT",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text:$("yaml").value})
+    });
+    $("saveState").textContent = "Saved.";
+    await loadConfig();
+  } catch (e) {
+    $("saveState").textContent = "Error: " + e.message;
+  }
 };
-$('reload').onclick = loadConfig;
-$('preview').onclick = async () => {
-  try { $('output').textContent='Matching…'; $('output').textContent=JSON.stringify(await json('/api/preview/'+encodeURIComponent($('playlist').value)),null,2); }
-  catch(e) { $('output').textContent='Error: '+e.message; }
-};
-$('sync').onclick = async () => {
-  if (!confirm(`Replace Plex playlist “${$('playlist').value}” from YAML?`)) return;
-  try { $('output').textContent='Syncing…'; $('output').textContent=JSON.stringify(await json('/api/sync/'+encodeURIComponent($('playlist').value),{method:'POST'}),null,2); }
-  catch(e) { $('output').textContent='Error: '+e.message; }
-};
-$('syncAll').onclick = async () => {
-  if (!confirm('Sync all enabled playlists?')) return;
-  try { $('output').textContent='Syncing…'; $('output').textContent=JSON.stringify(await json('/api/sync-all',{method:'POST'}),null,2); }
-  catch(e) { $('output').textContent='Error: '+e.message; }
-};
-loadConfig().catch(e=>$('output').textContent='Config error: '+e.message);
-checkHealth().catch(e=>$('health').textContent='Health error: '+e.message);
+$("reload").onclick = () => loadConfig().catch(e => $("saveState").textContent = "Error: " + e.message);
+
+checkHealth();
+loadConfig().catch(e => {
+  $("cards").innerHTML = `<div class="empty">Could not load playlists: ${esc(e.message)}</div>`;
+});
 </script>
 </body>
 </html>
