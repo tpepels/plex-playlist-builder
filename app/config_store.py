@@ -61,3 +61,21 @@ def save_text(text: str) -> dict[str, Any]:
     temp.write_text(text.rstrip() + "\n", encoding="utf-8")
     temp.replace(PLAYLISTS_FILE)
     return data
+
+
+def merge_text(text: str) -> dict[str, Any]:
+    incoming = parse_text(text)
+    current = load()
+    merged = dict(current)
+    merged_playlists = dict(current.get("playlists", {}))
+    merged_playlists.update(incoming.get("playlists", {}))
+    merged["playlists"] = merged_playlists
+
+    rendered = yaml.safe_dump(
+        merged,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+    )
+    save_text(rendered)
+    return merged
