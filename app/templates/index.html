@@ -37,9 +37,10 @@ h1 { margin:0; font-size:30px; }
 .items li:first-child { border-top:0; }
 .artist { color:#fff; }
 .release { color:var(--muted); }
-button {
+button, .button {
   appearance:none; border:1px solid #474747; border-radius:8px; padding:10px 13px;
   background:#292929; color:var(--text); cursor:pointer; font:inherit;
+  text-decoration:none; display:inline-block;
 }
 button:hover, .button:hover { background:#333; }
 button.primary { background:var(--accent); border-color:var(--accent); color:#111; font-weight:700; }
@@ -71,6 +72,14 @@ small { color:var(--muted); }
 
   <div id="health" class="status">
     <span class="dot"></span><span>Connecting to Plex…</span>
+  </div>
+
+  <div class="status good" style="justify-content:space-between;align-items:center;flex-wrap:wrap;">
+    <span>
+      <strong>Build playlists with ChatGPT</strong><br>
+      <small>Export every song in your Plex Music library, then upload the file in chat.</small>
+    </span>
+    <a class="button" href="/api/library-export.tsv" download="plex-music-library.tsv">Export music library</a>
   </div>
 
   <section id="cards" class="grid"></section>
