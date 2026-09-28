@@ -48,7 +48,7 @@ def health(response: Response):
 def get_config():
     try:
         data = load()
-        return {"text": read_text(), "playlists": list(data.get("playlists", {}).keys())}
+        return {\n            "text": read_text(),\n            "playlists": list(data.get("playlists", {}).keys()),\n            "definitions": data.get("playlists", {}),\n        }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
