@@ -51,7 +51,7 @@ http://media-server:5051
       - "5051:8000"
     environment:
       TZ: ${TZ}
-      PLEX_URL: http://host.docker.internal:32400
+      PLEX_URL: https://host.docker.internal:32400\n      PLEX_VERIFY_SSL: "false"
       PLEX_LIBRARY: Music
       PLAYLISTS_FILE: /data/playlists.yml
     extra_hosts:
@@ -64,7 +64,7 @@ http://media-server:5051
 
 ### Why `host.docker.internal`?
 
-Your Plex container uses `network_mode: host`, so Plex listens on the Docker host at port 32400. This service runs on a normal bridge network and reaches the host through Docker's `host-gateway` alias. Nothing in the existing Plex service needs to change.
+Your Plex container uses `network_mode: host`, so Plex listens on the Docker host at port 32400. This service runs on a normal bridge network and reaches the host through Docker's `host-gateway` alias. Nothing in the existing Plex service needs to change.\n\nIf Plex enforces HTTPS, use `PLEX_URL: https://host.docker.internal:32400`. Because Plex's local certificate normally does not match the `host.docker.internal` hostname, set `PLEX_VERIFY_SSL: "false"` for this trusted local connection. Leave verification enabled when using a hostname with a valid matching certificate.
 
 ## YAML format
 
