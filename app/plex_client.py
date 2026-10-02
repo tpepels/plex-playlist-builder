@@ -231,6 +231,49 @@ def resolve_playlist(plex, music, spec: dict[str, Any]):
     return tracks, matches
 
 
+def export_audio_playlists(plex) -> dict[str, dict[str, Any]]:
+    """Return Plex audio playlists as importable, human-readable playlist definitions."""
+    exported: dict[str, dict[str, Any]] = {}
+    playlists = sorted(
+        plex.playlists(playlistType="audio"),
+        key=lambda playlist: str(getattr(playlist, "title", "")).casefold(),
+    )
+
+    for playlist in playlists:
+        title = str(getattr(playlist, "title", "") or "").strip()
+        if not title:
+            continue
+
+        items = []
+        for track in playlist.items():
+            rating_key = str(getattr(track, "ratingKey", "") or "").strip()
+            artist = str(getattr(track, "grandparentTitle", "") or "").strip()
+            album = str(getattr(track, "parentTitle", "") or "").strip()
+            track_title = str(getattr(track, "title", "") or "").strip()
+
+            # Keep the exact Plex key as the primary identity while also including
+            # readable metadata so exports are useful outside this application.
+            item: dict[str, Any] = {}
+            if rating_key:
+                item["rating_key"] = rating_key
+            if artist:
+                item["artist"] = artist
+            if album:
+                item["album"] = album
+            if track_title:
+                item["track"] = track_title
+            if item:
+                items.append(item)
+
+        spec: dict[str, Any] = {"strict": True, "items": items}
+        summary = str(getattr(playlist, "summary", "") or "").strip()
+        if summary:
+            spec["description"] = summary
+        exported[title] = spec
+
+    return exported
+
+
 def sync_playlist(plex, music, name: str, spec: dict[str, Any]):
     tracks, matches = resolve_playlist(plex, music, spec)
     problems = [m for m in matches if m.status != "matched"]
