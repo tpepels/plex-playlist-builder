@@ -212,7 +212,7 @@ def resolve_item(plex, music, item: dict[str, Any]):
     return [], Match(
         item,
         "invalid",
-        note="Each item needs artist+album or artist+track (album optional for tracks).",
+        note="Each item needs rating_key, artist+album, or artist+track (album optional for tracks).",
     )
 
 
