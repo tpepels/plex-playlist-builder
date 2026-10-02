@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import csv
 import io
+from pathlib import Path
 
 import yaml
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
