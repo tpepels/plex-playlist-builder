@@ -77,10 +77,11 @@ small { color:var(--muted); }
   <div class="status good" style="justify-content:space-between;align-items:center;flex-wrap:wrap;">
     <span>
       <strong>Build playlists with ChatGPT</strong><br>
-      <small>Export every song in your Plex Music library, then upload the file in chat.</small>
+      <small>Export your full music library or your current Plex playlists, then upload the file in chat.</small>
     </span>
     <span style="display:flex;gap:8px;flex-wrap:wrap;">
       <a class="button" href="/api/library-export.tsv" download="plex-music-library.tsv">Export music library</a>
+      <a class="button" href="/api/playlists-export.yml" download="plex-playlists.yml">Export Plex playlists</a>
       <button id="importPack">Import playlist pack</button>
       <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
     </span>
@@ -138,9 +139,10 @@ function renderCards(definitions) {
       ${spec.description ? `<div style="color:var(--muted);margin:0 0 12px;">${esc(spec.description)}</div>` : ""}
       <ul class="items">
         ${items.map(item => {
-          const what = item.track ? item.track : item.album;
-          const kind = item.track ? "track" : "album";
-          return `<li><span class="artist">${esc(item.artist)}</span><br>
+          const what = item.track || item.album || `Plex item ${item.rating_key || "unknown"}`;
+          const kind = item.track ? "track" : (item.album ? "album" : "rating key");
+          const artist = item.artist || "Plex";
+          return `<li><span class="artist">${esc(artist)}</span><br>
             <span class="release">${esc(what)} · ${kind}</span></li>`;
         }).join("")}
       </ul>

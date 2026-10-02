@@ -4,16 +4,18 @@ import csv
 import io
 from pathlib import Path
 
+import yaml
+
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from .config_store import load, merge_text, read_text, save_text
-from .plex_client import connect, resolve_playlist, sync_playlist
+from .plex_client import connect, export_audio_playlists, resolve_playlist, sync_playlist
 
 
-app = FastAPI(title="Plex Playlist Manager", version="1.1.0")
+app = FastAPI(title="Plex Playlist Manager", version="1.2.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
@@ -129,6 +131,32 @@ def export_library():
             headers={
                 "Content-Disposition": 'attachment; filename="plex-music-library.tsv"',
                 "X-Plex-Track-Count": str(len(rows)),
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/playlists-export.yml")
+def export_playlists():
+    """Download all Plex audio playlists as playlist-builder YAML."""
+    try:
+        plex, _ = connect()
+        playlists = export_audio_playlists(plex)
+        track_count = sum(len(spec.get("items", [])) for spec in playlists.values())
+        rendered = yaml.safe_dump(
+            {"playlists": playlists},
+            sort_keys=False,
+            allow_unicode=True,
+            default_flow_style=False,
+        )
+        return Response(
+            content=rendered,
+            media_type="application/yaml; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="plex-playlists.yml"',
+                "X-Plex-Playlist-Count": str(len(playlists)),
+                "X-Plex-Track-Count": str(track_count),
             },
         )
     except Exception as exc:
