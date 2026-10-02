@@ -40,12 +40,13 @@ def parse_text(text: str) -> dict[str, Any]:
         for i, item in enumerate(items, start=1):
             if not isinstance(item, dict):
                 raise ValueError(f"Playlist '{name}', item {i} must be a mapping.")
+            rating_key = str(item.get("rating_key", "")).strip()
             artist = str(item.get("artist", "")).strip()
             album = str(item.get("album", "")).strip()
             track = str(item.get("track", "")).strip()
-            if not artist or not (album or track):
+            if not rating_key and (not artist or not (album or track)):
                 raise ValueError(
-                    f"Playlist '{name}', item {i}: use artist+album or artist+track."
+                    f"Playlist '{name}', item {i}: use rating_key, artist+album, or artist+track."
                 )
     return data
 
