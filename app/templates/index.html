@@ -31,6 +31,7 @@ h1 { margin:0; font-size:30px; }
   padding:17px; display:flex; flex-direction:column; min-height:230px;
 }
 .card h2 { margin:0 0 3px; font-size:20px; }
+.pending-mark { color:var(--accent); margin-left:4px; font-weight:800; }
 .meta { color:var(--muted); font-size:13px; margin-bottom:13px; }
 .items { list-style:none; padding:0; margin:0 0 16px; flex:1; }
 .items li { padding:6px 0; border-top:1px solid #292929; }
@@ -120,9 +121,10 @@ function esc(value) {
     .replaceAll('"',"&quot;").replaceAll("'","&#039;");
 }
 
-function renderCards(definitions) {
+function renderCards(definitions, pending=[]) {
   const cards = $("cards");
   cards.innerHTML = "";
+  const pendingSet = new Set(pending || []);
   const entries = Object.entries(definitions || {});
   if (!entries.length) {
     cards.innerHTML = '<div class="empty">No playlists defined.</div>';
@@ -132,10 +134,11 @@ function renderCards(definitions) {
   for (const [name, spec] of entries) {
     const items = spec.items || [];
     const card = document.createElement("article");
+    const needsUpdate = pendingSet.has(name);
     card.className = "card";
     card.innerHTML = `
-      <h2>${esc(name)}</h2>
-      <div class="meta">${items.length} tracks</div>
+      <h2>${esc(name)}${needsUpdate ? '<span class="pending-mark" title="Needs update in Plex">*</span>' : ""}</h2>
+      <div class="meta">${items.length} tracks${needsUpdate ? " · needs update" : ""}</div>
       ${spec.description ? `<div style="color:var(--muted);margin:0 0 12px;">${esc(spec.description)}</div>` : ""}
       <ul class="items">
         ${items.map(item => {
@@ -191,7 +194,7 @@ function renderCards(definitions) {
 async function loadConfig() {
   config = await api("/api/config");
   $("yaml").value = config.text;
-  renderCards(config.definitions);
+  renderCards(config.definitions, config.pending);
 }
 
 async function checkHealth() {
