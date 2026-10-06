@@ -37,3 +37,45 @@ playlists:
       - rating_key: 12345
 ''')
     assert data["playlists"]["Test"]["items"][0]["rating_key"] == 12345
+
+
+def test_merge_marks_changed_playlists_pending_in_import_order(tmp_path, monkeypatch):
+    import app.config_store as store
+
+    playlists_file = tmp_path / "playlists.yml"
+    state_file = tmp_path / "playlist-state.yml"
+    monkeypatch.setattr(store, "PLAYLISTS_FILE", playlists_file)
+    monkeypatch.setattr(store, "STATE_FILE", state_file)
+
+    playlists_file.write_text(
+        """
+playlists:
+  Alpha:
+    items:
+      - rating_key: 1
+  Beta:
+    items:
+      - rating_key: 2
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    store.merge_text(
+        """
+playlists:
+  Beta:
+    items:
+      - rating_key: 22
+  Gamma:
+    items:
+      - rating_key: 3
+  Alpha:
+    items:
+      - rating_key: 1
+""".lstrip()
+    )
+
+    assert store.pending_names() == ["Beta", "Gamma"]
+
+    store.mark_synced("Beta")
+    assert store.pending_names() == ["Gamma"]
