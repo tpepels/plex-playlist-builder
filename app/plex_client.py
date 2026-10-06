@@ -18,6 +18,12 @@ DEFAULT_PREFS = Path(
     "/plex-config/Library/Application Support/Plex Media Server/Preferences.xml"
 )
 
+DEFAULT_HIDDEN_PLAYLIST_TITLES = {
+    "All Music",
+    "Recently Added",
+    "Recently Played",
+}
+
 
 def _norm(value: str | None) -> str:
     if not value:
@@ -231,8 +237,29 @@ def resolve_playlist(plex, music, spec: dict[str, Any]):
     return tracks, matches
 
 
+def _is_hidden_audio_playlist(playlist) -> bool:
+    title = str(getattr(playlist, "title", "") or "").strip()
+    return (
+        not title
+        or title in DEFAULT_HIDDEN_PLAYLIST_TITLES
+        or bool(getattr(playlist, "smart", False))
+        or bool(getattr(playlist, "radio", False))
+    )
+
+
+def hidden_audio_playlist_titles(plex) -> set[str]:
+    """Titles that belong to Plex smart/radio utility playlists, not managed packs."""
+    hidden = set(DEFAULT_HIDDEN_PLAYLIST_TITLES)
+    for playlist in plex.playlists(playlistType="audio"):
+        if _is_hidden_audio_playlist(playlist):
+            title = str(getattr(playlist, "title", "") or "").strip()
+            if title:
+                hidden.add(title)
+    return hidden
+
+
 def export_audio_playlists(plex) -> dict[str, dict[str, Any]]:
-    """Return Plex audio playlists as importable, human-readable playlist definitions."""
+    """Return user-managed Plex audio playlists as importable definitions."""
     exported: dict[str, dict[str, Any]] = {}
     playlists = sorted(
         plex.playlists(playlistType="audio"),
@@ -240,9 +267,9 @@ def export_audio_playlists(plex) -> dict[str, dict[str, Any]]:
     )
 
     for playlist in playlists:
-        title = str(getattr(playlist, "title", "") or "").strip()
-        if not title:
+        if _is_hidden_audio_playlist(playlist):
             continue
+        title = str(getattr(playlist, "title", "") or "").strip()
 
         items = []
         for track in playlist.items():
