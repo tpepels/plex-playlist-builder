@@ -169,6 +169,10 @@ function renderCards(definitions, pending=[]) {
           if (missing.length) {
             result.textContent += ` ${missing.length} item${missing.length === 1 ? "" : "s"} could not be found.`;
           }
+          const pendingMark = card.querySelector(".pending-mark");
+          if (pendingMark) pendingMark.remove();
+          const meta = card.querySelector(".meta");
+          if (meta) meta.textContent = `${items.length} tracks`;
         } else {
           result.className = "result bad";
           const names = missing.map(x => {
@@ -230,13 +234,17 @@ $("packFile").onchange = async () => {
   if (!file) return;
   try {
     const text = await file.text();
-    const d = await api("/api/config", {
-      method:"PUT",
+    const d = await api("/api/import-config", {
+      method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({text})
     });
     await loadConfig();
-    alert(`Imported ${d.playlists.length} playlists. You can now create them in Plex.`);
+    const count = (d.changed || []).length;
+    alert(count
+      ? `Imported ${count} new or updated playlist${count === 1 ? "" : "s"}. They are marked * until synced to Plex.`
+      : "Import complete. No playlist changes were found."
+    );
   } catch (e) {
     alert("Could not import playlist pack: " + e.message);
   } finally {
