@@ -66,3 +66,22 @@ def test_export_audio_playlists_keeps_rating_key_when_metadata_is_sparse():
     exported = export_audio_playlists(plex)
 
     assert exported["Sparse"]["items"] == [{"rating_key": "303"}]
+
+
+def test_export_audio_playlists_skips_smart_radio_and_known_utility_playlists():
+    track = O(
+        ratingKey=404,
+        grandparentTitle="Artist",
+        parentTitle="Album",
+        title="Track",
+    )
+    plex = Plex([
+        Playlist(title="All Music", summary="", smart=False, radio=False, _items=[track]),
+        Playlist(title="Recently Added", summary="", smart=True, radio=False, _items=[track]),
+        Playlist(title="Radio", summary="", smart=False, radio=True, _items=[track]),
+        Playlist(title="Manual", summary="", smart=False, radio=False, _items=[track]),
+    ])
+
+    exported = export_audio_playlists(plex)
+
+    assert list(exported) == ["Manual"]
