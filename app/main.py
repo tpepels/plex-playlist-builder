@@ -11,11 +11,26 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from .config_store import load, merge_text, read_text, save_text
-from .plex_client import connect, export_audio_playlists, resolve_playlist, sync_playlist
+from .config_store import (
+    load,
+    mark_synced,
+    merge_text,
+    parse_text,
+    pending_names,
+    read_text,
+    save_text,
+)
+from .plex_client import (
+    DEFAULT_HIDDEN_PLAYLIST_TITLES,
+    connect,
+    export_audio_playlists,
+    hidden_audio_playlist_titles,
+    resolve_playlist,
+    sync_playlist,
+)
 
 
-app = FastAPI(title="Plex Playlist Manager", version="1.2.0")
+app = FastAPI(title="Plex Playlist Manager", version="1.3.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
@@ -25,6 +40,39 @@ class ConfigBody(BaseModel):
 
 def _configured_playlists():
     return load().get("playlists", {})
+
+
+def _hidden_playlist_titles() -> set[str]:
+    try:
+        plex, _ = connect()
+        return hidden_audio_playlist_titles(plex)
+    except Exception:
+        return set(DEFAULT_HIDDEN_PLAYLIST_TITLES)
+
+
+def _config_payload(data: dict | None = None) -> dict:
+    data = data or load()
+    definitions = data.get("playlists", {})
+    hidden = _hidden_playlist_titles()
+    pending = [
+        name
+        for name in pending_names(definitions.keys())
+        if name not in hidden
+    ]
+
+    ordered: dict = {}
+    for name in pending:
+        ordered[name] = definitions[name]
+    for name, spec in definitions.items():
+        if name not in hidden and name not in ordered:
+            ordered[name] = spec
+
+    return {
+        "playlists": list(ordered.keys()),
+        "definitions": ordered,
+        "pending": pending,
+        "hidden_playlists": sorted(name for name in definitions if name in hidden),
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -50,12 +98,9 @@ def health(response: Response):
 @app.get("/api/config")
 def get_config():
     try:
-        data = load()
-        return {
-            "text": read_text(),
-            "playlists": list(data.get("playlists", {}).keys()),
-            "definitions": data.get("playlists", {}),
-        }
+        payload = _config_payload(load())
+        payload["text"] = read_text()
+        return payload
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -64,7 +109,8 @@ def get_config():
 def put_config(body: ConfigBody):
     try:
         data = save_text(body.text)
-        return {"ok": True, "playlists": list(data.get("playlists", {}).keys())}
+        payload = _config_payload(data)
+        return {"ok": True, **payload}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -72,8 +118,21 @@ def put_config(body: ConfigBody):
 @app.post("/api/import-config")
 def import_config(body: ConfigBody):
     try:
+        current = _configured_playlists()
+        incoming = parse_text(body.text).get("playlists", {})
+        changed = [
+            name
+            for name, spec in incoming.items()
+            if current.get(name) != spec
+        ]
         data = merge_text(body.text)
-        return {"ok": True, "playlists": list(data.get("playlists", {}).keys())}
+        payload = _config_payload(data)
+        visible = set(payload["playlists"])
+        return {
+            "ok": True,
+            **payload,
+            "changed": [name for name in changed if name in visible],
+        }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -189,8 +248,14 @@ def sync(name: str):
         playlists = _configured_playlists()
         if name not in playlists:
             raise HTTPException(status_code=404, detail="Unknown playlist")
+        if name in _hidden_playlist_titles():
+            raise HTTPException(status_code=400, detail="Plex utility playlists are not managed here.")
         plex, music = connect()
-        return sync_playlist(plex, music, name, playlists[name])
+        result = sync_playlist(plex, music, name, playlists[name])
+        if result.get("status") == "synced":
+            mark_synced(name)
+        result["pending"] = name in pending_names(playlists.keys())
+        return result
     except HTTPException:
         raise
     except Exception as exc:
@@ -202,10 +267,15 @@ def sync_all():
     try:
         playlists = _configured_playlists()
         plex, music = connect()
+        hidden = hidden_audio_playlist_titles(plex)
         results = []
         for name, spec in playlists.items():
-            if spec.get("enabled", True):
-                results.append(sync_playlist(plex, music, name, spec))
+            if name in hidden or not spec.get("enabled", True):
+                continue
+            result = sync_playlist(plex, music, name, spec)
+            if result.get("status") == "synced":
+                mark_synced(name)
+            results.append(result)
         return {"results": results}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
