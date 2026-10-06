@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import yaml
 
 
 PLAYLISTS_FILE = Path(os.getenv("PLAYLISTS_FILE", "/data/playlists.yml"))
+STATE_FILE = Path(
+    os.getenv(
+        "PLAYLIST_STATE_FILE",
+        str(PLAYLISTS_FILE.with_name("playlist-state.yml")),
+    )
+)
 
 
 def ensure_file() -> None:
@@ -55,21 +61,103 @@ def load() -> dict[str, Any]:
     return parse_text(read_text())
 
 
-def save_text(text: str) -> dict[str, Any]:
-    data = parse_text(text)
+def _read_state() -> dict[str, Any]:
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not STATE_FILE.exists():
+        return {"pending": []}
+
+    try:
+        state = yaml.safe_load(STATE_FILE.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {"pending": []}
+
+    pending = state.get("pending", [])
+    if not isinstance(pending, list):
+        pending = []
+
+    normalized = []
+    seen = set()
+    for name in pending:
+        if isinstance(name, str) and name and name not in seen:
+            seen.add(name)
+            normalized.append(name)
+    return {"pending": normalized}
+
+
+def _write_state(state: dict[str, Any]) -> None:
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp = STATE_FILE.with_suffix(STATE_FILE.suffix + ".tmp")
+    temp.write_text(
+        yaml.safe_dump(state, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    temp.replace(STATE_FILE)
+
+
+def pending_names(valid_names: Iterable[str] | None = None) -> list[str]:
+    pending = list(_read_state().get("pending", []))
+    if valid_names is None:
+        return pending
+    valid = set(valid_names)
+    return [name for name in pending if name in valid]
+
+
+def _update_pending(changed_names: Iterable[str], valid_names: Iterable[str]) -> None:
+    changed = list(dict.fromkeys(changed_names))
+    valid = set(valid_names)
+    existing = pending_names()
+    pending = [
+        name
+        for name in changed + existing
+        if name in valid
+    ]
+    _write_state({"pending": list(dict.fromkeys(pending))})
+
+
+def mark_synced(name: str) -> None:
+    pending = [item for item in pending_names() if item != name]
+    _write_state({"pending": pending})
+
+
+def _write_config_text(text: str) -> None:
     ensure_file()
     temp = PLAYLISTS_FILE.with_suffix(PLAYLISTS_FILE.suffix + ".tmp")
     temp.write_text(text.rstrip() + "\n", encoding="utf-8")
     temp.replace(PLAYLISTS_FILE)
+
+
+def save_text(text: str) -> dict[str, Any]:
+    current = load()
+    data = parse_text(text)
+
+    current_playlists = current.get("playlists", {})
+    new_playlists = data.get("playlists", {})
+    changed = [
+        name
+        for name, spec in new_playlists.items()
+        if current_playlists.get(name) != spec
+    ]
+
+    _write_config_text(text)
+    _update_pending(changed, new_playlists.keys())
     return data
 
 
 def merge_text(text: str) -> dict[str, Any]:
     incoming = parse_text(text)
     current = load()
+
+    current_playlists = current.get("playlists", {})
+    incoming_playlists = incoming.get("playlists", {})
+    changed = [
+        name
+        for name, spec in incoming_playlists.items()
+        if current_playlists.get(name) != spec
+    ]
+
     merged = dict(current)
-    merged_playlists = dict(current.get("playlists", {}))
-    merged_playlists.update(incoming.get("playlists", {}))
+    merged_playlists = dict(current_playlists)
+    merged_playlists.update(incoming_playlists)
     merged["playlists"] = merged_playlists
 
     rendered = yaml.safe_dump(
@@ -78,5 +166,6 @@ def merge_text(text: str) -> dict[str, Any]:
         allow_unicode=True,
         default_flow_style=False,
     )
-    save_text(rendered)
+    _write_config_text(rendered)
+    _update_pending(changed, merged_playlists.keys())
     return merged
