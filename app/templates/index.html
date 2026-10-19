@@ -45,21 +45,37 @@ button:disabled{opacity:.5;cursor:default}
 .compare-list{margin:12px 0 0;color:var(--muted);overflow-wrap:anywhere}
 .section-title{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:21px 0 12px}
 .section-title h2{margin:0}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:12px}
-.card{padding:17px;display:flex;flex-direction:column;min-height:218px}
-.card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
-.card h3{margin:0 0 4px;font-size:18px;overflow-wrap:anywhere}
-.card .meta{font-size:13px;color:var(--muted);margin:5px 0 10px}
+.list{display:grid;grid-template-columns:1fr;gap:7px}
+.playlist{border:1px solid var(--line);background:var(--panel);border-radius:10px;overflow:hidden}
+.playlist>summary{cursor:pointer;display:flex;align-items:center;gap:12px;padding:12px 15px;list-style:none;min-height:54px}
+.playlist>summary::-webkit-details-marker{display:none}
+.playlist>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.playlist>summary:hover{background:#25272c}
+.playlist>summary::before{content:"›";color:var(--muted);font-size:23px;line-height:1;transition:transform .12s}
+.playlist[open]>summary::before{transform:rotate(90deg)}
+.playlist-name{font-size:15px;font-weight:700;min-width:0;overflow-wrap:anywhere;flex:1}
+.playlist-meta{font-size:12px;color:var(--muted);white-space:nowrap}
+.playlist-body{padding:12px 16px 16px 39px;border-top:1px solid var(--line)}
+.playlist-body .description{font-size:13px;color:var(--muted);margin-bottom:9px}
+.playlist-body ul{list-style:none;padding:0;margin:4px 0 14px}
+.playlist-body li{font-size:13px;padding:5px 0;border-top:1px solid #303239}
+.playlist-body li:first-child{border-top:0}
+.playlist-body li span{color:var(--muted)}
+.playlist-body .more{font-size:12px;color:var(--muted);margin-bottom:10px}
+.bulk-panel{margin-top:18px}
+.bulk-head{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.bulk-head h2{margin:0 0 3px}
+.bulk-progress{border-top:1px solid var(--line);margin-top:16px;padding-top:15px}
+.bulk-progress progress{width:100%;height:11px;accent-color:var(--accent)}
+.bulk-current{margin:8px 0;color:var(--muted);font-size:13px}
+.bulk-errors{color:var(--bad);white-space:pre-wrap;overflow-wrap:anywhere;margin-top:10px;font-size:13px}
+.playlist-tools{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:12px 0}
+.playlist-tools input{min-width:240px;flex:1;max-width:410px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:inherit}
+.playlist-tools label{color:var(--muted);font-size:13px;display:flex;gap:7px;align-items:center}
+
 .chip{font-size:11px;font-weight:700;line-height:1.35;border-radius:7px;padding:6px 8px;white-space:nowrap;background:#343941;color:#d8dbe3}
 .chip.needs_sync{background:#41321a;color:#f5ce85}
 .chip.synced{background:#1d3b28;color:#afe5b9}
-.card .description{font-size:13px;color:var(--muted);margin-bottom:9px}
-.card ul{list-style:none;padding:0;margin:4px 0 14px;flex:1}
-.card li{font-size:13px;padding:5px 0;border-top:1px solid #303239}
-.card li:first-child{border-top:0}
-.card li span{color:var(--muted)}
-.more{font-size:12px;color:var(--muted);margin-bottom:10px}
-.card button{margin-top:auto}
 .result{font-size:13px;margin-top:10px}
 .result.info{color:#c8ddf4}.result.bad{color:var(--bad)}
 details.advanced{margin-top:24px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
@@ -69,7 +85,7 @@ textarea{width:100%;min-height:360px;resize:vertical;background:#111215;color:#e
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
 small{color:var(--muted)}
 .empty{padding:22px;color:var(--muted);border:1px dashed #555;border-radius:10px}
-@media(max-width:720px){main{padding:20px 13px 45px}.metrics,.compare-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:1fr}.card-top{flex-wrap:wrap}}
+@media(max-width:720px){main{padding:20px 13px 45px}.metrics,.compare-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.playlist-meta{white-space:normal}.playlist>summary{flex-wrap:wrap}.playlist-body{padding-left:16px}}
 </style>
 </head>
 <body>
@@ -119,8 +135,30 @@ small{color:var(--muted)}
 </section>
 <div id="notice" class="notice" role="status" hidden></div>
 
-<div class="section-title"><h2>Playlists in the builder</h2><small id="listHint">Each card uses the saved version shown above.</small></div>
-<section id="cards" class="grid" aria-label="Playlists"></section>
+<section class="panel bulk-panel" aria-label="Apply playlist updates to Plex">
+  <div class="bulk-head">
+    <div>
+      <h2>Apply changes to Plex</h2>
+      <small id="bulkSummary">Checking for new or changed playlists…</small>
+    </div>
+    <button id="syncPending" class="primary" disabled>Checking for updates…</button>
+  </div>
+  <p class="help">Only new or changed, enabled playlists are included. Existing playlists with the same name will be replaced in Plex. Already-synced and unverified playlists are left alone.</p>
+  <div id="bulkProgress" class="bulk-progress" hidden aria-live="polite">
+    <progress id="bulkBar" max="1" value="0"></progress>
+    <div class="bulk-current" id="bulkCurrent"></div>
+    <button id="stopSync" type="button">Stop after current playlist</button>
+    <div class="bulk-errors" id="bulkErrors" role="alert"></div>
+  </div>
+</section>
+
+<div class="section-title"><h2>Playlists in the builder</h2><small id="listHint">All playlists are collapsed by default.</small></div>
+<div class="playlist-tools">
+  <input id="searchPlaylists" type="search" placeholder="Search playlists…" aria-label="Search playlists">
+  <label><input id="onlyPending" type="checkbox"> Only needs update</label>
+  <button id="expandAll" type="button">Expand all visible</button>
+</div>
+<section id="cards" class="list" aria-label="Playlists"></section>
 
 <details class="advanced">
   <summary>Advanced - edit saved YAML</summary>
@@ -140,6 +178,8 @@ const $ = id => document.getElementById(id);
 let config = null;
 let importCandidate = null;
 let editorDirty = false;
+let syncing = false;
+let stopRequested = false;
 
 async function api(url, options={}) {
   const r = await fetch(url, options);
@@ -183,10 +223,41 @@ function renderVersion(v) {
   ].map(([value,label]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join("");
 }
 function cardItems(items) {
-  return items.slice(0,5).map(item => {
+  return items.slice(0, 5).map(item => {
     const title = item.track || item.album || `Plex item ${item.rating_key || "unknown"}`;
     return `<li>${esc(item.artist || "Plex")} <span>· ${esc(title)}</span></li>`;
   }).join("");
+}
+function pendingWork() {
+  if (!config) return [];
+  return Object.entries(config.definitions || {})
+    .filter(([name, spec]) => config.version.sync_statuses[name] === "needs_sync" && spec.enabled !== false)
+    .map(([name]) => name);
+}
+function updateActions() {
+  const names = pendingWork();
+  const button = $("syncPending");
+  button.textContent = names.length ? `Sync ${names.length} changed playlist${names.length === 1 ? "" : "s"} to Plex` : "No pending playlists";
+  button.disabled = syncing || editorDirty || names.length === 0;
+  $("bulkSummary").textContent = names.length
+    ? `${names.length} playlist${names.length === 1 ? "" : "s"} ready for update`
+    : "No new or changed enabled playlists to sync";
+  for (const id of ["save", "reload", "importPack", "confirmImport"]) $(id).disabled = syncing;
+  $("yaml").disabled = syncing;
+  document.querySelectorAll(".build").forEach(button => button.disabled = syncing);
+}
+function applyListFilters() {
+  const query = $("searchPlaylists").value.trim().toLocaleLowerCase();
+  const pendingOnly = $("onlyPending").checked;
+  let visible = 0;
+  for (const row of $("cards").querySelectorAll(".playlist")) {
+    const show = row.dataset.name.toLocaleLowerCase().includes(query)
+      && (!pendingOnly || row.dataset.status === "needs_sync");
+    row.hidden = !show;
+    if (show) visible++;
+  }
+  $("listHint").textContent = `${visible} of ${Object.keys(config?.definitions || {}).length} playlists · collapsed by default`;
+  $("expandAll").textContent = "Expand all visible";
 }
 function renderCards(definitions, statuses={}) {
   const cards = $("cards");
@@ -199,26 +270,36 @@ function renderCards(definitions, statuses={}) {
   for (const [name, spec] of entries) {
     const items = spec.items || [];
     const status = statuses[name] || "unverified";
-    const label = status === "needs_sync" ? "Needs Plex update" : status === "synced" ? "Synced by builder" : "Sync not verified";
-    const card = document.createElement("article");
-    card.className = "card";
-    card.innerHTML = `
-      <div class="card-top"><h3>${esc(name)}</h3><span class="chip ${status}">${label}</span></div>
-      <div class="meta">${items.length} definition item${items.length === 1 ? "" : "s"}</div>
-      ${spec.description ? `<div class="description">${esc(spec.description)}</div>` : ""}
-      <ul>${cardItems(items)}</ul>
-      ${items.length > 5 ? `<div class="more">+ ${items.length - 5} more items in this playlist</div>` : ""}
-      <button class="primary build">${status === "needs_sync" ? "Update in Plex" : "Create / sync in Plex"}</button>
-      <div class="result" role="status"></div>
-    `;
-    const button = card.querySelector(".build");
-    const result = card.querySelector(".result");
+    const disabled = spec.enabled === false;
+    const label = disabled ? "Disabled" : status === "needs_sync" ? "Needs Plex update"
+      : status === "synced" ? "Synced by builder" : "Sync not verified";
+    const row = document.createElement("details");
+    row.className = "playlist";
+    row.dataset.name = name;
+    row.dataset.status = status;
+    row.innerHTML = `
+      <summary>
+        <span class="playlist-name">${esc(name)}</span>
+        <span class="playlist-meta">${items.length} item${items.length === 1 ? "" : "s"}</span>
+        <span class="chip ${disabled ? "" : status}">${label}</span>
+      </summary>
+      <div class="playlist-body">
+        ${spec.description ? `<div class="description">${esc(spec.description)}</div>` : ""}
+        <ul>${cardItems(items)}</ul>
+        ${items.length > 5 ? `<div class="more">+ ${items.length - 5} more items</div>` : ""}
+        <button class="primary build" ${disabled ? "disabled" : ""}>${status === "needs_sync" ? "Update in Plex" : "Create / sync in Plex"}</button>
+        <div class="result" role="status"></div>
+      </div>`;
+    const button = row.querySelector(".build");
+    const result = row.querySelector(".result");
     button.onclick = async () => {
+      if (syncing || disabled) return;
       if (editorDirty) {
         showNotice("Save or discard your unsaved YAML editor changes before syncing. Plex uses the saved version.", true);
         return;
       }
-      button.disabled = true;
+      syncing = true;
+      updateActions();
       result.className = "result info";
       result.textContent = "Matching tracks and syncing…";
       try {
@@ -234,10 +315,35 @@ function renderCards(definitions, statuses={}) {
       } catch(e) {
         result.className = "result bad";
         result.textContent = "Sync failed: " + e.message;
-      } finally { button.disabled = false; }
+      } finally {
+        syncing = false;
+        updateActions();
+      }
     };
-    cards.appendChild(card);
+    cards.appendChild(row);
   }
+  applyListFilters();
+  updateActions();
+}
+function markRowSynced(name) {
+  if (!config) return;
+  config.version.sync_statuses[name] = "synced";
+  const count = config.version.counts;
+  count.needs_sync = Math.max(0, count.needs_sync - 1);
+  count.synced += 1;
+  const row = [...$("cards").querySelectorAll(".playlist")].find(node => node.dataset.name === name);
+  if (row) {
+    row.dataset.status = "synced";
+    const chip = row.querySelector(".chip");
+    if (chip) {
+      chip.className = "chip synced";
+      chip.textContent = "Synced by builder";
+    }
+    const button = row.querySelector(".build");
+    if (button) button.textContent = "Create / sync in Plex";
+  }
+  renderVersion(config.version);
+  applyListFilters();
 }
 async function loadConfig() {
   config = await api("/api/config");
@@ -257,9 +363,83 @@ async function checkHealth() {
     $("health").innerHTML = `<span class="dot"></span><span>Plex connection failed: ${esc(e.message)}</span>`;
   }
 }
+$("searchPlaylists").addEventListener("input", applyListFilters);
+$("onlyPending").addEventListener("change", applyListFilters);
+$("expandAll").onclick = () => {
+  const visible = [...$("cards").querySelectorAll(".playlist")].filter(row => !row.hidden);
+  const expand = visible.some(row => !row.open);
+  visible.forEach(row => row.open = expand);
+  $("expandAll").textContent = expand ? "Collapse all visible" : "Expand all visible";
+};
+$("stopSync").onclick = () => {
+  stopRequested = true;
+  $("stopSync").disabled = true;
+  $("bulkCurrent").textContent += " · Stop requested; finishing current playlist.";
+};
+$("syncPending").onclick = async () => {
+  if (syncing || editorDirty || !config) return;
+  const names = pendingWork();
+  if (!names.length) return;
+  const loadedId = config.version.id;
+  syncing = true;
+  stopRequested = false;
+  updateActions();
+  $("bulkProgress").hidden = false;
+  $("stopSync").disabled = false;
+  $("bulkBar").max = names.length;
+  $("bulkBar").value = 0;
+  $("bulkErrors").textContent = "";
+  clearNotice();
+
+  const failures = [];
+  let done = 0;
+  let skipped = 0;
+  let processed = 0;
+  for (const name of names) {
+    if (stopRequested) break;
+    $("bulkCurrent").textContent = `Syncing ${processed + 1} / ${names.length}: ${name}`;
+    try {
+      const data = await api("/api/sync-pending/" + encodeURIComponent(name), {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({version_id:loadedId})
+      });
+      if (data.status === "synced") {
+        done++;
+        markRowSynced(name);
+        const missing = (data.matches || []).filter(x => x.status !== "matched");
+        if (missing.length) failures.push(`${name}: synced with ${missing.length} missing item(s).`);
+      } else if (data.status === "skipped") {
+        skipped++;
+      } else {
+        failures.push(`${name}: ${data.message || data.status || "sync unsuccessful"}`);
+      }
+    } catch(e) {
+      failures.push(`${name}: ${e.message}`);
+      if (e.message.includes("loaded playlist version changed")) stopRequested = true;
+    }
+    processed++;
+    $("bulkBar").value = processed;
+    $("bulkCurrent").textContent = `${processed} / ${names.length} processed · ${done} synced · ${failures.length} warnings/errors`;
+    $("bulkErrors").textContent = failures.join("\n");
+  }
+  const stopped = processed < names.length;
+  $("stopSync").disabled = true;
+  try {
+    await loadConfig();
+  } catch(e) {
+    failures.push("Could not refresh playlist status: " + e.message);
+  } finally {
+    syncing = false;
+    updateActions();
+  }
+  $("bulkCurrent").textContent = `${done} synced · ${skipped} skipped · ${failures.length} warnings/errors${stopped ? ` · Stopped after ${processed} of ${names.length}` : ""}`;
+  $("bulkErrors").textContent = failures.join("\n");
+  showNotice(`Bulk sync ${stopped ? "stopped" : "finished"}: ${done} playlists synced, ${skipped} skipped, ${failures.length} warnings/errors. Remaining changed playlists can be retried with the same button.`, Boolean(failures.length));
+};
 $("yaml").addEventListener("input", () => {
   editorDirty = Boolean(config) && $("yaml").value !== config.text;
   $("saveState").textContent = editorDirty ? "Unsaved changes - cards still show the saved version." : "";
+  updateActions();
 });
 $("save").onclick = async () => {
   $("saveState").textContent = "Saving…";
@@ -320,7 +500,7 @@ $("confirmImport").onclick = async () => {
     const d = await api("/api/import-config", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:candidate.text,filename:candidate.filename})});
     closeComparison();
     await loadConfig();
-    showNotice(`Loaded "${candidate.filename}" - ${d.comparison.new.length} new, ${d.comparison.updated.length} updated playlists. Changes still need syncing to Plex.`);
+    showNotice(`Loaded "${candidate.filename}" - ${d.comparison.new.length} new, ${d.comparison.updated.length} updated playlists. Use “Sync changed playlists to Plex” below to apply them all.`);
   } catch(e) { $("confirmImport").disabled = false; showNotice("Import failed: " + e.message, true); }
 };
 checkHealth();
