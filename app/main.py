@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from .config_store import (
+    fingerprint,
     inspect_import,
     load,
     mark_synced,
@@ -42,6 +43,10 @@ class ConfigBody(BaseModel):
 
 class ImportBody(ConfigBody):
     filename: str | None = None
+
+
+class PendingSyncBody(BaseModel):
+    version_id: str
 
 
 def _configured_playlists():
@@ -274,6 +279,43 @@ def sync(name: str):
         if result.get("status") == "synced":
             mark_synced(name, playlists[name])
         result["pending"] = name in pending_names(playlists.keys())
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/sync-pending/{name}")
+def sync_pending(name: str, body: PendingSyncBody):
+    """Sync one pending playlist from a bulk run, without touching unchanged ones.
+
+    The browser runs these calls sequentially to provide progress and resumable
+    errors rather than one long request that may time out for large imports.
+    """
+    try:
+        playlists = _configured_playlists()
+        if fingerprint(playlists) != body.version_id:
+            raise HTTPException(
+                status_code=409,
+                detail="The loaded playlist version changed. Reload before continuing bulk sync.",
+            )
+        if name not in playlists:
+            raise HTTPException(status_code=404, detail="Unknown playlist")
+
+        spec = playlists[name]
+        if not spec.get("enabled", True):
+            return {"name": name, "status": "skipped", "message": "Playlist is disabled."}
+        if version_details(playlists)["sync_statuses"][name] != "needs_sync":
+            return {"name": name, "status": "skipped", "message": "Playlist is no longer pending."}
+
+        plex, music = connect()
+        if name in hidden_audio_playlist_titles(plex):
+            return {"name": name, "status": "skipped", "message": "Plex utility playlists are excluded."}
+
+        result = sync_playlist(plex, music, name, spec)
+        if result.get("status") == "synced":
+            mark_synced(name, spec)
         return result
     except HTTPException:
         raise
