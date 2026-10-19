@@ -78,6 +78,22 @@ Use **Export Plex playlists** in the web UI, or download directly from:
 
 The export contains every audio playlist currently in Plex. Each track includes its exact Plex `rating_key` plus readable artist, album, and track metadata. Playlist order is preserved. The resulting `plex-playlists.yml` is also valid input for the playlist builder, so it can be archived, edited, or uploaded to ChatGPT when designing new playlists.
 
+## Playlist versions and sync status
+
+The dashboard now separates the **saved YAML version** from its **Plex sync state**.
+
+- **Loaded in the builder** shows a content-based 12-character ID. The ID is based on playlist definitions (not YAML whitespace or the order of playlist names).
+- After importing a file, the dashboard shows its **filename** and **import time**. This history is saved in `playlist-state.yml` next to your saved definitions.
+- **Compare / import YAML** inspects the file *before* modifying anything. It shows new, changed and unchanged playlists, and which existing playlists are absent from the selected file but will be retained. The import is not applied until you click **Load this version**.
+- **Needs Plex update** indicates a changed/new definition not yet synced by this builder.
+- **Synced by builder** means the currently loaded definition matches the revision most recently synced by this app.
+- **Sync not verified** means an old/external playlist has no recorded successful sync in this app. The builder does **not** query Plex playlist contents to verify exact parity.
+- The YAML editor warns about unsaved changes and blocks import/sync until the edits are saved or discarded.
+
+A different content ID proves a file's definitions differ; it **cannot** prove which version was created later. A downloaded file is not automatically loaded merely by being present on disk. Import it explicitly to make the builder use it.
+
+Existing `playlist-state.yml` files with a legacy `pending` list remain supported. No playlists are changed in Plex by importing or editing YAML; use the individual sync action to apply changes.
+
 ## YAML format
 
 ```yaml

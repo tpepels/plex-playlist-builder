@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from .config_store import (
+    inspect_import,
     load,
     mark_synced,
     merge_text,
@@ -19,6 +20,7 @@ from .config_store import (
     pending_names,
     read_text,
     save_text,
+    version_details,
 )
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
@@ -38,6 +40,10 @@ class ConfigBody(BaseModel):
     text: str
 
 
+class ImportBody(ConfigBody):
+    filename: str | None = None
+
+
 def _configured_playlists():
     return load().get("playlists", {})
 
@@ -54,10 +60,10 @@ def _config_payload(data: dict | None = None) -> dict:
     data = data or load()
     definitions = data.get("playlists", {})
     hidden = _hidden_playlist_titles()
+    version = version_details(definitions)
     pending = [
-        name
-        for name in pending_names(definitions.keys())
-        if name not in hidden
+        name for name in definitions
+        if name not in hidden and version["sync_statuses"].get(name) == "needs_sync"
     ]
 
     ordered: dict = {}
@@ -67,10 +73,19 @@ def _config_payload(data: dict | None = None) -> dict:
         if name not in hidden and name not in ordered:
             ordered[name] = spec
 
+    visible_statuses = {name: version["sync_statuses"][name] for name in ordered}
+    version["sync_statuses"] = visible_statuses
+    version["counts"] = {
+        "total": len(visible_statuses),
+        "needs_sync": sum(x == "needs_sync" for x in visible_statuses.values()),
+        "synced": sum(x == "synced" for x in visible_statuses.values()),
+        "unverified": sum(x == "unverified" for x in visible_statuses.values()),
+    }
     return {
         "playlists": list(ordered.keys()),
         "definitions": ordered,
         "pending": pending,
+        "version": version,
         "hidden_playlists": sorted(name for name in definitions if name in hidden),
     }
 
@@ -115,23 +130,27 @@ def put_config(body: ConfigBody):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/import-config")
-def import_config(body: ConfigBody):
+@app.post("/api/inspect-config")
+def inspect_config(body: ConfigBody):
+    """Preview changes in a YAML file without importing it."""
     try:
-        current = _configured_playlists()
-        incoming = parse_text(body.text).get("playlists", {})
-        changed = [
-            name
-            for name, spec in incoming.items()
-            if current.get(name) != spec
-        ]
-        data = merge_text(body.text)
+        return inspect_import(body.text)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/import-config")
+def import_config(body: ImportBody):
+    try:
+        comparison = inspect_import(body.text)
+        data = merge_text(body.text, source_filename=body.filename)
         payload = _config_payload(data)
         visible = set(payload["playlists"])
         return {
             "ok": True,
             **payload,
-            "changed": [name for name in changed if name in visible],
+            "comparison": comparison,
+            "changed": [name for name in comparison["new"] + comparison["updated"] if name in visible],
         }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -253,7 +272,7 @@ def sync(name: str):
         plex, music = connect()
         result = sync_playlist(plex, music, name, playlists[name])
         if result.get("status") == "synced":
-            mark_synced(name)
+            mark_synced(name, playlists[name])
         result["pending"] = name in pending_names(playlists.keys())
         return result
     except HTTPException:
@@ -274,7 +293,7 @@ def sync_all():
                 continue
             result = sync_playlist(plex, music, name, spec)
             if result.get("status") == "synced":
-                mark_synced(name)
+                mark_synced(name, playlists[name])
             results.append(result)
         return {"results": results}
     except Exception as exc:
