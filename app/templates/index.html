@@ -242,9 +242,12 @@ function updateActions() {
   $("bulkSummary").textContent = names.length
     ? `${names.length} playlist${names.length === 1 ? "" : "s"} ready for update`
     : "No new or changed enabled playlists to sync";
-  for (const id of ["save", "reload", "importPack", "confirmImport"]) $(id).disabled = syncing;
+  for (const id of ["save", "reload", "importPack"]) $(id).disabled = syncing;
+  $("confirmImport").disabled = syncing || !importCandidate || importCandidate.comparison.already_loaded;
   $("yaml").disabled = syncing;
-  document.querySelectorAll(".build").forEach(button => button.disabled = syncing);
+  document.querySelectorAll(".build").forEach(button => {
+    button.disabled = syncing || button.closest(".playlist")?.dataset.disabled === "true";
+  });
 }
 function applyListFilters() {
   const query = $("searchPlaylists").value.trim().toLocaleLowerCase();
@@ -265,6 +268,8 @@ function renderCards(definitions, statuses={}) {
   const entries = Object.entries(definitions || {});
   if (!entries.length) {
     cards.innerHTML = '<div class="empty">No playlists defined.</div>';
+    applyListFilters();
+    updateActions();
     return;
   }
   for (const [name, spec] of entries) {
@@ -277,6 +282,7 @@ function renderCards(definitions, statuses={}) {
     row.className = "playlist";
     row.dataset.name = name;
     row.dataset.status = status;
+    row.dataset.disabled = String(disabled);
     row.innerHTML = `
       <summary>
         <span class="playlist-name">${esc(name)}</span>
@@ -490,6 +496,7 @@ $("packFile").onchange = async () => {
     $("confirmImport").disabled = d.already_loaded;
     $("confirmImport").textContent = d.already_loaded ? "Already loaded" : "Load this version";
   } catch(e) { closeComparison(); showNotice("Cannot inspect YAML file: " + e.message, true); }
+  updateActions();
 };
 $("confirmImport").onclick = async () => {
   if (!importCandidate) return;
