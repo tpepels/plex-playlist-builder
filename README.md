@@ -89,10 +89,14 @@ The dashboard now separates the **saved YAML version** from its **Plex sync stat
 - **Synced by builder** means the currently loaded definition matches the revision most recently synced by this app.
 - **Sync not verified** means an old/external playlist has no recorded successful sync in this app. The builder does **not** query Plex playlist contents to verify exact parity.
 - The YAML editor warns about unsaved changes and blocks import/sync until the edits are saved or discarded.
+- All playlist rows are **collapsed by default**. Click a row for track details and individual syncing, use search or **Only needs update** to narrow the list, or expand all visible rows.
+- **Sync changed playlists to Plex** processes all new or updated, enabled playlists with one click. It shows progress and errors, lets you stop after the current playlist, and skips unchanged/synced, unverified, disabled and Plex utility playlists. Failed playlists remain pending and can be retried using the same button.
+- Bulk sync performs short **sequential requests from the browser** rather than running in the background. Keep the browser page open until it finishes. Reloading the page stops subsequent requests; completed playlists stay marked as synced.
+- A bulk run is tied to the loaded content ID. If another import or edit changes the saved playlist pack during the run, the server rejects further updates instead of syncing a different version.
 
 A different content ID proves a file's definitions differ; it **cannot** prove which version was created later. A downloaded file is not automatically loaded merely by being present on disk. Import it explicitly to make the builder use it.
 
-Existing `playlist-state.yml` files with a legacy `pending` list remain supported. No playlists are changed in Plex by importing or editing YAML; use the individual sync action to apply changes.
+Existing `playlist-state.yml` files with a legacy `pending` list remain supported. No playlists are changed in Plex by importing or editing YAML. Use an individual sync action or the bulk sync button to apply the pending changes.
 
 ## YAML format
 
