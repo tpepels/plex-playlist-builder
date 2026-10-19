@@ -10,7 +10,7 @@ import app.main as api
 def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "PLAYLISTS_FILE", tmp_path / "playlists.yml")
     monkeypatch.setattr(store, "STATE_FILE", tmp_path / "playlist-state.yml")
-    store.save_text("""playlists:
+    store.PLAYLISTS_FILE.write_text("""playlists:
   Existing:
     items:
       - rating_key: 1
@@ -18,7 +18,7 @@ def setup(tmp_path, monkeypatch):
     enabled: false
     items:
       - rating_key: 20
-""")
+""", encoding="utf-8")
     store.merge_text("""playlists:
   Pending:
     items:
