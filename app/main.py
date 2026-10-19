@@ -60,10 +60,10 @@ def _config_payload(data: dict | None = None) -> dict:
     data = data or load()
     definitions = data.get("playlists", {})
     hidden = _hidden_playlist_titles()
+    version = version_details(definitions)
     pending = [
-        name
-        for name in pending_names(definitions.keys())
-        if name not in hidden
+        name for name in definitions
+        if name not in hidden and version["sync_statuses"].get(name) == "needs_sync"
     ]
 
     ordered: dict = {}
@@ -73,11 +73,19 @@ def _config_payload(data: dict | None = None) -> dict:
         if name not in hidden and name not in ordered:
             ordered[name] = spec
 
+    visible_statuses = {name: version["sync_statuses"][name] for name in ordered}
+    version["sync_statuses"] = visible_statuses
+    version["counts"] = {
+        "total": len(visible_statuses),
+        "needs_sync": sum(x == "needs_sync" for x in visible_statuses.values()),
+        "synced": sum(x == "synced" for x in visible_statuses.values()),
+        "unverified": sum(x == "unverified" for x in visible_statuses.values()),
+    }
     return {
         "playlists": list(ordered.keys()),
         "definitions": ordered,
         "pending": pending,
-        "version": version_details(definitions),
+        "version": version,
         "hidden_playlists": sorted(name for name in definitions if name in hidden),
     }
 
@@ -285,7 +293,7 @@ def sync_all():
                 continue
             result = sync_playlist(plex, music, name, spec)
             if result.get("status") == "synced":
-                mark_synced(name)
+                mark_synced(name, playlists[name])
             results.append(result)
         return {"results": results}
     except Exception as exc:
