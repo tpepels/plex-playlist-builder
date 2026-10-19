@@ -5,257 +5,326 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Plex Playlist Builder</title>
 <style>
-:root {
-  color-scheme: dark;
-  --bg:#0f0f0f; --panel:#191919; --panel2:#202020; --line:#303030;
-  --text:#f2f2f2; --muted:#a4a4a4; --accent:#e5a00d; --good:#83d98d; --bad:#ff8383;
-}
-* { box-sizing:border-box; }
-body {
-  margin:0; background:var(--bg); color:var(--text);
-  font:15px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-}
-main { max-width:980px; margin:0 auto; padding:32px 20px 60px; }
-h1 { margin:0; font-size:30px; }
-.sub { color:var(--muted); margin:5px 0 22px; }
-.status {
-  display:flex; align-items:center; gap:9px; margin-bottom:22px;
-  padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:#151515;
-}
-.dot { width:9px; height:9px; border-radius:50%; background:#777; flex:0 0 auto; }
-.status.good .dot { background:var(--good); }
-.status.bad .dot { background:var(--bad); }
-.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
-.card {
-  border:1px solid var(--line); background:var(--panel); border-radius:14px;
-  padding:17px; display:flex; flex-direction:column; min-height:230px;
-}
-.card h2 { margin:0 0 3px; font-size:20px; }
-.pending-mark { color:var(--accent); margin-left:4px; font-weight:800; }
-.meta { color:var(--muted); font-size:13px; margin-bottom:13px; }
-.items { list-style:none; padding:0; margin:0 0 16px; flex:1; }
-.items li { padding:6px 0; border-top:1px solid #292929; }
-.items li:first-child { border-top:0; }
-.artist { color:#fff; }
-.release { color:var(--muted); }
-button, .button {
-  appearance:none; border:1px solid #474747; border-radius:8px; padding:10px 13px;
-  background:#292929; color:var(--text); cursor:pointer; font:inherit;
-  text-decoration:none; display:inline-block;
-}
-button:hover, .button:hover { background:#333; }
-button.primary { background:var(--accent); border-color:var(--accent); color:#111; font-weight:700; }
-button:disabled { opacity:.55; cursor:default; }
-.result { margin-top:11px; padding:10px 11px; border-radius:8px; font-size:13px; display:none; }
-.result.good { display:block; background:#162419; color:#b9e9c0; }
-.result.bad { display:block; background:#2b1717; color:#ffc1c1; }
-.result.info { display:block; background:#171d25; color:#c9dcf4; }
-details {
-  margin-top:25px; border:1px solid var(--line); border-radius:12px; background:#151515;
-}
-summary { cursor:pointer; padding:14px 16px; color:var(--muted); }
-.advanced { padding:0 16px 16px; }
-textarea {
-  width:100%; min-height:420px; resize:vertical; background:#0b0b0b; color:#ddd;
-  border:1px solid var(--line); border-radius:8px; padding:12px;
-  font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
-}
-.row { display:flex; gap:8px; align-items:center; margin:10px 0; flex-wrap:wrap; }
-small { color:var(--muted); }
-.empty { padding:28px; color:var(--muted); text-align:center; border:1px dashed #333; border-radius:12px; }
-@media(max-width:600px){ main{padding:22px 14px 40px;} .grid{grid-template-columns:1fr;} }
+:root { color-scheme:dark; --bg:#101113; --panel:#1b1d21; --surface:#25272d; --line:#373941; --text:#f4f4f6; --muted:#aeb1b9; --accent:#e5a00d; --good:#8ed69f; --bad:#ff9393; --warning:#e8bb63; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
+h1{font-size:29px;margin:0}
+h2{font-size:19px;margin:0 0 5px}
+.sub{color:var(--muted);margin:4px 0 20px}
+.status,.panel,.card,.compare{border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.status{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:0 0 14px}
+.dot{width:9px;height:9px;border-radius:50%;background:#888;flex-shrink:0}
+.status.good .dot{background:var(--good)} .status.bad .dot{background:var(--bad)}
+.panel{padding:20px;margin:16px 0 18px}
+.panel-header{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px}
+.kicker{font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);font-weight:750}
+.version-name{font-size:22px;font-weight:700;overflow-wrap:anywhere}
+.version-detail{color:var(--muted);margin:5px 0 0;max-width:750px}
+.id{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#d0d3da;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:5px 8px;white-space:nowrap}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:18px}
+.metric{background:var(--surface);border-radius:9px;padding:12px}
+.metric strong{font-size:24px;display:block;font-variant-numeric:tabular-nums}
+.metric span{color:var(--muted);font-size:12px}
+.help{font-size:12px;color:var(--muted);margin:12px 0 0}
+.controls{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+button,.button{appearance:none;border:1px solid #55575e;border-radius:8px;padding:9px 12px;background:#303239;color:var(--text);cursor:pointer;font:inherit;text-decoration:none;display:inline-block}
+button:hover,.button:hover{background:#41434b}
+button.primary{background:var(--accent);border-color:var(--accent);color:#171717;font-weight:750}
+button:disabled{opacity:.5;cursor:default}
+.notice{margin:12px 0;padding:12px 14px;border-radius:8px;border:1px solid #335740;background:#182b20;color:#c9edcf}
+.notice.error{border-color:#704444;background:#301e1e;color:#ffd0d0}
+[hidden]{display:none!important}
+.compare{padding:18px;margin:14px 0;border-color:#8f763f;background:#24221e}
+.compare p{margin:5px 0 12px;color:var(--muted)}
+.compare-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.compare-cell{border:1px solid #4a453b;border-radius:8px;padding:9px}
+.compare-cell strong{font-size:21px;display:block}
+.compare-cell span{color:var(--muted);font-size:12px}
+.compare-list{margin:12px 0 0;color:var(--muted);overflow-wrap:anywhere}
+.section-title{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:21px 0 12px}
+.section-title h2{margin:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:12px}
+.card{padding:17px;display:flex;flex-direction:column;min-height:218px}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.card h3{margin:0 0 4px;font-size:18px;overflow-wrap:anywhere}
+.card .meta{font-size:13px;color:var(--muted);margin:5px 0 10px}
+.chip{font-size:11px;font-weight:700;line-height:1.35;border-radius:7px;padding:6px 8px;white-space:nowrap;background:#343941;color:#d8dbe3}
+.chip.needs_sync{background:#41321a;color:#f5ce85}
+.chip.synced{background:#1d3b28;color:#afe5b9}
+.card .description{font-size:13px;color:var(--muted);margin-bottom:9px}
+.card ul{list-style:none;padding:0;margin:4px 0 14px;flex:1}
+.card li{font-size:13px;padding:5px 0;border-top:1px solid #303239}
+.card li:first-child{border-top:0}
+.card li span{color:var(--muted)}
+.more{font-size:12px;color:var(--muted);margin-bottom:10px}
+.card button{margin-top:auto}
+.result{font-size:13px;margin-top:10px}
+.result.info{color:#c8ddf4}.result.bad{color:var(--bad)}
+details.advanced{margin-top:24px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+details.advanced summary{cursor:pointer;padding:14px 16px}
+.advanced-body{padding:0 16px 16px}
+textarea{width:100%;min-height:360px;resize:vertical;background:#111215;color:#e4e4e7;border:1px solid var(--line);border-radius:8px;padding:12px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+small{color:var(--muted)}
+.empty{padding:22px;color:var(--muted);border:1px dashed #555;border-radius:10px}
+@media(max-width:720px){main{padding:20px 13px 45px}.metrics,.compare-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:1fr}.card-top{flex-wrap:wrap}}
 </style>
 </head>
 <body>
 <main>
-  <h1>Plex Playlist Builder</h1>
-  <div class="sub">Choose a playlist and create it in Plex. That’s it.</div>
+<h1>Plex Playlist Builder</h1>
+<p class="sub">Saved playlist definitions and what has been sent to Plex.</p>
+<div id="health" class="status"><span class="dot"></span>Connecting to Plex…</div>
 
-  <div id="health" class="status">
-    <span class="dot"></span><span>Connecting to Plex…</span>
+<section class="panel" aria-label="Loaded playlist version" aria-live="polite">
+  <div class="panel-header">
+    <div>
+      <div class="kicker">Currently loaded in the builder</div>
+      <div class="version-name" id="versionName">Reading saved definitions…</div>
+      <p class="version-detail" id="versionDetail"></p>
+    </div>
+    <span class="id" id="versionId">—</span>
   </div>
+  <div id="versionMetrics" class="metrics"></div>
+  <p class="help">Version IDs are calculated from playlist contents. They tell you whether two sets are identical, not which one was created later. Plex sync status only tracks actions made by this builder.</p>
+</section>
 
-  <div class="status good" style="justify-content:space-between;align-items:center;flex-wrap:wrap;">
-    <span>
-      <strong>Build playlists with ChatGPT</strong><br>
-      <small>Export your full music library or your current Plex playlists, then upload the file in chat.</small>
-    </span>
-    <span style="display:flex;gap:8px;flex-wrap:wrap;">
+<section class="panel" aria-label="Import and export playlists">
+  <div class="controls">
+    <div>
+      <strong>Import a playlist version</strong>
+      <div><small>Choose a YAML file to compare it to the currently loaded version before importing.</small></div>
+    </div>
+    <div class="actions">
       <a class="button" href="/api/library-export.tsv" download="plex-music-library.tsv">Export music library</a>
       <a class="button" href="/api/playlists-export.yml" download="plex-playlists.yml">Export Plex playlists</a>
-      <button id="importPack">Import playlist pack</button>
+      <button id="importPack" class="primary">Compare / import YAML</button>
       <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
-    </span>
-  </div>
-
-  <section id="cards" class="grid"></section>
-
-  <details>
-    <summary>Advanced - edit playlist definitions</summary>
-    <div class="advanced">
-      <p><small>You normally do not need this. The YAML below is the saved playlist definition file.</small></p>
-      <textarea id="yaml" spellcheck="false"></textarea>
-      <div class="row">
-        <button id="save">Save changes</button>
-        <button id="reload">Discard changes</button>
-        <small id="saveState"></small>
-      </div>
     </div>
-  </details>
-</main>
+  </div>
+  <div id="importPreview" class="compare" hidden>
+    <div class="kicker">Comparison before import</div>
+    <h2 id="compareName"></h2>
+    <p id="compareMessage"></p>
+    <div id="compareMetrics" class="compare-grid"></div>
+    <p class="compare-list" id="compareNames"></p>
+    <p class="help" id="compareVersion"></p>
+    <div class="row">
+      <button class="primary" id="confirmImport">Load this version</button>
+      <button id="cancelImport">Cancel</button>
+    </div>
+  </div>
+</section>
+<div id="notice" class="notice" role="status" hidden></div>
 
+<div class="section-title"><h2>Playlists in the builder</h2><small id="listHint">Each card uses the saved version shown above.</small></div>
+<section id="cards" class="grid" aria-label="Playlists"></section>
+
+<details class="advanced">
+  <summary>Advanced - edit saved YAML</summary>
+  <div class="advanced-body">
+    <p><small>Changes here are not reflected in the cards or sent to Plex until saved.</small></p>
+    <textarea id="yaml" spellcheck="false"></textarea>
+    <div class="row">
+      <button id="save">Save YAML changes</button>
+      <button id="reload">Discard editor changes</button>
+      <small id="saveState"></small>
+    </div>
+  </div>
+</details>
+</main>
 <script>
 const $ = id => document.getElementById(id);
 let config = null;
+let importCandidate = null;
+let editorDirty = false;
 
 async function api(url, options={}) {
   const r = await fetch(url, options);
-  const body = await r.json().catch(() => ({detail:`HTTP ${r.status}`}));
+  const body = await r.json().catch(() => ({detail: `HTTP ${r.status}`}));
   if (!r.ok) throw new Error(body.detail || body.error || JSON.stringify(body));
   return body;
 }
-
 function esc(value) {
-  return String(value ?? "")
-    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+  return String(value ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
 }
-
-function renderCards(definitions, pending=[]) {
+function dateLabel(value) {
+  if (!value) return "date unknown";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "date unknown" : d.toLocaleString();
+}
+function showNotice(message, error=false) {
+  $("notice").hidden = false;
+  $("notice").className = error ? "notice error" : "notice";
+  $("notice").textContent = message;
+}
+function clearNotice() { $("notice").hidden = true; }
+function renderVersion(v) {
+  const last = v.last_import;
+  $("versionId").textContent = "ID " + v.id;
+  if (last?.matches_loaded) {
+    $("versionName").textContent = last.filename;
+    $("versionDetail").textContent = `Imported ${dateLabel(last.imported_at)} · saved content ID ${v.id}. This is the version currently loaded.`;
+  } else if (last) {
+    $("versionName").textContent = "Saved playlist definitions";
+    $("versionDetail").textContent = `The loaded content has changed since the last import of "${last.filename}" (${dateLabel(last.imported_at)}). Saved file modified ${dateLabel(v.file_modified_at)}.`;
+  } else {
+    $("versionName").textContent = "Saved playlist definitions";
+    $("versionDetail").textContent = `No import history recorded yet. Saved file modified ${dateLabel(v.file_modified_at)}. Import a YAML file to record its name and version.`;
+  }
+  const counts = v.counts || {};
+  $("versionMetrics").innerHTML = [
+    [counts.total ?? 0, "Playlists loaded"],
+    [counts.needs_sync ?? 0, "Need update in Plex"],
+    [counts.synced ?? 0, "Last synced by builder"],
+    [counts.unverified ?? 0, "Plex status not tracked"]
+  ].map(([value,label]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join("");
+}
+function cardItems(items) {
+  return items.slice(0,5).map(item => {
+    const title = item.track || item.album || `Plex item ${item.rating_key || "unknown"}`;
+    return `<li>${esc(item.artist || "Plex")} <span>· ${esc(title)}</span></li>`;
+  }).join("");
+}
+function renderCards(definitions, statuses={}) {
   const cards = $("cards");
   cards.innerHTML = "";
-  const pendingSet = new Set(pending || []);
   const entries = Object.entries(definitions || {});
   if (!entries.length) {
     cards.innerHTML = '<div class="empty">No playlists defined.</div>';
     return;
   }
-
   for (const [name, spec] of entries) {
     const items = spec.items || [];
+    const status = statuses[name] || "unverified";
+    const label = status === "needs_sync" ? "Needs Plex update" : status === "synced" ? "Synced by builder" : "Sync not verified";
     const card = document.createElement("article");
-    const needsUpdate = pendingSet.has(name);
     card.className = "card";
     card.innerHTML = `
-      <h2>${esc(name)}${needsUpdate ? '<span class="pending-mark" title="Needs update in Plex">*</span>' : ""}</h2>
-      <div class="meta">${items.length} tracks${needsUpdate ? " · needs update" : ""}</div>
-      ${spec.description ? `<div style="color:var(--muted);margin:0 0 12px;">${esc(spec.description)}</div>` : ""}
-      <ul class="items">
-        ${items.map(item => {
-          const what = item.track || item.album || `Plex item ${item.rating_key || "unknown"}`;
-          const kind = item.track ? "track" : (item.album ? "album" : "rating key");
-          const artist = item.artist || "Plex";
-          return `<li><span class="artist">${esc(artist)}</span><br>
-            <span class="release">${esc(what)} · ${kind}</span></li>`;
-        }).join("")}
-      </ul>
-      <button class="primary build">Create / update in Plex</button>
-      <div class="result"></div>
+      <div class="card-top"><h3>${esc(name)}</h3><span class="chip ${status}">${label}</span></div>
+      <div class="meta">${items.length} definition item${items.length === 1 ? "" : "s"}</div>
+      ${spec.description ? `<div class="description">${esc(spec.description)}</div>` : ""}
+      <ul>${cardItems(items)}</ul>
+      ${items.length > 5 ? `<div class="more">+ ${items.length - 5} more items in this playlist</div>` : ""}
+      <button class="primary build">${status === "needs_sync" ? "Update in Plex" : "Create / sync in Plex"}</button>
+      <div class="result" role="status"></div>
     `;
-
     const button = card.querySelector(".build");
     const result = card.querySelector(".result");
-
     button.onclick = async () => {
+      if (editorDirty) {
+        showNotice("Save or discard your unsaved YAML editor changes before syncing. Plex uses the saved version.", true);
+        return;
+      }
       button.disabled = true;
       result.className = "result info";
-      result.textContent = "Checking your Plex library…";
+      result.textContent = "Matching tracks and syncing…";
       try {
         const data = await api("/api/sync/" + encodeURIComponent(name), {method:"POST"});
-        const missing = (data.matches || []).filter(x => x.status !== "matched");
         if (data.status === "synced") {
-          result.className = "result good";
-          result.textContent = `Done - ${data.track_count} tracks are now in Plex.`;
-          if (missing.length) {
-            result.textContent += ` ${missing.length} item${missing.length === 1 ? "" : "s"} could not be found.`;
-          }
-          const pendingMark = card.querySelector(".pending-mark");
-          if (pendingMark) pendingMark.remove();
-          const meta = card.querySelector(".meta");
-          if (meta) meta.textContent = `${items.length} tracks`;
+          const missing = (data.matches || []).filter(x => x.status !== "matched");
+          await loadConfig();
+          showNotice(`"${name}" sent to Plex: ${data.track_count} tracks.${missing.length ? ` ${missing.length} items were missing.` : ""}`);
         } else {
           result.className = "result bad";
-          const names = missing.map(x => {
-            const r = x.requested || {};
-            return r.track || r.album || "Unknown item";
-          });
-          result.textContent = names.length
-            ? `Nothing changed. Plex could not find: ${names.join(", ")}.`
-            : (data.message || "Nothing changed.");
+          result.textContent = data.message || "Plex playlist was not changed.";
         }
-      } catch (e) {
+      } catch(e) {
         result.className = "result bad";
-        result.textContent = "Could not create playlist: " + e.message;
-      } finally {
-        button.disabled = false;
-      }
+        result.textContent = "Sync failed: " + e.message;
+      } finally { button.disabled = false; }
     };
-
     cards.appendChild(card);
   }
 }
-
 async function loadConfig() {
   config = await api("/api/config");
   $("yaml").value = config.text;
-  renderCards(config.definitions, config.pending);
+  editorDirty = false;
+  $("saveState").textContent = "";
+  renderVersion(config.version);
+  renderCards(config.definitions, config.version.sync_statuses);
 }
-
 async function checkHealth() {
   try {
     const d = await api("/api/health");
     $("health").className = "status good";
     $("health").innerHTML = `<span class="dot"></span><span>Connected to <strong>${esc(d.server)}</strong> · ${esc(d.library)}</span>`;
-  } catch (e) {
+  } catch(e) {
     $("health").className = "status bad";
     $("health").innerHTML = `<span class="dot"></span><span>Plex connection failed: ${esc(e.message)}</span>`;
   }
 }
-
+$("yaml").addEventListener("input", () => {
+  editorDirty = Boolean(config) && $("yaml").value !== config.text;
+  $("saveState").textContent = editorDirty ? "Unsaved changes - cards still show the saved version." : "";
+});
 $("save").onclick = async () => {
   $("saveState").textContent = "Saving…";
   try {
-    const d = await api("/api/config", {
-      method:"PUT",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({text:$("yaml").value})
-    });
-    $("saveState").textContent = "Saved.";
+    await api("/api/config", {method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:$("yaml").value})});
     await loadConfig();
-  } catch (e) {
-    $("saveState").textContent = "Error: " + e.message;
-  }
+    showNotice("Saved YAML definitions. The loaded version ID and Plex update statuses have been refreshed.");
+  } catch(e) { $("saveState").textContent = "Error: " + e.message; }
 };
 $("reload").onclick = () => loadConfig().catch(e => $("saveState").textContent = "Error: " + e.message);
 
-$("importPack").onclick = () => $("packFile").click();
+function closeComparison() {
+  importCandidate = null;
+  $("importPreview").hidden = true;
+  $("packFile").value = "";
+}
+$("cancelImport").onclick = closeComparison;
+$("importPack").onclick = () => {
+  if (editorDirty) {
+    showNotice("Save or discard your unsaved YAML editor changes before importing another version.", true);
+    return;
+  }
+  $("packFile").click();
+};
 $("packFile").onchange = async () => {
   const file = $("packFile").files[0];
   if (!file) return;
+  closeComparison();
+  clearNotice();
   try {
     const text = await file.text();
-    const d = await api("/api/import-config", {
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({text})
-    });
-    await loadConfig();
-    const count = (d.changed || []).length;
-    alert(count
-      ? `Imported ${count} new or updated playlist${count === 1 ? "" : "s"}. They are marked * until synced to Plex.`
-      : "Import complete. No playlist changes were found."
-    );
-  } catch (e) {
-    alert("Could not import playlist pack: " + e.message);
-  } finally {
-    $("packFile").value = "";
-  }
+    const d = await api("/api/inspect-config", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});
+    importCandidate = {filename:file.name,text,comparison:d};
+    $("importPreview").hidden = false;
+    $("compareName").textContent = file.name;
+    $("compareMessage").textContent = d.already_loaded
+      ? "All definitions from this file are already loaded. Importing it would not change the playlists."
+      : "This file differs from the currently loaded version. Review the differences before replacing matching definitions.";
+    $("compareMetrics").innerHTML = [
+      [d.new.length,"New"],[d.updated.length,"Updated"],[d.unchanged.length,"Unchanged"],[d.retained.length,"Existing kept"]
+    ].map(([num,label])=>`<div class="compare-cell"><strong>${num}</strong><span>${label}</span></div>`).join("");
+    const parts = [];
+    if (d.new.length) parts.push("New: " + d.new.join(", "));
+    if (d.updated.length) parts.push("Updated: " + d.updated.join(", "));
+    if (d.retained.length) parts.push("Not in selected file (kept): " + d.retained.join(", "));
+    $("compareNames").textContent = parts.join(" · ") || "No playlist content changes.";
+    $("compareVersion").textContent = `Currently loaded ID ${d.current_id} → after import ID ${d.result_id}. This comparison cannot tell which version is newer by date.`;
+    $("confirmImport").disabled = d.already_loaded;
+    $("confirmImport").textContent = d.already_loaded ? "Already loaded" : "Load this version";
+  } catch(e) { closeComparison(); showNotice("Cannot inspect YAML file: " + e.message, true); }
 };
-
+$("confirmImport").onclick = async () => {
+  if (!importCandidate) return;
+  if (editorDirty) { showNotice("Save or discard editor changes first.", true); return; }
+  const candidate = importCandidate;
+  $("confirmImport").disabled = true;
+  try {
+    const d = await api("/api/import-config", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:candidate.text,filename:candidate.filename})});
+    closeComparison();
+    await loadConfig();
+    showNotice(`Loaded "${candidate.filename}" - ${d.comparison.new.length} new, ${d.comparison.updated.length} updated playlists. Changes still need syncing to Plex.`);
+  } catch(e) { $("confirmImport").disabled = false; showNotice("Import failed: " + e.message, true); }
+};
 checkHealth();
-loadConfig().catch(e => {
-  $("cards").innerHTML = `<div class="empty">Could not load playlists: ${esc(e.message)}</div>`;
-});
+loadConfig().catch(e => { $("cards").innerHTML = `<div class="empty">Could not load playlists: ${esc(e.message)}</div>`; });
 </script>
 </body>
 </html>
