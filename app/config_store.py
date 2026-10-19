@@ -145,10 +145,11 @@ def version_details(definitions: dict[str, Any]) -> dict[str, Any]:
     statuses: dict[str, str] = {}
     for name, spec in definitions.items():
         saved_hash = synced.get(name)
-        if name in pending or (saved_hash and saved_hash != fingerprint(spec)):
-            statuses[name] = "needs_sync"
-        elif saved_hash and saved_hash == fingerprint(spec):
+        current_hash = fingerprint(spec)
+        if saved_hash and saved_hash == current_hash:
             statuses[name] = "synced"
+        elif name in pending or saved_hash:
+            statuses[name] = "needs_sync"
         else:
             statuses[name] = "unverified"
 
