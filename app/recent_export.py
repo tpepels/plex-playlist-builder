@@ -111,6 +111,7 @@ def export_recent_tracks(
     writer.writeheader()
     seen = set()
     album_count = 0
+    track_count = 0
     for group in sorted(grouped.values(), key=lambda g: g["date"], reverse=True):
         wrote_group = False
         for track, added in sorted(group["tracks"], key=lambda item: _track_position(item[0])):
@@ -120,7 +121,8 @@ def export_recent_tracks(
             if key:
                 seen.add(key)
             writer.writerow(_row(track, added))
+            track_count += 1
             wrote_group = True
         if wrote_group:
             album_count += 1
-    return out.getvalue(), sum(1 for _ in out.getvalue().splitlines()[1:]), album_count
+    return out.getvalue(), track_count, album_count
