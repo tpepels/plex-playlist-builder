@@ -166,7 +166,7 @@ test("recent export form supports last hours and last N albums", async () => {
   assert.match(html, /name="limit"/);
   const mode = h.$("recentMode");
   const limit = h.$("recentLimit");
-  assert.equal(mode.onchange instanceof Function, true);
+  assert.equal(typeof mode.onchange, "function");
   mode.value = "albums";
   mode.onchange();
   assert.equal(limit.value, "20");
