@@ -3,6 +3,9 @@ from __future__ import annotations
 import csv
 import io
 from pathlib import Path
+from typing import Literal
+
+from fastapi import Query
 
 import yaml
 
@@ -23,6 +26,7 @@ from .config_store import (
     save_text,
     version_details,
 )
+from .recent_export import export_recent_tracks
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
     connect,
@@ -33,7 +37,7 @@ from .plex_client import (
 )
 
 
-app = FastAPI(title="Plex Playlist Manager", version="1.3.0")
+app = FastAPI(title="Plex Playlist Manager", version="1.4.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
@@ -214,6 +218,31 @@ def export_library():
             headers={
                 "Content-Disposition": 'attachment; filename="plex-music-library.tsv"',
                 "X-Plex-Track-Count": str(len(rows)),
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/library-recent.tsv")
+def export_recent_library(
+    mode: Literal["hours", "albums"] = "hours",
+    limit: int = Query(default=48, ge=1, le=8760),
+):
+    """Download recently added tracks or complete recently added albums as TSV."""
+    if mode == "albums" and limit > 200:
+        raise HTTPException(status_code=422, detail="Choose between 1 and 200 albums.")
+    try:
+        _, music = connect()
+        content, track_count, album_count = export_recent_tracks(music, mode=mode, limit=limit)
+        suffix = f"{limit}h" if mode == "hours" else f"{limit}-albums"
+        return Response(
+            content=content,
+            media_type="text/tab-separated-values; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="plex-recent-{suffix}.tsv"',
+                "X-Plex-Track-Count": str(track_count),
+                "X-Plex-Album-Count": str(album_count),
             },
         )
     except Exception as exc:
