@@ -8,27 +8,33 @@
 :root { color-scheme:dark; --bg:#101113; --panel:#1b1d21; --surface:#25272d; --line:#373941; --text:#f4f4f6; --muted:#aeb1b9; --accent:#e5a00d; --good:#8ed69f; --bad:#ff9393; --warning:#e8bb63; }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-main{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
-h1{font-size:29px;margin:0}
+main{max-width:1120px;margin:0 auto;padding:20px 22px 55px}
+h1{font-size:26px;margin:0 0 10px}
 h2{font-size:19px;margin:0 0 5px}
 .sub{color:var(--muted);margin:4px 0 20px}
 .status,.panel,.card,.compare{border:1px solid var(--line);border-radius:12px;background:var(--panel)}
-.status{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:0 0 14px}
+.status{display:inline-flex;align-items:center;gap:9px;padding:6px 11px;margin:0 0 12px;font-size:13px}
 .dot{width:9px;height:9px;border-radius:50%;background:#888;flex-shrink:0}
 .status.good .dot{background:var(--good)} .status.bad .dot{background:var(--bad)}
-.panel{padding:20px;margin:16px 0 18px}
+.panel{padding:15px 17px;margin:12px 0}
 .panel-header{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px}
 .kicker{font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);font-weight:750}
-.version-name{font-size:22px;font-weight:700;overflow-wrap:anywhere}
+.version-name{font-size:18px;font-weight:700;overflow-wrap:anywhere}
 .version-detail{color:var(--muted);margin:5px 0 0;max-width:750px}
 .id{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#d0d3da;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:5px 8px;white-space:nowrap}
-.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:18px}
-.metric{background:var(--surface);border-radius:9px;padding:12px}
-.metric strong{font-size:24px;display:block;font-variant-numeric:tabular-nums}
+.metrics{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px}
+.metric{font-size:13px;color:var(--muted);white-space:nowrap}
+.metric strong{font-size:15px;color:var(--text);margin-right:5px;font-variant-numeric:tabular-nums}
 .metric span{color:var(--muted);font-size:12px}
 .help{font-size:12px;color:var(--muted);margin:12px 0 0}
 .controls{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
 .actions{display:flex;gap:8px;flex-wrap:wrap}
+.recent-form{display:flex;align-items:center;gap:9px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.recent-form label{color:var(--muted);font-size:13px}
+.recent-form input,.recent-form select{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit}
+.recent-form input{width:85px}
+.recent-form select{min-width:145px}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 button,.button{appearance:none;border:1px solid #55575e;border-radius:8px;padding:9px 12px;background:#303239;color:var(--text);cursor:pointer;font:inherit;text-decoration:none;display:inline-block}
 button:hover,.button:hover{background:#41434b}
 button.primary{background:var(--accent);border-color:var(--accent);color:#171717;font-weight:750}
@@ -62,9 +68,9 @@ button:disabled{opacity:.5;cursor:default}
 .playlist-body li:first-child{border-top:0}
 .playlist-body li span{color:var(--muted)}
 .playlist-body .more{font-size:12px;color:var(--muted);margin-bottom:10px}
-.bulk-panel{margin-top:18px}
+.bulk-panel{margin-top:12px}
 .bulk-head{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
-.bulk-head h2{margin:0 0 3px}
+.bulk-head h2{margin:0;font-size:16px}
 .bulk-progress{border-top:1px solid var(--line);margin-top:16px;padding-top:15px}
 .bulk-progress progress{width:100%;height:11px;accent-color:var(--accent)}
 .bulk-current{margin:8px 0;color:var(--muted);font-size:13px}
@@ -85,77 +91,76 @@ textarea{width:100%;min-height:360px;resize:vertical;background:#111215;color:#e
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
 small{color:var(--muted)}
 .empty{padding:22px;color:var(--muted);border:1px dashed #555;border-radius:10px}
-@media(max-width:720px){main{padding:20px 13px 45px}.metrics,.compare-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.playlist-meta{white-space:normal}.playlist>summary{flex-wrap:wrap}.playlist-body{padding-left:16px}}
+@media(max-width:720px){main{padding:16px 13px 40px}.playlist-meta{white-space:normal}.playlist>summary{flex-wrap:wrap}.playlist-body{padding-left:16px}.recent-form{align-items:center}}
 </style>
 </head>
 <body>
 <main>
 <h1>Plex Playlist Builder</h1>
-<p class="sub">Saved playlist definitions and what has been sent to Plex.</p>
 <div id="health" class="status"><span class="dot"></span>Connecting to Plex…</div>
 
 <section class="panel" aria-label="Loaded playlist version" aria-live="polite">
   <div class="panel-header">
     <div>
-      <div class="kicker">Currently loaded in the builder</div>
+      <div class="kicker">Loaded YAML</div>
       <div class="version-name" id="versionName">Reading saved definitions…</div>
       <p class="version-detail" id="versionDetail"></p>
     </div>
-    <span class="id" id="versionId">—</span>
+    <span class="id" id="versionId" title="Content fingerprint (not a date)">—</span>
   </div>
   <div id="versionMetrics" class="metrics"></div>
-  <p class="help">Version IDs are calculated from playlist contents. They tell you whether two sets are identical, not which one was created later. Plex sync status only tracks actions made by this builder.</p>
 </section>
 
-<section class="panel" aria-label="Import and export playlists">
-  <div class="controls">
-    <div>
-      <strong>Import and sync playlists</strong>
-      <div><small>Choose a YAML file. Valid definitions are imported immediately, then new and changed playlists are synced to Plex automatically. Invalid YAML leaves saved playlists unchanged.</small></div>
-    </div>
-    <div class="actions">
-      <a class="button" href="/api/library-export.tsv" download="plex-music-library.tsv">Export music library</a>
-      <a class="button" href="/api/playlists-export.yml" download="plex-playlists.yml">Export Plex playlists</a>
-      <button id="importPack" class="primary">Import YAML and sync</button>
-      <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
-    </div>
+<section class="panel" aria-label="Import and export">
+  <div class="actions">
+    <button id="importPack" class="primary" title="Validate YAML, import, and sync changes to Plex">Import &amp; sync</button>
+    <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
+    <a class="button" href="/api/library-export.tsv" download="plex-music-library.tsv">Full library TSV</a>
+    <a class="button" href="/api/playlists-export.yml" download="plex-playlists.yml">Plex playlists YAML</a>
   </div>
+  <form id="recentForm" action="/api/library-recent.tsv" method="get" class="recent-form" aria-label="Export recently added music">
+    <label for="recentMode">New music</label>
+    <select id="recentMode" name="mode" aria-label="Recent music selection">
+      <option value="hours">Last hours</option>
+      <option value="albums">Latest albums</option>
+    </select>
+    <input id="recentLimit" name="limit" type="number" min="1" max="8760" value="48" required aria-label="Number of hours">
+    <button type="submit" title="Export selected tracks with Plex rating keys">Download TSV</button>
+  </form>
 </section>
 <div id="notice" class="notice" role="status" hidden></div>
 
-<section class="panel bulk-panel" aria-label="Apply playlist updates to Plex">
+<section id="bulkPanel" class="panel bulk-panel" aria-label="Plex updates" hidden>
   <div class="bulk-head">
     <div>
-      <h2>Apply changes to Plex</h2>
-      <small id="bulkSummary">Checking for new or changed playlists…</small>
+      <h2>Plex updates</h2>
+      <small id="bulkSummary"></small>
     </div>
-    <button id="syncPending" class="primary" disabled>Checking for updates…</button>
+    <button id="syncPending" class="primary" disabled>Sync pending</button>
   </div>
-  <p class="help">Only new or changed, enabled playlists are included. Existing playlists with the same name will be replaced in Plex. Already-synced and unverified playlists are left alone.</p>
   <div id="bulkProgress" class="bulk-progress" hidden aria-live="polite">
     <progress id="bulkBar" max="1" value="0"></progress>
     <div class="bulk-current" id="bulkCurrent"></div>
-    <button id="stopSync" type="button">Stop after current playlist</button>
+    <button id="stopSync" type="button" hidden>Stop after current</button>
     <div class="bulk-errors" id="bulkErrors" role="alert"></div>
   </div>
 </section>
 
-<div class="section-title"><h2>Playlists in the builder</h2><small id="listHint">All playlists are collapsed by default.</small></div>
+<div class="section-title"><h2>Playlists</h2><small id="listHint"></small></div>
 <div class="playlist-tools">
   <input id="searchPlaylists" type="search" placeholder="Search playlists…" aria-label="Search playlists">
-  <label><input id="onlyPending" type="checkbox"> Only needs update</label>
-  <button id="expandAll" type="button">Expand all visible</button>
+  <label><input id="onlyPending" type="checkbox"> Pending only</label>
+  <button id="expandAll" type="button">Expand all</button>
 </div>
 <section id="cards" class="list" aria-label="Playlists"></section>
 
 <details class="advanced">
-  <summary>Advanced - edit saved YAML</summary>
+  <summary>Advanced · YAML editor</summary>
   <div class="advanced-body">
-    <p><small>Changes here are not reflected in the cards or sent to Plex until saved.</small></p>
     <textarea id="yaml" spellcheck="false"></textarea>
     <div class="row">
-      <button id="save">Save YAML changes</button>
-      <button id="reload">Discard editor changes</button>
+      <button id="save">Save YAML</button>
+      <button id="reload">Discard</button>
       <small id="saveState"></small>
     </div>
   </div>
@@ -193,20 +198,20 @@ function renderVersion(v) {
   $("versionId").textContent = "ID " + v.id;
   if (last?.matches_loaded) {
     $("versionName").textContent = last.filename;
-    $("versionDetail").textContent = `Imported ${dateLabel(last.imported_at)} · saved content ID ${v.id}. This is the version currently loaded.`;
+    $("versionDetail").textContent = `Imported ${dateLabel(last.imported_at)}`;
   } else if (last) {
     $("versionName").textContent = "Saved playlist definitions";
-    $("versionDetail").textContent = `The loaded content has changed since the last import of "${last.filename}" (${dateLabel(last.imported_at)}). Saved file modified ${dateLabel(v.file_modified_at)}.`;
+    $("versionDetail").textContent = `Edited since import · ${dateLabel(v.file_modified_at)}`;
   } else {
     $("versionName").textContent = "Saved playlist definitions";
-    $("versionDetail").textContent = `No import history recorded yet. Saved file modified ${dateLabel(v.file_modified_at)}. Import a YAML file to record its name and version.`;
+    $("versionDetail").textContent = `Saved ${dateLabel(v.file_modified_at)}`;
   }
   const counts = v.counts || {};
   $("versionMetrics").innerHTML = [
-    [counts.total ?? 0, "Playlists loaded"],
-    [counts.needs_sync ?? 0, "Need update in Plex"],
-    [counts.synced ?? 0, "Last synced by builder"],
-    [counts.unverified ?? 0, "Plex status not tracked"]
+    [counts.total ?? 0, "playlists"],
+    [counts.synced ?? 0, "synced"],
+    [counts.needs_sync ?? 0, "pending"],
+    [counts.unverified ?? 0, "unverified"]
   ].map(([value,label]) => `<div class="metric"><strong>${value}</strong><span>${label}</span></div>`).join("");
 }
 function cardItems(items) {
@@ -224,11 +229,10 @@ function pendingWork() {
 function updateActions() {
   const names = pendingWork();
   const button = $("syncPending");
-  button.textContent = names.length ? `Sync ${names.length} changed playlist${names.length === 1 ? "" : "s"} to Plex` : "No pending playlists";
+  button.textContent = names.length ? `Sync ${names.length} pending` : "Nothing to sync";
   button.disabled = syncing || editorDirty || names.length === 0;
-  $("bulkSummary").textContent = names.length
-    ? `${names.length} playlist${names.length === 1 ? "" : "s"} ready for update`
-    : "No new or changed enabled playlists to sync";
+  $("bulkSummary").textContent = names.length ? `${names.length} pending` : "";
+  $("bulkPanel").hidden = !syncing && names.length === 0 && $("bulkErrors").textContent === "";
   for (const id of ["save", "reload", "importPack"]) $(id).disabled = syncing;
   $("yaml").disabled = syncing;
   document.querySelectorAll(".build").forEach(button => {
@@ -245,8 +249,8 @@ function applyListFilters() {
     row.hidden = !show;
     if (show) visible++;
   }
-  $("listHint").textContent = `${visible} of ${Object.keys(config?.definitions || {}).length} playlists · collapsed by default`;
-  $("expandAll").textContent = "Expand all visible";
+  $("listHint").textContent = `${visible} / ${Object.keys(config?.definitions || {}).length}`;
+  $("expandAll").textContent = "Expand all";
 }
 function renderCards(definitions, statuses={}) {
   const cards = $("cards");
@@ -262,8 +266,8 @@ function renderCards(definitions, statuses={}) {
     const items = spec.items || [];
     const status = statuses[name] || "unverified";
     const disabled = spec.enabled === false;
-    const label = disabled ? "Disabled" : status === "needs_sync" ? "Needs Plex update"
-      : status === "synced" ? "Synced by builder" : "Sync not verified";
+    const label = disabled ? "Disabled" : status === "needs_sync" ? "Pending"
+      : status === "synced" ? "Synced" : "Unverified";
     const row = document.createElement("details");
     row.className = "playlist";
     row.dataset.name = name;
@@ -279,7 +283,7 @@ function renderCards(definitions, statuses={}) {
         ${spec.description ? `<div class="description">${esc(spec.description)}</div>` : ""}
         <ul>${cardItems(items)}</ul>
         ${items.length > 5 ? `<div class="more">+ ${items.length - 5} more items</div>` : ""}
-        <button class="primary build" ${disabled ? "disabled" : ""}>${status === "needs_sync" ? "Update in Plex" : "Create / sync in Plex"}</button>
+        <button class="primary build" ${disabled ? "disabled" : ""}>${status === "needs_sync" ? "Sync" : "Sync again"}</button>
         <div class="result" role="status"></div>
       </div>`;
     const button = row.querySelector(".build");
@@ -329,10 +333,10 @@ function markRowSynced(name) {
     const chip = row.querySelector(".chip");
     if (chip) {
       chip.className = "chip synced";
-      chip.textContent = "Synced by builder";
+      chip.textContent = "Synced";
     }
     const button = row.querySelector(".build");
-    if (button) button.textContent = "Create / sync in Plex";
+    if (button) button.textContent = "Sync again";
   }
   renderVersion(config.version);
   applyListFilters();
@@ -349,19 +353,26 @@ async function checkHealth() {
   try {
     const d = await api("/api/health");
     $("health").className = "status good";
-    $("health").innerHTML = `<span class="dot"></span><span>Connected to <strong>${esc(d.server)}</strong> · ${esc(d.library)}</span>`;
+    $("health").innerHTML = `<span class="dot"></span><span>${esc(d.server)} · ${esc(d.library)}</span>`;
   } catch(e) {
     $("health").className = "status bad";
     $("health").innerHTML = `<span class="dot"></span><span>Plex connection failed: ${esc(e.message)}</span>`;
   }
 }
+$("recentMode").addEventListener("change", () => {
+  const albums = $("recentMode").value === "albums";
+  const input = $("recentLimit");
+  input.value = albums ? "20" : "48";
+  input.max = albums ? "200" : "8760";
+  input.setAttribute("aria-label", albums ? "Number of albums" : "Number of hours");
+});
 $("searchPlaylists").addEventListener("input", applyListFilters);
 $("onlyPending").addEventListener("change", applyListFilters);
 $("expandAll").onclick = () => {
   const visible = [...$("cards").querySelectorAll(".playlist")].filter(row => !row.hidden);
   const expand = visible.some(row => !row.open);
   visible.forEach(row => row.open = expand);
-  $("expandAll").textContent = expand ? "Collapse all visible" : "Expand all visible";
+  $("expandAll").textContent = expand ? "Collapse all" : "Expand all";
 };
 $("stopSync").onclick = () => {
   stopRequested = true;
@@ -375,7 +386,7 @@ async function syncPendingPlaylists({fromImport=false, filename=""}={}) {
     if (fromImport) {
       syncing = false;
       updateActions();
-      showNotice(`Imported "${filename}". No new or changed playlists need syncing.`);
+      showNotice(`Imported "${filename}". Nothing to sync.`);
     }
     return;
   }
@@ -385,6 +396,7 @@ async function syncPendingPlaylists({fromImport=false, filename=""}={}) {
   updateActions();
   $("bulkProgress").hidden = false;
   $("stopSync").disabled = false;
+  $("stopSync").hidden = false;
   $("bulkBar").max = names.length;
   $("bulkBar").value = 0;
   $("bulkErrors").textContent = "";
@@ -423,6 +435,7 @@ async function syncPendingPlaylists({fromImport=false, filename=""}={}) {
   }
   const stopped = processed < names.length;
   $("stopSync").disabled = true;
+  $("stopSync").hidden = true;
   try {
     await loadConfig();
   } catch(e) {
@@ -433,7 +446,9 @@ async function syncPendingPlaylists({fromImport=false, filename=""}={}) {
   }
   $("bulkCurrent").textContent = `${done} synced · ${skipped} skipped · ${failures.length} warnings/errors${stopped ? ` · Stopped after ${processed} of ${names.length}` : ""}`;
   $("bulkErrors").textContent = failures.join("\n");
-  showNotice(`${fromImport ? `Imported "${filename}". ` : ""}Bulk sync ${stopped ? "stopped" : "finished"}: ${done} playlists synced, ${skipped} skipped, ${failures.length} warnings/errors. Remaining changed playlists can be retried with the same button.`, Boolean(failures.length));
+  $("bulkProgress").hidden = failures.length === 0 && !stopped;
+  updateActions();
+  showNotice(`${fromImport ? `Imported "${filename}". ` : ""}${done} synced · ${skipped} skipped · ${failures.length} errors${stopped ? " · stopped" : ""}`, Boolean(failures.length));
 }
 $("syncPending").onclick = () => syncPendingPlaylists();
 $("yaml").addEventListener("input", () => {
@@ -446,7 +461,7 @@ $("save").onclick = async () => {
   try {
     await api("/api/config", {method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:$("yaml").value})});
     await loadConfig();
-    showNotice("Saved YAML definitions. The loaded version ID and Plex update statuses have been refreshed.");
+    showNotice("YAML saved.");
   } catch(e) { $("saveState").textContent = "Error: " + e.message; }
 };
 $("reload").onclick = () => loadConfig().catch(e => $("saveState").textContent = "Error: " + e.message);
@@ -487,7 +502,7 @@ $("packFile").onchange = async () => {
     });
     imported = true;
     await loadConfig();
-    showNotice(`Imported "${file.name}" — ${result.comparison.new.length} new, ${result.comparison.updated.length} updated. Syncing changed playlists to Plex…`);
+    showNotice(`Imported "${file.name}" · ${result.comparison.new.length} new · ${result.comparison.updated.length} updated. Syncing…`);
     await syncPendingPlaylists({fromImport:true,filename:file.name});
   } catch(e) {
     showNotice(imported
