@@ -84,7 +84,7 @@ The dashboard now separates the **saved YAML version** from its **Plex sync stat
 
 - **Loaded in the builder** shows a content-based 12-character ID. The ID is based on playlist definitions (not YAML whitespace or the order of playlist names).
 - After importing a file, the dashboard shows its **filename** and **import time**. This history is saved in `playlist-state.yml` next to your saved definitions.
-- **Compare / import YAML** inspects the file *before* modifying anything. It shows new, changed and unchanged playlists, and which existing playlists are absent from the selected file but will be retained. The import is not applied until you click **Load this version**.
+- **Import YAML and sync** validates the selected YAML file, immediately imports valid definitions (new and changed playlists) and automatically starts syncing pending, enabled playlists to Plex. Existing playlists absent from the selected file are retained. Invalid YAML does not change the saved definitions. No separate 'Load this version' or 'Apply changes to Plex' click is needed; Plex errors stay visible with a retry option.
 - **Needs Plex update** indicates a changed/new definition not yet synced by this builder.
 - **Synced by builder** means the currently loaded definition matches the revision most recently synced by this app.
 - **Sync not verified** means an old/external playlist has no recorded successful sync in this app. The builder does **not** query Plex playlist contents to verify exact parity.
@@ -96,7 +96,7 @@ The dashboard now separates the **saved YAML version** from its **Plex sync stat
 
 A different content ID proves a file's definitions differ; it **cannot** prove which version was created later. A downloaded file is not automatically loaded merely by being present on disk. Import it explicitly to make the builder use it.
 
-Existing `playlist-state.yml` files with a legacy `pending` list remain supported. No playlists are changed in Plex by importing or editing YAML. Use an individual sync action or the bulk sync button to apply the pending changes.
+Existing `playlist-state.yml` files with a legacy `pending` list remain supported. Importing a valid YAML file automatically synchronizes new and changed, enabled playlists to Plex (and may replace existing Plex playlists with the same titles). Manually editing the saved YAML in the advanced editor still requires a separate sync. If an automatic sync fails, its playlist remains pending so the sync button can retry it.
 
 ## YAML format
 
