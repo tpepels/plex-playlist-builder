@@ -13,7 +13,8 @@ function fakeElement() {
   return {
     value: "", textContent: "", innerHTML: "", className: "", hidden: false,
     disabled: false, checked: false, dataset: {},
-    addEventListener() {},
+    addEventListener(name, callback) { this["on" + name] = callback; },
+    setAttribute(name, value) { this[name] = value; },
     querySelectorAll() { return []; },
   };
 }
@@ -124,7 +125,7 @@ test("valid file immediately imports and syncs new playlists", async () => {
   assert.deepEqual(relevant, ["/api/inspect-config", "/api/import-config", "/api/sync-pending/Beta"]);
   assert.equal(h.imported, true);
   assert.equal(h.synced, true);
-  assert.match(h.$("notice").textContent, /Imported "new-playlists.yml".*1 playlists synced/);
+  assert.match(h.$("notice").textContent, /Imported "new-playlists.yml".*1 synced/);
   assert.equal(h.$("packFile").value, "");
 });
 
@@ -144,7 +145,7 @@ test("identical pack imports without needlessly syncing Plex", async () => {
   assert.equal(h.imported, true);
   assert.equal(h.synced, false);
   assert.ok(!h.calls.some((url) => url.startsWith("/api/sync-pending/")));
-  assert.match(h.$("notice").textContent, /No new or changed playlists need syncing/);
+  assert.match(h.$("notice").textContent, /Nothing to sync/);
 });
 
 test("failed Plex sync keeps import and reports a retryable error", async () => {
@@ -153,6 +154,33 @@ test("failed Plex sync keeps import and reports a retryable error", async () => 
   assert.equal(h.imported, true);
   assert.equal(h.synced, false);
   assert.ok(h.calls.includes("/api/sync-pending/Beta"));
-  assert.match(h.$("notice").textContent, /1 warnings\/errors/);
+  assert.match(h.$("notice").textContent, /1 errors/);
   assert.equal(h.$("syncPending").disabled, false);
+});
+
+test("recent export form supports last hours and last N albums", async () => {
+  const h = makeHarness();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(html, /id="recentForm"[^>]+action="\/api\/library-recent.tsv"/);
+  assert.match(html, /name="mode"/);
+  assert.match(html, /name="limit"/);
+  const mode = h.$("recentMode");
+  const limit = h.$("recentLimit");
+  assert.equal(mode.onchange instanceof Function, true);
+  mode.value = "albums";
+  mode.onchange();
+  assert.equal(limit.value, "20");
+  assert.equal(limit.max, "200");
+  mode.value = "hours";
+  mode.onchange();
+  assert.equal(limit.value, "48");
+  assert.equal(limit.max, "8760");
+});
+
+test("dashboard hides idle bulk controls and shows only pending work", async () => {
+  const h = makeHarness();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.$("bulkPanel").hidden, true);
+  await h.chooseFile();
+  assert.equal(h.$("bulkPanel").hidden, true);
 });
