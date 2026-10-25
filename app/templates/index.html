@@ -110,26 +110,14 @@ small{color:var(--muted)}
 <section class="panel" aria-label="Import and export playlists">
   <div class="controls">
     <div>
-      <strong>Import a playlist version</strong>
-      <div><small>Choose a YAML file to compare it to the currently loaded version before importing.</small></div>
+      <strong>Import and sync playlists</strong>
+      <div><small>Choose a YAML file. Valid definitions are imported immediately, then new and changed playlists are synced to Plex automatically. Invalid YAML leaves saved playlists unchanged.</small></div>
     </div>
     <div class="actions">
       <a class="button" href="/api/library-export.tsv" download="plex-music-library.tsv">Export music library</a>
       <a class="button" href="/api/playlists-export.yml" download="plex-playlists.yml">Export Plex playlists</a>
-      <button id="importPack" class="primary">Compare / import YAML</button>
+      <button id="importPack" class="primary">Import YAML and sync</button>
       <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
-    </div>
-  </div>
-  <div id="importPreview" class="compare" hidden>
-    <div class="kicker">Comparison before import</div>
-    <h2 id="compareName"></h2>
-    <p id="compareMessage"></p>
-    <div id="compareMetrics" class="compare-grid"></div>
-    <p class="compare-list" id="compareNames"></p>
-    <p class="help" id="compareVersion"></p>
-    <div class="row">
-      <button class="primary" id="confirmImport">Load this version</button>
-      <button id="cancelImport">Cancel</button>
     </div>
   </div>
 </section>
@@ -176,7 +164,6 @@ small{color:var(--muted)}
 <script>
 const $ = id => document.getElementById(id);
 let config = null;
-let importCandidate = null;
 let editorDirty = false;
 let syncing = false;
 let stopRequested = false;
@@ -243,7 +230,6 @@ function updateActions() {
     ? `${names.length} playlist${names.length === 1 ? "" : "s"} ready for update`
     : "No new or changed enabled playlists to sync";
   for (const id of ["save", "reload", "importPack"]) $(id).disabled = syncing;
-  $("confirmImport").disabled = syncing || !importCandidate || importCandidate.comparison.already_loaded;
   $("yaml").disabled = syncing;
   document.querySelectorAll(".build").forEach(button => {
     button.disabled = syncing || button.closest(".playlist")?.dataset.disabled === "true";
@@ -382,10 +368,17 @@ $("stopSync").onclick = () => {
   $("stopSync").disabled = true;
   $("bulkCurrent").textContent += " · Stop requested; finishing current playlist.";
 };
-$("syncPending").onclick = async () => {
-  if (syncing || editorDirty || !config) return;
+async function syncPendingPlaylists({fromImport=false, filename=""}={}) {
+  if ((!fromImport && syncing) || editorDirty || !config) return;
   const names = pendingWork();
-  if (!names.length) return;
+  if (!names.length) {
+    if (fromImport) {
+      syncing = false;
+      updateActions();
+      showNotice(`Imported "${filename}". No new or changed playlists need syncing.`);
+    }
+    return;
+  }
   const loadedId = config.version.id;
   syncing = true;
   stopRequested = false;
@@ -440,8 +433,9 @@ $("syncPending").onclick = async () => {
   }
   $("bulkCurrent").textContent = `${done} synced · ${skipped} skipped · ${failures.length} warnings/errors${stopped ? ` · Stopped after ${processed} of ${names.length}` : ""}`;
   $("bulkErrors").textContent = failures.join("\n");
-  showNotice(`Bulk sync ${stopped ? "stopped" : "finished"}: ${done} playlists synced, ${skipped} skipped, ${failures.length} warnings/errors. Remaining changed playlists can be retried with the same button.`, Boolean(failures.length));
-};
+  showNotice(`${fromImport ? `Imported "${filename}". ` : ""}Bulk sync ${stopped ? "stopped" : "finished"}: ${done} playlists synced, ${skipped} skipped, ${failures.length} warnings/errors. Remaining changed playlists can be retried with the same button.`, Boolean(failures.length));
+}
+$("syncPending").onclick = () => syncPendingPlaylists();
 $("yaml").addEventListener("input", () => {
   editorDirty = Boolean(config) && $("yaml").value !== config.text;
   $("saveState").textContent = editorDirty ? "Unsaved changes - cards still show the saved version." : "";
@@ -457,13 +451,8 @@ $("save").onclick = async () => {
 };
 $("reload").onclick = () => loadConfig().catch(e => $("saveState").textContent = "Error: " + e.message);
 
-function closeComparison() {
-  importCandidate = null;
-  $("importPreview").hidden = true;
-  $("packFile").value = "";
-}
-$("cancelImport").onclick = closeComparison;
 $("importPack").onclick = () => {
+  if (syncing) return;
   if (editorDirty) {
     showNotice("Save or discard your unsaved YAML editor changes before importing another version.", true);
     return;
@@ -473,42 +462,43 @@ $("importPack").onclick = () => {
 $("packFile").onchange = async () => {
   const file = $("packFile").files[0];
   if (!file) return;
-  closeComparison();
-  clearNotice();
-  try {
-    const text = await file.text();
-    const d = await api("/api/inspect-config", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});
-    importCandidate = {filename:file.name,text,comparison:d};
-    $("importPreview").hidden = false;
-    $("compareName").textContent = file.name;
-    $("compareMessage").textContent = d.already_loaded
-      ? "All definitions from this file are already loaded. Importing it would not change the playlists."
-      : "This file differs from the currently loaded version. Review the differences before replacing matching definitions.";
-    $("compareMetrics").innerHTML = [
-      [d.new.length,"New"],[d.updated.length,"Updated"],[d.unchanged.length,"Unchanged"],[d.retained.length,"Existing kept"]
-    ].map(([num,label])=>`<div class="compare-cell"><strong>${num}</strong><span>${label}</span></div>`).join("");
-    const parts = [];
-    if (d.new.length) parts.push("New: " + d.new.join(", "));
-    if (d.updated.length) parts.push("Updated: " + d.updated.join(", "));
-    if (d.retained.length) parts.push("Not in selected file (kept): " + d.retained.join(", "));
-    $("compareNames").textContent = parts.join(" · ") || "No playlist content changes.";
-    $("compareVersion").textContent = `Currently loaded ID ${d.current_id} → after import ID ${d.result_id}. This comparison cannot tell which version is newer by date.`;
-    $("confirmImport").disabled = d.already_loaded;
-    $("confirmImport").textContent = d.already_loaded ? "Already loaded" : "Load this version";
-  } catch(e) { closeComparison(); showNotice("Cannot inspect YAML file: " + e.message, true); }
+  // An import is one transaction from the user's perspective: validate,
+  // persist the pack, and sync changed playlists. Lock the editor throughout.
+  if (syncing || editorDirty) {
+    $("packFile").value = "";
+    showNotice("Finish the current operation or save editor changes before importing.", true);
+    return;
+  }
+  syncing = true;
   updateActions();
-};
-$("confirmImport").onclick = async () => {
-  if (!importCandidate) return;
-  if (editorDirty) { showNotice("Save or discard editor changes first.", true); return; }
-  const candidate = importCandidate;
-  $("confirmImport").disabled = true;
+  let imported = false;
   try {
-    const d = await api("/api/import-config", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:candidate.text,filename:candidate.filename})});
-    closeComparison();
+    showNotice(`Validating "${file.name}"…`);
+    const text = await file.text();
+    await api("/api/inspect-config", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text})
+    });
+    // A failed validation never reaches this write operation.
+    showNotice(`Importing "${file.name}"…`);
+    const result = await api("/api/import-config", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text,filename:file.name})
+    });
+    imported = true;
     await loadConfig();
-    showNotice(`Loaded "${candidate.filename}" - ${d.comparison.new.length} new, ${d.comparison.updated.length} updated playlists. Use “Sync changed playlists to Plex” below to apply them all.`);
-  } catch(e) { $("confirmImport").disabled = false; showNotice("Import failed: " + e.message, true); }
+    showNotice(`Imported "${file.name}" — ${result.comparison.new.length} new, ${result.comparison.updated.length} updated. Syncing changed playlists to Plex…`);
+    await syncPendingPlaylists({fromImport:true,filename:file.name});
+  } catch(e) {
+    showNotice(imported
+      ? `"${file.name}" was imported, but could not finish Plex syncing: ${e.message}. Use the sync button to retry.`
+      : `Import rejected: ${e.message}. Saved playlists were not changed.`, true);
+  } finally {
+    // Allow the same file to be picked again for retry.
+    $("packFile").value = "";
+    syncing = false;
+    updateActions();
+  }
 };
 checkHealth();
 loadConfig().catch(e => { $("cards").innerHTML = `<div class="empty">Could not load playlists: ${esc(e.message)}</div>`; });
