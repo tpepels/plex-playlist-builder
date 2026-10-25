@@ -31,3 +31,5 @@ jobs:
           )
           PY
           node --check /tmp/playlist-builder-ui.js
+      - name: Browser import and sync flow tests
+        run: node --test tests/test_import_ui.mjs
