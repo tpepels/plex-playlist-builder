@@ -14,6 +14,7 @@ A tiny local web service for defining Plex music playlists in YAML, previewing m
 - Reads the Plex token automatically from a **read-only** mount of Plex's `Preferences.xml`; `PLEX_TOKEN` can be used instead.
 - Includes a small browser editor at port 5051.
 - Exports the complete Plex Music library at track level as TSV for playlist design in ChatGPT (artist, album, title, disc/track number, year, duration, and Plex rating key).
+- Exports recently added music directly as TSV: last X hours (new tracks only) or last N added albums (complete albums), with their Plex rating keys and addition timestamps.
 - Exports all current Plex audio playlists as importable YAML, preserving playlist order and exact Plex rating keys so the file can be uploaded in chat to avoid reusing tracks.
 
 ## Install into your existing media-stack
@@ -78,6 +79,24 @@ Use **Export Plex playlists** in the web UI, or download directly from:
 
 The export contains every audio playlist currently in Plex. Each track includes its exact Plex `rating_key` plus readable artist, album, and track metadata. Playlist order is preserved. The resulting `plex-playlists.yml` is also valid input for the playlist builder, so it can be archived, edited, or uploaded to ChatGPT when designing new playlists.
 
+## Export recent music
+
+In the compact toolbar, select **New music → Last hours** (default 48), or
+**New music → Latest albums** (default 20), choose a number, and click **Download TSV**.
+
+- **Last hours:** includes only tracks whose Plex `addedAt` is within the selected
+  number of hours (1–8760), including newly added tracks on older albums.
+- **Latest albums:** selects the N most recently added Plex albums (1–200) and exports
+  **all** their tracks in album/disc order.
+- Both exports contain artist, album, track name, disc/track number, year, duration,
+  `rating_key`, and `added_at` (UTC ISO 8601). For the album mode, `added_at`
+  means the **album** addition timestamp; in hours mode, it is the **track**
+  addition timestamp. Empty selections still return a TSV header.
+- The export is read-only; it does not change playlists or any music files.
+
+The endpoint is `/api/library-recent.tsv?mode=hours&limit=48`, or
+`/api/library-recent.tsv?mode=albums&limit=20`.
+
 ## Playlist versions and sync status
 
 The dashboard now separates the **saved YAML version** from its **Plex sync state**.
@@ -89,7 +108,7 @@ The dashboard now separates the **saved YAML version** from its **Plex sync stat
 - **Synced by builder** means the currently loaded definition matches the revision most recently synced by this app.
 - **Sync not verified** means an old/external playlist has no recorded successful sync in this app. The builder does **not** query Plex playlist contents to verify exact parity.
 - The YAML editor warns about unsaved changes and blocks import/sync until the edits are saved or discarded.
-- All playlist rows are **collapsed by default**. Click a row for track details and individual syncing, use search or **Only needs update** to narrow the list, or expand all visible rows.
+- The dashboard shows a compact version summary, import/export controls, and collapsed playlists. **Plex updates** only appears when there are pending changes or a sync in progress / failed.
 - **Sync changed playlists to Plex** processes all new or updated, enabled playlists with one click. It shows progress and errors, lets you stop after the current playlist, and skips unchanged/synced, unverified, disabled and Plex utility playlists. Failed playlists remain pending and can be retried using the same button.
 - Bulk sync performs short **sequential requests from the browser** rather than running in the background. Keep the browser page open until it finishes. Reloading the page stops subsequent requests; completed playlists stay marked as synced.
 - A bulk run is tied to the loaded content ID. If another import or edit changes the saved playlist pack during the run, the server rejects further updates instead of syncing a different version.
