@@ -63,6 +63,50 @@ def _artist_names(item):
     return [name for name in artists if name]
 
 
+# Jazz albums are frequently credited to the leader's Trio, Quartet, etc.
+# rather than to the leader alone. Only these well-defined ensemble suffixes
+# are accepted; collaborators or a band with a different name are not aliases.
+_ENSEMBLE_NAMES = ("Trio", "Quartet", "Quintet", "Sextet", "Septet", "Octet", "Nonet")
+_ENSEMBLE_SUFFIXES = {norm(label) for label in _ENSEMBLE_NAMES}
+_ARTIST_SEPARATOR = re.compile(r"\s*(?:&|/|\band\b)\s*", re.IGNORECASE)
+
+
+def _ensemble_credit_matches(artist, credited_name):
+    """Match 'Isao Suzuki' to 'Isao Suzuki Trio & Isao Suzuki Quartet'.
+
+    Do not accept collaborations with a different leader or arbitrary text
+    beginning with the requested name.
+    """
+    expected = norm(artist)
+    pieces = [norm(part) for part in _ARTIST_SEPARATOR.split(credited_name)]
+    if not expected or not pieces or any(not part for part in pieces):
+        return False
+    for piece in pieces:
+        if piece == expected:
+            continue
+        if piece.startswith(expected + " ") and piece[len(expected) + 1:] in _ENSEMBLE_SUFFIXES:
+            continue
+        # Discographical shorthand: 'Isao Suzuki Trio / Quartet'.
+        if piece in _ENSEMBLE_SUFFIXES and len(pieces) > 1:
+            continue
+        return False
+    return any(piece.startswith(expected + " ") for piece in pieces)
+
+
+def _artist_match(artist, item):
+    """Return (credit confidence, display artist) or None."""
+    names = _artist_names(item)
+    wanted = norm(artist)
+    if any(norm(name) == wanted for name in names):
+        return (0, next(name for name in names if norm(name) == wanted))
+    # When multiple artist credits are present, ALL must be safely derived
+    # from the artist's own ensemble name. Never match a mixed collaboration
+    # solely because one member has a matching prefix.
+    if names and all(_ensemble_credit_matches(artist, name) for name in names):
+        return (1, names[0])
+    return None
+
+
 def _album_url(item):
     playlist_id = item.get("playlistId") or ""
     browse_id = item.get("browseId") or ""
@@ -87,8 +131,10 @@ def pick_exact_album(artist, album, results):
     for index, item in enumerate(results):
         if not isinstance(item, dict) or item.get("resultType") != "album":
             continue
-        if not any(norm(name) == want_artist for name in _artist_names(item)):
+        artist_match = _artist_match(artist, item)
+        if artist_match is None:
             continue
+        artist_rank, actual_artist = artist_match
         url = _album_url(item)
         if not url:
             continue
@@ -96,7 +142,7 @@ def pick_exact_album(artist, album, results):
         found_exact = norm(found_title)
         if found_exact == want_exact:
             match_type = "exact"
-            score = (0, 0, 0, index)
+            score = (0, artist_rank, 0, 0, index)
         elif want_base and norm(base_album_title(found_title)) == want_base:
             match_type = "edition"
             # If the user requested a particular edition, prefer candidates
@@ -104,12 +150,13 @@ def pick_exact_album(artist, album, results):
             want_tag = norm(album.removeprefix(base_album_title(album)).strip())
             found_tag = norm(found_title.removeprefix(base_album_title(found_title)).strip())
             same_qualifier = bool(want_tag and found_tag and want_tag == found_tag)
-            score = (1, 0 if same_qualifier else 1, len(found_title), index)
+            score = (1, artist_rank, 0 if same_qualifier else 1, len(found_title), index)
         else:
             continue
         candidates.append((score, {
             "status": "found", "url": url,
-            "artist": next((name for name in _artist_names(item) if norm(name) == want_artist), artist),
+            "artist": actual_artist,
+            "artist_match_type": "ensemble" if artist_rank else "exact",
             "album": found_title,
             "requested_album": album,
             "match_type": match_type,
@@ -133,6 +180,12 @@ def _lookup(artist, album):
         # compilations or similarly named releases. These targeted queries
         # let YouTube Music expose the deluxe/remastered catalog entry.
         queries.extend((f"{artist} {base} deluxe", f"{artist} {base} remastered"))
+
+    # Some jazz releases are indexed under the leader's ensemble instead of
+    # their name (e.g. Isao Suzuki Trio/Quartet, rather than Isao Suzuki).
+    # These bounded follow-up queries are used only when normal searches fail.
+    if not norm(artist).endswith(tuple(" " + norm(n) for n in _ENSEMBLE_NAMES)):
+        queries.extend(f"{artist} {ensemble} {base}" for ensemble in ("Trio", "Quartet", "Quintet"))
 
     for query in dict.fromkeys(queries):
         results = catalog.search(query, filter="albums", limit=20)
