@@ -30,6 +30,7 @@ from .config_store import (
 from .recent_export import export_recent_tracks
 from .insights import analyze
 from .duplicates import find_duplicates, duplicates_tsv
+from .isc_discovery import fetch_catalog, compare_library
 from .playlist_policies import read_policies, set_policy
 from .youtube_album import lookup_album
 from .plex_client import (
@@ -303,6 +304,21 @@ def export_playlists():
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/discover/isc")
+def discover_isc(refresh: bool = False):
+    """Curated records, cross-referenced against Plex. Never alters playlists."""
+    try:
+        # Don't contact Plex until we have (cached or fetched) source records.
+        catalog = fetch_catalog(refresh=refresh)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        _, music = connect()
+        return compare_library(catalog, _insights_tracks(music, refresh=refresh))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Plex library is unavailable for discovery comparison.") from exc
 
 
 @app.get("/api/duplicates")
