@@ -97,6 +97,44 @@ In the compact toolbar, select **New music → Last hours** (default 48), or
 The endpoint is `/api/library-recent.tsv?mode=hours&limit=48`, or
 `/api/library-recent.tsv?mode=albums&limit=20`.
 
+## Discover: In Sheep's Clothing Hi-Fi
+
+The **Discover** tab is a read-only source of new album ideas from
+[In Sheep's Clothing's public album collection](https://insheepsclothinghifi.com/collection/).
+The dashboard surveys the newest visible collection entries in seven
+source-defined sections: Japan, Jazz, Fusion, Ambient, Experimental, Pop and
+Electronic. This is a **bounded selection, not the site's entire historical
+catalog**. A limited number of linked album pages are enriched with their
+published styles, tags and release years. The app stores only concise album
+metadata and source URLs, not editorial articles or artwork.
+
+Every entry is compared to all Plex Music tracks on **artist + album**,
+normalizing punctuation and known Deluxe/Remastered edition suffixes. Strict
+artist identification prevents counting a different musician's identically
+titled album as owned. It labels a record as **In Plex**, **Other edition in
+Plex**, or **Missing**; owned records show the corresponding Plex album title
+and track count. No playlist definitions are changed.
+
+Filter by status, artist/title search and five optional **local listening
+categories**: Japanese jazz-funk, Deep listening, ECM-like jazz, Ambient and
+Experimental pop. These are **our suggested moods inferred only from source
+genre/tag metadata**, not claims about the source's own playlist categories.
+Albums without evidence for these moods remain visible under All styles.
+
+Each record links to its originating ISC album page. Missing and
+edition-different records also have **Open on YouTube Music**, using the
+existing strict /open-youtube-album resolver. It checks the YouTube Music
+album catalog on click; an unmatched album returns 404 rather than a made-up
+search link. Entries are not downloaded or added automatically.
+
+The catalog is cached for 24 hours in /data/isc-discovery.json so normal
+dashboard visits do not repeatedly scrape the site; **Refresh source**
+bypasses the cache. A failed refresh uses the previous catalog with a
+staleness warning, if one exists. Source failures are reported rather than
+inventing releases. A temporary network problem without a cache returns 503.
+
+API: GET /api/discover/isc?refresh=false.
+
 ## Duplicate album and directory review
 
 The **Duplicates** tab compares **complete album releases**, not individual
