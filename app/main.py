@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -27,6 +28,9 @@ from .config_store import (
     version_details,
 )
 from .recent_export import export_recent_tracks
+from .insights import analyze
+from .playlist_policies import read_policies, set_policy
+from .youtube_album import lookup_album
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
     connect,
@@ -37,7 +41,7 @@ from .plex_client import (
 )
 
 
-app = FastAPI(title="Plex Playlist Manager", version="1.4.0")
+app = FastAPI(title="Plex Playlist Manager", version="1.5.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
@@ -51,6 +55,24 @@ class ImportBody(ConfigBody):
 
 class PendingSyncBody(BaseModel):
     version_id: str
+
+
+class PolicyBody(BaseModel):
+    kind: Literal["curated", "rotating"]
+
+
+# Cache raw Plex track objects briefly; recalculate playlist metrics each request
+# against the latest saved YAML/policies. A manual refresh bypasses the cache.
+insights_track_cache: dict = {}
+
+
+def _insights_tracks(music, refresh=False):
+    stamp = time.monotonic()
+    if not refresh and insights_track_cache.get("tracks") is not None and stamp - insights_track_cache["at"] < 300:
+        return insights_track_cache["tracks"]
+    tracks = music.searchTracks()
+    insights_track_cache.update({"at": stamp, "tracks": tracks})
+    return tracks
 
 
 def _configured_playlists():
@@ -273,6 +295,48 @@ def export_playlists():
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/insights")
+def insights(
+    recent_days: int = Query(default=30, ge=1, le=365),
+    refresh: bool = False,
+):
+    """Analyze saved playlist definitions against the current Plex library."""
+    try:
+        _, music = connect()
+        return analyze(
+            _insights_tracks(music, refresh=refresh),
+            _configured_playlists(),
+            policies=read_policies(),
+            recent_days=recent_days,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.put("/api/playlist-policy/{name}")
+def update_playlist_policy(name: str, body: PolicyBody):
+    """Update advisory rotation mode without modifying playlist YAML or Plex."""
+    playlists = _configured_playlists()
+    if name not in playlists:
+        raise HTTPException(status_code=404, detail="Unknown playlist")
+    try:
+        return {"name": name, "kind": set_policy(name, body.kind, playlists.keys())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/youtube-album")
+def youtube_album(artist: str, album: str):
+    """Return an exact matching YouTube Music album link or an explicit not-found."""
+    try:
+        return lookup_album(artist, album)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        # Never substitute a guessed URL after an upstream error.
+        raise HTTPException(status_code=503, detail="YouTube Music lookup unavailable.") from exc
 
 
 @app.get("/api/preview/{name}")
