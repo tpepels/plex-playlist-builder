@@ -725,13 +725,15 @@ function renderDuplicates() {
     ])].some(v => String(v || "").toLocaleLowerCase().includes(needle)))
   );
   const shown = groups.slice(0, 100);
+  const expandedGroups = new Set(Array.from($("duplicateRows").querySelectorAll(".duplicateGroup"))
+    .filter(el => el.open).map(el => Number(el.dataset.group)));
   $("duplicateShown").textContent = `${groups.length.toLocaleString()} albums${groups.length > shown.length ? " · first 100 shown, export for all" : ""}`;
   const statusName = {full:"Complete album match",edition:"Alternate edition",partial:"Partial overlap"};
   $("duplicateRows").innerHTML = shown.length ? shown.map(g => {
     const groupIndex = duplicateData.groups.indexOf(g);
     const keptId = duplicateKeepByAlbum.get(groupIndex) || "";
     return `
-    <details class="album-card">
+    <details class="album-card duplicateGroup" data-group="${groupIndex}" ${expandedGroups.has(groupIndex) ? "open" : ""}>
       <summary>
         <span class="album-title"><strong>${esc(g.album)}</strong><br>
           <span class="album-meta">${esc(g.artist)} · ${g.total_copies} album copies</span>
