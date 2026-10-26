@@ -109,7 +109,9 @@ def test_duplicate_output_order_and_tsv_export_have_all_entries():
     assert [g["kind"] for g in result["groups"]] == ["likely", "edition"]
     reader = list(csv.DictReader(io.StringIO(duplicates_tsv(result)), delimiter="\t"))
     assert {row["rating_key"] for row in reader} == {"4", "5", "8", "9"}
-    assert [row["group"] for row in reader] == ["1", "1", "2", "2"]
+    # A Plex item can legitimately appear in both the same-album group and
+    # the wider cross-edition group; the TSV preserves all associations.
+    assert [row["group"] for row in reader] == ["1", "1", "2", "2", "2", "2"]
     assert all(row["artist"] == "Bill Evans" for row in reader)
 
 
