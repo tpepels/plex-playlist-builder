@@ -195,3 +195,17 @@ def test_api_calls_source_and_plex_without_playlist_mutations(monkeypatch):
     result = main.discover_isc(refresh=True)
     assert result["summary"]["owned"] == 1
     assert calls == [("fetch", True), ("plex", True)]
+
+
+
+def test_multi_artist_credits_accept_only_identical_collaborators():
+    source = catalog_records(("Brian Eno, John Cale", "Wrong Way Up"))
+    yes = service.compare_library(source, [
+        track(1, "Brian Eno & John Cale", "Wrong Way Up", "bc")
+    ])
+    assert yes["albums"][0]["status"] == "owned"
+    no = service.compare_library(source, [
+        track(2, "Brian Eno", "Wrong Way Up", "eno"),
+        track(3, "John Cale", "Wrong Way Up", "cale"),
+    ])
+    assert no["albums"][0]["status"] == "missing"
