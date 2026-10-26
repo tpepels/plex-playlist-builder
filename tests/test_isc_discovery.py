@@ -95,7 +95,11 @@ def test_source_fetch_is_bounded_deduped_and_cached(tmp_path, monkeypatch):
 
     first = service.fetch_catalog(fetch_html=fetch)
     assert first["sources_scanned"] == 2
-    assert len(first["albums"]) == 2
+    assert len(first["albums"]) == 3
+    suggested = first["albums"][-1]
+    assert suggested["album"] == "Another Record"
+    assert suggested["recommended_by"][0]["artist"] == "Hiroshi Suzuki"
+    assert suggested["source_styles"] == []  # must not inherit Cat's genre
     assert first["albums"][0]["source_styles"] == ["japan", "jazz"]
     assert first["albums"][0]["details_status"] == "detail"
     assert cache.exists()
@@ -209,3 +213,11 @@ def test_multi_artist_credits_accept_only_identical_collaborators():
         track(3, "John Cale", "Wrong Way Up", "cale"),
     ])
     assert no["albums"][0]["status"] == "missing"
+
+
+def test_source_recommendations_are_attributed_to_the_recommending_album():
+    details = service.parse_album_details(DETAIL)
+    assert details["suggestions"] == [{
+        "source_url": "https://insheepsclothinghifi.com/album/wrong",
+        "artist": "Other Person", "album": "Another Record",
+    }]
