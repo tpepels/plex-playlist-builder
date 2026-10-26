@@ -61,6 +61,13 @@ class PolicyBody(BaseModel):
     kind: Literal["curated", "rotating"]
 
 
+class CurateBody(BaseModel):
+    playlist: str
+    rating_keys: list[str]
+    album_key: str
+    version_id: str
+
+
 # Cache raw Plex track objects briefly; recalculate playlist metrics each request
 # against the latest saved YAML/policies. A manual refresh bypasses the cache.
 insights_track_cache: dict = {}
@@ -325,6 +332,46 @@ def update_playlist_policy(name: str, body: PolicyBody):
         return {"name": name, "kind": set_policy(name, body.kind, playlists.keys())}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/curate-tracks")
+def curate_tracks(body: CurateBody):
+    """Explicitly add selected existing Plex tracks to one chosen playlist."""
+    definitions = _configured_playlists()
+    if fingerprint(definitions) != body.version_id:
+        raise HTTPException(status_code=409, detail="Playlist definitions changed. Reload first.")
+    if body.playlist not in definitions:
+        raise HTTPException(status_code=404, detail="Unknown playlist")
+    if not body.rating_keys or len(body.rating_keys) > 50:
+        raise HTTPException(status_code=422, detail="Select 1–50 tracks.")
+    keys = list(dict.fromkeys(str(x).strip() for x in body.rating_keys))
+    _, music = connect()
+    from .insights import track_model
+    available = {item["key"]: item for item in
+                 (track_model(t) for t in _insights_tracks(music))}
+    if any(key not in available or available[key]["album_key"] != body.album_key for key in keys):
+        raise HTTPException(status_code=422, detail="Selected tracks no longer match the album in Plex.")
+
+    # Existing track entries are not duplicated, and no other playlist changes.
+    playlist = definitions[body.playlist]
+    existing = {str(item.get("rating_key", "")).strip()
+                for item in playlist.get("items", [])}
+    added = [key for key in keys if key not in existing]
+    if not added:
+        return {"added": 0, "status": "unchanged"}
+    updated = {**definitions}
+    updated_spec = dict(playlist)
+    updated_spec["items"] = list(playlist.get("items", [])) + [
+        {"rating_key": key, "artist": available[key]["artist"],
+         "album": available[key]["album"], "track": available[key]["title"]}
+        for key in added
+    ]
+    updated[body.playlist] = updated_spec
+    data = load()
+    data["playlists"] = updated
+    save_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+    # Save is durable even if the subsequent Plex sync fails; status stays pending.
+    return {"added": len(added), "status": "needs_sync", "playlist": body.playlist}
 
 
 @app.get("/api/youtube-album")
