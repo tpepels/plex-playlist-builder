@@ -29,6 +29,7 @@ from .config_store import (
 )
 from .recent_export import export_recent_tracks
 from .insights import analyze
+from .duplicates import find_duplicates, duplicates_tsv
 from .playlist_policies import read_policies, set_policy
 from .youtube_album import lookup_album
 from .plex_client import (
@@ -298,6 +299,34 @@ def export_playlists():
                 "Content-Disposition": 'attachment; filename="plex-playlists.yml"',
                 "X-Plex-Playlist-Count": str(len(playlists)),
                 "X-Plex-Track-Count": str(track_count),
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/duplicates")
+def library_duplicates(refresh: bool = False):
+    """Inspect duplicate-looking Plex music tracks without changing files."""
+    try:
+        _, music = connect()
+        return find_duplicates(_insights_tracks(music, refresh=refresh))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/duplicates.tsv")
+def library_duplicates_export(refresh: bool = False):
+    """Download the complete duplicates review, including Plex rating keys."""
+    try:
+        _, music = connect()
+        report = find_duplicates(_insights_tracks(music, refresh=refresh))
+        return Response(
+            content=duplicates_tsv(report),
+            media_type="text/tab-separated-values; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="plex-library-duplicates.tsv"',
+                "X-Plex-Duplicate-Groups": str(len(report["groups"])),
             },
         )
     except Exception as exc:
