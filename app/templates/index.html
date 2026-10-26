@@ -705,7 +705,7 @@ async function resolveYoutubeAlbum(artist,album,target) {
   try {
     const d = await api("/api/youtube-album?artist="+encodeURIComponent(artist)+"&album="+encodeURIComponent(album));
     if (d.status !== "found") {
-      target.textContent = "No exact album in YouTube Music's catalog. No guessed link.";
+      target.textContent = "No matching album or recognized edition found. No guessed link.";
       return;
     }
     const wrap = document.createElement("div");
@@ -714,7 +714,7 @@ async function resolveYoutubeAlbum(artist,album,target) {
     a.href = d.url;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    a.textContent = `Open album: ${d.artist} — ${d.album}`;
+    a.textContent = `Open album: ${d.artist} — ${d.album}${d.match_type === "edition" ? " (edition match)" : ""}`;
     const url = document.createElement("input");
     url.type = "text";
     url.value = d.url;
