@@ -97,31 +97,42 @@ In the compact toolbar, select **New music → Last hours** (default 48), or
 The endpoint is `/api/library-recent.tsv?mode=hours&limit=48`, or
 `/api/library-recent.tsv?mode=albums&limit=20`.
 
-## Library duplicate scanner
+## Duplicate album and directory review
 
-Open **Duplicates** in the dashboard to scan the complete Plex music library.
-The scan uses the same five-minute track cache as Health and supports a live
-**Refresh**. Filter by artist, album, song or Plex rating key; switch between
-**Same album + position** and **Alternate editions**, and export all results as
-`/api/duplicates.tsv`. The dashboard shows the first 100 filtered candidate
-groups; the TSV includes every group and its individual Plex rating keys.
+The **Duplicates** tab compares **complete album releases**, not individual
+duplicate songs. It groups Plex music by normalized artist and album, using
+each physical album directory as an independent copy when file paths are
+available from Plex Media/Part metadata. It recognizes common multidisc
+layouts, where tracks live in Disc 1 / Disc 2 subdirectories.
 
-- **Likely duplicate**: same artist, album, song title, disc/track position,
-  and duration within 2 seconds, but *different Plex rating keys*. Repeated
-  records for one rating key are counted only once.
-- **Edition overlap**: same artist, same album title after ignoring recognized
-  edition suffixes (e.g. Deluxe / Remaster), same song title, and duration
-  within 2 seconds. These are **review suggestions**, not definite duplicates.
-- Different album titles, live takes, or tracks at different positions on the
-  same release are not automatically considered duplicates. Tracks with missing
-  duration are excluded to prevent guesses. One item may appear in both
-  categories if it is part of both an exact-album duplicate and an edition
-  overlap.
+- **Complete duplicate album**: full tracklists match, including disc and
+  track positions, titles and durations within 2 seconds. Both physical
+  album folders are shown; choose which copy to keep after checking quality.
+- **Alternate edition**: matching tracks appear on albums whose titles only
+  differ in recognized release labels such as Deluxe or Remaster. These
+  remain **review-only**, never automatic folder-removal candidates.
+- **Partial overlap**: tracklists have extras, omissions or different takes.
+  These also remain review-only.
+- **Folder review candidates**: only complete matches where Plex exposes
+  an album directory, every track has a path, and the folder appears
+  dedicated to a single album in Plex's indexed metadata. Shared artist or
+  multi-album folders are blocked.
 
-The detector **does not hash, fingerprint, compare or delete audio files**;
-it cannot establish byte-level or audio-level identity. It never changes Plex
-music, playlists or YAML. Examine the entries before manually removing files
-from your library. API: `GET /api/duplicates?refresh=false`.
+The UI offers a **Copy path** button. The TSV export has **one row per album
+copy**, listing the directory, its status, track count, Plex album/track keys
+and comparison category. Filter by artist, album or directory, or download
+the complete report. Refresh bypasses the five-minute Plex track cache.
+
+**Safety limitations:** This uses metadata, not audio fingerprints or
+checksums. Plex paths may be inside a different filesystem namespace from
+the host. Plex cannot tell this tool about unindexed files, artwork, cue
+sheets or other contents of a directory, or guarantee identical audio
+quality. A folder marked as a review candidate is **not confirmed safe to
+delete**. Verify its contents and keep at least one complete album before
+manually removing anything. The app never deletes, renames, moves, or edits
+media files, nor does the scanner modify Plex playlists.
+
+API: GET /api/duplicates?refresh=false and GET /api/duplicates.tsv.
 
 ## Health, New Music and Discover
 
