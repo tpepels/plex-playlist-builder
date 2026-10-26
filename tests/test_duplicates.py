@@ -93,6 +93,31 @@ def test_different_take_duration_is_not_an_exact_album_copy():
     assert report["summary"]["folder_review_candidates"] == 0
 
 
+def test_two_identical_disc_fragments_cannot_be_treated_as_complete_albums():
+    # Plex has three tracks in this album, but two folders hold only tracks
+    # 1 and 2. A third folder contains track 3: never propose deleting one
+    # of the matching fragments as though it were the full release.
+    tracks = [
+        track(1, album_id="album-42", index=1, title="Track 1",
+              path="/music/Bill Evans/Copy A/01.flac"),
+        track(2, album_id="album-42", index=2, title="Track 2",
+              path="/music/Bill Evans/Copy A/02.flac"),
+        track(3, album_id="album-42", index=1, title="Track 1",
+              path="/music/Bill Evans/Copy B/01.flac"),
+        track(4, album_id="album-42", index=2, title="Track 2",
+              path="/music/Bill Evans/Copy B/02.flac"),
+        track(5, album_id="album-42", index=3, title="Track 3",
+              path="/music/Bill Evans/Other Disc/03.flac"),
+    ]
+    report = find_duplicates(tracks)
+    assert report["summary"]["full_album_groups"] == 0
+    assert report["summary"]["folder_review_candidates"] == 0
+    assert report["summary"]["partial_groups"] == 1
+    assert all(not r["complete_in_plex"] for r in report["groups"][0]["releases"])
+    assert all("Incomplete Plex album" in r["folder_status"]
+               for r in report["groups"][0]["releases"])
+
+
 def test_media_versions_under_one_plex_track_are_separate_files():
     item = track(
         1, album_id="one", paths=[
