@@ -97,6 +97,48 @@ In the compact toolbar, select **New music → Last hours** (default 48), or
 The endpoint is `/api/library-recent.tsv?mode=hours&limit=48`, or
 `/api/library-recent.tsv?mode=albums&limit=20`.
 
+## Health, New Music and Discover
+
+The top navigation has four views: **Playlists**, **Health**, **New music**,
+and **Find album**. Health and New music compare the saved playlist definitions
+with the current Plex music library; Plex tracks are cached for five minutes,
+and **Refresh** forces a live rescan.
+
+**Health** reports unique Plex tracks not included in any saved playlist,
+unresolved playlist references (deleted/moved tracks), tracks appearing in
+more than one playlist, and per-playlist artist/album diversity, overlap
+across playlists and recently added music.
+
+Playlists are **Curated** unless you explicitly mark them **Rotating** in the
+Health view. Status lives in the separate \`/data/playlist-policies.yml\` file,
+so changing a policy never changes the playlist definitions or triggers a
+Plex sync. The initial advisory targets for rotating playlists (12+ tracks):
+no more than 20% from one artist, 25% from one album, and at least 15% of
+tracks added to Plex during the selected recent window. These are **warnings,
+not instructions to automatically remove or add tracks**. There is no
+automatic playlist rotation.
+
+**New music** shows albums with at least one track added to Plex within the
+selected 7/30/90/365-day window. You can filter for albums whose playlist
+coverage is under 50%. Open an album to select **specific tracks**, choose an
+existing destination playlist, and click **Add selected**. Only the selected
+tracks are appended; duplicates are skipped and the saved definition is
+version-checked against concurrent changes. The chosen playlist is then
+synced to Plex using the existing per-playlist sync function; failure leaves
+the definition pending for retry. Playlist curation is always opt-in.
+
+**Find album** accepts artist and album and queries YouTube Music's public
+album catalog (no user account or API key needed). An exact artist/title
+match with a real album ID produces a **direct album URL**
+(\`music.youtube.com/playlist?list=OLAK5uy_...\` or an album browse URL).
+It never silently sends you to a generic search page or guesses a URL from
+an imprecise result. No match or a network error is reported explicitly.
+YouTube Music may still impose regional playback restrictions.
+
+API routes: \`GET /api/insights?recent_days=30\`,
+\`PUT /api/playlist-policy/{name}\`, \`POST /api/curate-tracks\`,
+\`GET /api/youtube-album?artist=...&album=...\`.
+
 ## Playlist versions and sync status
 
 The dashboard now separates the **saved YAML version** from its **Plex sync state**.
