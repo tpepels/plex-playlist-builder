@@ -25,7 +25,7 @@ from .youtube_album import base_album_title, _ensemble_credit_matches
 
 SOURCE = "https://insheepsclothinghifi.com"
 SOURCE_HOSTS = frozenset({"insheepsclothinghifi.com", "www.insheepsclothinghifi.com"})
-SOURCE_STYLES = ("japan", "jazz", "fusion", "ambient", "experimental", "pop", "electronic")
+SOURCE_STYLES = ("japan", "jazz", "funk", "fusion", "ambient", "experimental", "pop", "electronic")
 DEFAULT_TTL = 24 * 60 * 60
 MAX_ALBUMS = 220
 DETAIL_LIMIT = 36
