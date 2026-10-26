@@ -35,7 +35,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     return elements.get(id);
   }
 
-  const tabs = ["playlists", "health", "newmusic", "discover"].map(view => {
+  const tabs = ["playlists", "health", "duplicates", "newmusic", "discover"].map(view => {
     const e = fakeElement();
     e.dataset.view = view;
     return e;
@@ -102,6 +102,24 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
           missing_references: 0, rotating_playlists: 0, uncurated_recent_albums: 0,
         },
         playlists: [], recent_albums: [],
+      };
+    } else if (url.startsWith("/api/duplicates?")) {
+      body = {
+        summary: {
+          library_tracks: 5, likely_groups: 1, likely_extra_entries: 1,
+          edition_groups: 1, edition_entries_to_review: 2,
+        },
+        groups: [
+          {kind:"likely",artist:"Bill Evans",title:"My Foolish Heart",
+           albums:["Waltz for Debby"],entries:[
+             {album:"Waltz for Debby",disc:1,track:1,duration_ms:299900,rating_key:"1"},
+             {album:"Waltz for Debby",disc:1,track:1,duration_ms:300000,rating_key:"2"}]},
+          {kind:"edition",artist:"Bill Evans",title:"B Minor Waltz",
+           albums:["You Must Believe in Spring","You Must Believe in Spring (2022 Remaster)"],
+           entries:[
+             {album:"You Must Believe in Spring",disc:1,track:1,duration_ms:240000,rating_key:"3"},
+             {album:"You Must Believe in Spring (2022 Remaster)",disc:1,track:1,duration_ms:240900,rating_key:"4"}]},
+        ],
       };
     } else if (url.startsWith("/api/youtube-album?")) {
       body = albumFound
@@ -218,7 +236,7 @@ test("health and new-music tabs load analysis on demand, without changing playli
   assert.equal(h.$("viewPlaylists").hidden, true);
   assert.match(h.$("healthTotals").innerHTML, /not in playlists/);
   const count = h.calls.filter(c=>c.startsWith("/api/insights?")).length;
-  await h.tabs[2].onclick();
+  await h.tabs.find(t=>t.dataset.view === "newmusic").onclick();
   assert.equal(h.$("viewNewmusic").hidden, false);
   assert.equal(h.calls.filter(c=>c.startsWith("/api/insights?")).length, count);
   assert.equal(h.calls.some(c=>c.startsWith("/api/curate-tracks")), false);
@@ -246,4 +264,31 @@ test("album lookup never offers a generic search link when the album is absent",
   await h.$("albumLookupForm").onsubmit({preventDefault(){}});
   assert.match(h.$("ytResult").textContent, /No matching album or recognized edition/);
   assert.equal(h.$("ytResult").children.length, 0);
+});
+
+
+test("Duplicates view scans on demand and filters read-only candidate groups", async () => {
+  const h = makeHarness();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(!h.calls.some(c => c.startsWith("/api/duplicates?")));
+  await h.tabs.find(t => t.dataset.view === "duplicates").onclick();
+  assert.equal(h.$("viewDuplicates").hidden, false);
+  assert.equal(h.$("viewHealth").hidden, true);
+  assert.match(h.$("duplicateTotals").innerHTML, /likely duplicate groups/);
+  assert.match(h.$("duplicateRows").innerHTML, /My Foolish Heart/);
+  assert.match(h.$("duplicateRows").innerHTML, /B Minor Waltz/);
+  assert.match(html, /href="\/api\/duplicates.tsv"/);
+  h.$("duplicateKind").value = "edition";
+  h.$("duplicateKind").onchange();
+  assert.doesNotMatch(h.$("duplicateRows").innerHTML, /My Foolish Heart/);
+  assert.match(h.$("duplicateRows").innerHTML, /B Minor Waltz/);
+  h.$("duplicateSearch").value = "nothing";
+  h.$("duplicateSearch").oninput();
+  assert.match(h.$("duplicateRows").innerHTML, /No matching duplicate candidates/);
+  h.$("duplicateSearch").value = "2022";
+  h.$("duplicateSearch").oninput();
+  assert.match(h.$("duplicateRows").innerHTML, /B Minor Waltz/);
+  await h.$("refreshDuplicates").onclick();
+  assert.ok(h.calls.includes("/api/duplicates?refresh=true"));
+  assert.ok(!h.calls.some(c => /sync-pending|curate-tracks/.test(c)));
 });
