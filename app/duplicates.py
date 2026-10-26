@@ -217,6 +217,8 @@ def find_duplicates(tracks):
             r["folder_status"] = "Plex did not expose a dedicated album directory"
         elif len(directory_owners[folder]) != 1:
             r["folder_status"] = "Shared directory - not a removal candidate"
+        elif not r["_complete"]:
+            r["folder_status"] = "Incomplete Plex album in this directory"
         elif not all(t["paths"] for t in r["tracks"]):
             r["folder_status"] = "Some track paths are missing"
         else:
