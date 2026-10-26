@@ -118,10 +118,15 @@ layouts, where tracks live in Disc 1 / Disc 2 subdirectories.
   dedicated to a single album in Plex's indexed metadata. Shared artist or
   multi-album folders are blocked.
 
-The UI offers a **Copy path** button. The TSV export has **one row per album
-copy**, listing the directory, its status, track count, Plex album/track keys
-and comparison category. Filter by artist, album or directory, or download
-the complete report. Refresh bypasses the five-minute Plex track cache.
+Each complete-album group has a **Keep this folder** selector. Once you
+choose the copy to retain, other eligible dedicated album folders are
+highlighted **Review for removal**. This choice is only a temporary UI aid:
+it does not remove, move or save any files. The UI also shows file formats
+(e.g. FLAC vs MP3) and offers a **Copy path** button. The TSV export has
+**one row per album copy**, including folder, file formats, track count,
+Plex album/track keys and comparison category. Filter by artist, album
+or directory, or download the complete report. Refresh bypasses the
+five-minute Plex track cache.
 
 **Safety limitations:** This uses metadata, not audio fingerprints or
 checksums. Plex paths may be inside a different filesystem namespace from
