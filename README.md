@@ -97,9 +97,35 @@ In the compact toolbar, select **New music → Last hours** (default 48), or
 The endpoint is `/api/library-recent.tsv?mode=hours&limit=48`, or
 `/api/library-recent.tsv?mode=albums&limit=20`.
 
+## Library duplicate scanner
+
+Open **Duplicates** in the dashboard to scan the complete Plex music library.
+The scan uses the same five-minute track cache as Health and supports a live
+**Refresh**. Filter by artist, album, song or Plex rating key; switch between
+**Same album + position** and **Alternate editions**, and export all results as
+`/api/duplicates.tsv`. The dashboard shows the first 100 filtered candidate
+groups; the TSV includes every group and its individual Plex rating keys.
+
+- **Likely duplicate**: same artist, album, song title, disc/track position,
+  and duration within 2 seconds, but *different Plex rating keys*. Repeated
+  records for one rating key are counted only once.
+- **Edition overlap**: same artist, same album title after ignoring recognized
+  edition suffixes (e.g. Deluxe / Remaster), same song title, and duration
+  within 2 seconds. These are **review suggestions**, not definite duplicates.
+- Different album titles, live takes, or tracks at different positions on the
+  same release are not automatically considered duplicates. Tracks with missing
+  duration are excluded to prevent guesses. One item may appear in both
+  categories if it is part of both an exact-album duplicate and an edition
+  overlap.
+
+The detector **does not hash, fingerprint, compare or delete audio files**;
+it cannot establish byte-level or audio-level identity. It never changes Plex
+music, playlists or YAML. Examine the entries before manually removing files
+from your library. API: `GET /api/duplicates?refresh=false`.
+
 ## Health, New Music and Discover
 
-The top navigation has four views: **Playlists**, **Health**, **New music**,
+The top navigation has five views: **Playlists**, **Health**, **Duplicates**, **New music**,
 and **Find album**. Health and New music compare the saved playlist definitions
 with the current Plex music library; Plex tracks are cached for five minutes,
 and **Refresh** forces a live rescan.
