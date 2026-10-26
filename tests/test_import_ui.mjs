@@ -12,14 +12,17 @@ assert.ok(script, "Inline browser JavaScript must exist");
 function fakeElement() {
   return {
     value: "", textContent: "", innerHTML: "", className: "", hidden: false,
-    disabled: false, checked: false, dataset: {},
+    disabled: false, checked: false, dataset: {}, style: {}, children: [],
+    classList: { toggle() {} },
+    append(...items) { this.children.push(...items); },
+    replaceChildren(...items) { this.children = items; },
     addEventListener(name, callback) { this["on" + name] = callback; },
     setAttribute(name, value) { this[name] = value; },
     querySelectorAll() { return []; },
   };
 }
 
-function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false } = {}) {
+function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false, albumFound = true } = {}) {
   const elements = new Map();
   const rows = [];
   const cards = fakeElement();
@@ -32,10 +35,18 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     return elements.get(id);
   }
 
+  const tabs = ["playlists", "health", "newmusic", "discover"].map(view => {
+    const e = fakeElement();
+    e.dataset.view = view;
+    return e;
+  });
+  $("insightDays").value = "30";
   const document = {
     getElementById: $,
     querySelectorAll(query) {
-      return query === ".build" ? rows.map((row) => row.querySelector(".build")) : [];
+      if (query === ".view-tab") return tabs;
+      if (query === ".build") return rows.map((row) => row.querySelector(".build"));
+      return [];
     },
     createElement() {
       const row = fakeElement();
@@ -84,6 +95,19 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
       body = { server: "Test Plex", library: "Music" };
     } else if (url === "/api/config") {
       body = snapshot();
+    } else if (url.startsWith("/api/insights?")) {
+      body = {
+        summary: {
+          library_tracks: 4, unlisted_tracks: 2, in_multiple_playlists: 1,
+          missing_references: 0, rotating_playlists: 0, uncurated_recent_albums: 0,
+        },
+        playlists: [], recent_albums: [],
+      };
+    } else if (url.startsWith("/api/youtube-album?")) {
+      body = albumFound
+        ? {status:"found",artist:"Nils Frahm",album:"Felt",
+           url:"https://music.youtube.com/playlist?list=OLAK5uy_verified"}
+        : {status:"not_found"};
     } else if (url === "/api/inspect-config") {
       if (invalid) {
         status = 400;
@@ -115,7 +139,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     input.files = [{ name: filename, text: async () => "playlists:\n  Beta: {}\n" }];
     await input.onchange();
   }
-  return { chooseFile, calls, $, filename, get imported() { return imported; }, get synced() { return synced; } };
+  return { chooseFile, calls, $, tabs, filename, get imported() { return imported; }, get synced() { return synced; } };
 }
 
 test("valid file immediately imports and syncs new playlists", async () => {
@@ -183,4 +207,42 @@ test("dashboard hides idle bulk controls and shows only pending work", async () 
   assert.equal(h.$("bulkPanel").hidden, true);
   await h.chooseFile();
   assert.equal(h.$("bulkPanel").hidden, true);
+});
+
+
+test("health and new-music tabs load analysis on demand, without changing playlists", async () => {
+  const h = makeHarness();
+  await new Promise(resolve => setImmediate(resolve));
+  await h.tabs[1].onclick();
+  assert.equal(h.$("viewHealth").hidden, false);
+  assert.equal(h.$("viewPlaylists").hidden, true);
+  assert.match(h.$("healthTotals").innerHTML, /not in playlists/);
+  const count = h.calls.filter(c=>c.startsWith("/api/insights?")).length;
+  await h.tabs[2].onclick();
+  assert.equal(h.$("viewNewmusic").hidden, false);
+  assert.equal(h.calls.filter(c=>c.startsWith("/api/insights?")).length, count);
+  assert.equal(h.calls.some(c=>c.startsWith("/api/curate-tracks")), false);
+});
+
+test("album lookup exposes the direct YouTube Music URL, not a search URL", async () => {
+  const h = makeHarness();
+  await new Promise(resolve => setImmediate(resolve));
+  h.$("ytArtist").value = "Nils Frahm";
+  h.$("ytAlbum").value = "Felt";
+  await h.$("albumLookupForm").onsubmit({preventDefault(){}});
+  const wrap = h.$("ytResult").children[0];
+  assert.ok(wrap);
+  const input = wrap.children.find(n=>n.value?.startsWith("https://music.youtube.com/"));
+  assert.equal(input.value, "https://music.youtube.com/playlist?list=OLAK5uy_verified");
+  assert.doesNotMatch(input.value, /search\\?q=/);
+});
+
+test("album lookup never offers a generic search link when the album is absent", async () => {
+  const h = makeHarness({albumFound:false});
+  await new Promise(resolve => setImmediate(resolve));
+  h.$("ytArtist").value = "Arve Henriksen";
+  h.$("ytAlbum").value = "The Nature of Connections";
+  await h.$("albumLookupForm").onsubmit({preventDefault(){}});
+  assert.match(h.$("ytResult").textContent, /No exact album/);
+  assert.equal(h.$("ytResult").children.length, 0);
 });
