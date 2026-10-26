@@ -180,6 +180,7 @@ small{color:var(--muted)}
 <nav class="view-tabs" aria-label="Playlist builder views">
   <button class="view-tab active" type="button" data-view="playlists">Playlists</button>
   <button class="view-tab" type="button" data-view="health">Health</button>
+  <button class="view-tab" type="button" data-view="duplicates">Duplicates</button>
   <button class="view-tab" type="button" data-view="newmusic">New music</button>
   <button class="view-tab" type="button" data-view="discover">Find album</button>
 </nav>
@@ -211,6 +212,23 @@ small{color:var(--muted)}
   <span class="tag">Curated lists are not judged or auto-changed</span></div>
   <div id="healthRows" class="insight-scroll"><span class="album-meta">Open this tab to analyze the library.</span></div>
 </section>
+<section id="viewDuplicates" class="panel" hidden>
+  <div class="section-title"><h2>Library duplicates</h2><button id="refreshDuplicates" type="button">Refresh</button></div>
+  <p class="album-meta">Read-only review based on Plex track metadata and duration (within 2 seconds), not audio fingerprints. Different live takes and different albums are not assumed to be duplicates.</p>
+  <div id="duplicateTotals" class="data-strip"></div>
+  <div class="insights-tools">
+    <input id="duplicateSearch" type="search" placeholder="Search artist, album, track…" aria-label="Search potential duplicates">
+    <label for="duplicateKind">Show</label>
+    <select id="duplicateKind" aria-label="Duplicate classification">
+      <option value="all">All candidates</option>
+      <option value="likely">Same album + position</option>
+      <option value="edition">Alternate editions</option>
+    </select>
+    <a href="/api/duplicates.tsv" download="plex-library-duplicates.tsv">Download TSV</a>
+    <span id="duplicateShown" class="album-meta"></span>
+  </div>
+  <div id="duplicateRows">Open this tab to scan Plex.</div>
+</section>
 <section id="viewNewmusic" class="panel" hidden>
   <div class="section-title"><h2>New music</h2><button class="refreshInsights" type="button">Refresh</button></div>
   <div class="insights-tools">
@@ -234,6 +252,7 @@ small{color:var(--muted)}
 <script>
 const $ = id => document.getElementById(id);
 let insightsData = null;
+let duplicateData = null;
 let activeView = "playlists";
 let config = null;
 let editorDirty = false;
@@ -686,6 +705,59 @@ function renderRecentAlbums() {
   }
 }
 
+function renderDuplicates() {
+  if (!duplicateData) return;
+  const summary = duplicateData.summary;
+  $("duplicateTotals").innerHTML = [
+    [summary.likely_groups, "likely duplicate groups"],
+    [summary.likely_extra_entries, "extra Plex entries"],
+    [summary.edition_groups, "edition overlaps"],
+    [summary.edition_entries_to_review, "edition entries to review"],
+  ].map(([value,label]) => `<span><strong>${Number(value).toLocaleString()}</strong>${esc(label)}</span>`).join("");
+  const kind = $("duplicateKind").value;
+  const needle = $("duplicateSearch").value.trim().toLocaleLowerCase();
+  const groups = duplicateData.groups.filter(g =>
+    (kind === "all" || g.kind === kind) &&
+    (!needle || [g.artist, g.title, ...g.albums, ...g.entries.map(e=>e.rating_key)]
+      .some(v => String(v || "").toLocaleLowerCase().includes(needle)))
+  );
+  const shown = groups.slice(0, 100);
+  $("duplicateShown").textContent = `${groups.length.toLocaleString()} groups${groups.length > shown.length ? " · first 100 shown; download TSV for all" : ""}`;
+  $("duplicateRows").innerHTML = shown.length ? shown.map(g => `
+    <details class="album-card">
+      <summary>
+        <span class="album-title"><strong>${esc(g.title)}</strong><br>
+          <span class="album-meta">${esc(g.artist)} · ${esc(g.albums.join(" / "))}</span>
+        </span>
+        <span class="tag">${g.entries.length} entries</span>
+        <span class="tag">${g.kind === "likely" ? "Likely duplicate" : "Edition overlap"}</span>
+      </summary>
+      <div class="album-body insight-scroll">
+        <table class="insight-table">
+          <thead><tr><th>Album</th><th>Disc / track</th><th>Duration</th><th>Plex ID</th></tr></thead>
+          <tbody>${g.entries.map(e => `<tr>
+            <td>${esc(e.album)}</td>
+            <td>${e.disc || "?"} / ${e.track || "?"}</td>
+            <td>${(e.duration_ms / 1000).toFixed(1)} s</td>
+            <td>${esc(e.rating_key)}</td>
+          </tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </details>`).join("") :
+    '<div class="empty">No matching duplicate candidates. This does not prove the audio files are unique.</div>';
+}
+
+async function loadDuplicates(refresh=false) {
+  $("duplicateRows").textContent = "Scanning Plex music library…";
+  try {
+    duplicateData = await api("/api/duplicates?refresh=" + String(refresh));
+    renderDuplicates();
+  } catch(e) {
+    duplicateData = null;
+    $("duplicateRows").textContent = "Duplicate scan failed: " + e.message;
+  }
+}
+
 async function loadInsights(refresh=false) {
   if (!config) return;
   const days = Number($("insightDays").value);
@@ -750,6 +822,9 @@ $("albumLookupForm").onsubmit = async (event) => {
 };
 $("needsAttention").onchange = renderRecentAlbums;
 $("insightDays").onchange = () => loadInsights();
+$("duplicateSearch").oninput = renderDuplicates;
+$("duplicateKind").onchange = renderDuplicates;
+$("refreshDuplicates").onclick = () => loadDuplicates(true);
 for (const b of document.querySelectorAll(".refreshInsights"))
   b.onclick = () => loadInsights(true);
 for (const b of document.querySelectorAll(".view-tab")) b.onclick = async () => {
@@ -757,10 +832,12 @@ for (const b of document.querySelectorAll(".view-tab")) b.onclick = async () => 
   for (const tab of document.querySelectorAll(".view-tab"))
     tab.classList.toggle("active", tab===b);
   for (const [view,id] of Object.entries({
-    playlists:"viewPlaylists",health:"viewHealth",newmusic:"viewNewmusic",discover:"viewDiscover"
+    playlists:"viewPlaylists",health:"viewHealth",duplicates:"viewDuplicates",newmusic:"viewNewmusic",discover:"viewDiscover"
   })) $(id).hidden = view !== activeView;
   if ((activeView==="health" || activeView==="newmusic") && !insightsData)
     await loadInsights();
+  if (activeView==="duplicates" && !duplicateData)
+    await loadDuplicates();
 };
 
 checkHealth();
