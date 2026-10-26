@@ -11,7 +11,7 @@ from fastapi import Query
 import yaml
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
@@ -354,8 +354,22 @@ def curate_tracks(body: CurateBody):
 
     # Existing track entries are not duplicated, and no other playlist changes.
     playlist = definitions[body.playlist]
+    from .insights import normalize
     existing = {str(item.get("rating_key", "")).strip()
                 for item in playlist.get("items", [])}
+    for item in playlist.get("items", []):
+        if item.get("rating_key"):
+            continue
+        a, al, title = (normalize(item.get("artist")),
+                        normalize(item.get("album")),
+                        normalize(item.get("track")))
+        for key in keys:
+            candidate = available[key]
+            if a == normalize(candidate["artist"]) and (not al or al == normalize(candidate["album"])):
+                # Album-level item covers every track, track-level item only
+                # covers the named recording.
+                if not title or title == normalize(candidate["title"]):
+                    existing.add(key)
     added = [key for key in keys if key not in existing]
     if not added:
         return {"added": 0, "status": "unchanged"}
@@ -372,6 +386,15 @@ def curate_tracks(body: CurateBody):
     save_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
     # Save is durable even if the subsequent Plex sync fails; status stays pending.
     return {"added": len(added), "status": "needs_sync", "playlist": body.playlist}
+
+
+@app.get("/open-youtube-album")
+def open_youtube_album(artist: str, album: str):
+    """One-click redirect only when a real matching YouTube album was found."""
+    resolved = youtube_album(artist, album)
+    if resolved["status"] != "found":
+        raise HTTPException(status_code=404, detail=resolved["message"])
+    return RedirectResponse(resolved["url"], status_code=302)
 
 
 @app.get("/api/youtube-album")
