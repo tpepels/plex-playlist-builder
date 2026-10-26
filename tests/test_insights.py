@@ -255,3 +255,93 @@ def test_youtube_lookup_retries_without_requested_edition(monkeypatch):
         ]
     finally:
         service._lookup.cache_clear()
+
+
+@pytest.mark.parametrize("credited", [
+    "Isao Suzuki Trio",
+    "Isao Suzuki Quartet",
+    "Isao Suzuki Trio & Isao Suzuki Quartet",
+    "Isao Suzuki Trio/Quartet",
+    "Isao Suzuki Trio / Quartet",
+])
+def test_youtube_resolver_accepts_same_leader_ensemble_credits(credited):
+    album = {"resultType": "album", "title": "Blow Up",
+             "artist": credited, "browseId": "MPREsuzuki"}
+    result = pick_exact_album("Isao Suzuki", "Blow Up", [album])
+    assert result["status"] == "found"
+    assert result["artist_match_type"] == "ensemble"
+    assert result["album"] == "Blow Up"
+    assert result["url"] == "https://music.youtube.com/browse/MPREsuzuki"
+
+
+def test_youtube_resolver_accepts_multiple_ensemble_artist_entities():
+    album = {"resultType": "album", "title": "BLOW UP",
+             "artists": [{"name": "Isao Suzuki Trio"},
+                         {"name": "Isao Suzuki Quartet"}],
+             "playlistId": "OLAK5uy_suzuki"}
+    result = pick_exact_album("Isao Suzuki", "Blow Up", [album])
+    assert result["artist_match_type"] == "ensemble"
+    assert result["match_type"] == "exact"
+
+
+@pytest.mark.parametrize("credited", [
+    "Isao Suzuki Bandits", "Isao Suzuki Trio & Another Musician",
+    "Another Musician & Isao Suzuki Quartet", "Isao Suzuki Trio Featuring Guest",
+    "Isao Suzuki Trio All-Stars", "Isao Suzuki Orchestra of Europe",
+    "Isao Suzuki Quartet & Someone Else",
+])
+def test_youtube_resolver_rejects_ambiguous_or_other_artists(credited):
+    album = {"resultType": "album", "title": "Blow Up",
+             "artist": credited, "browseId": "MPREwrong"}
+    assert pick_exact_album("Isao Suzuki", "Blow Up", [album]) is None
+
+
+def test_youtube_resolver_rejects_collaboration_in_artist_list():
+    album = {"resultType": "album", "title": "Blow Up",
+             "artists": [{"name": "Isao Suzuki Trio"},
+                         {"name": "Other Artist"}],
+             "browseId": "MPREwrong"}
+    assert pick_exact_album("Isao Suzuki", "Blow Up", [album]) is None
+
+
+def test_youtube_resolver_prefers_exact_artist_to_ensemble_credits():
+    results = [
+        {"resultType": "album", "title": "Blow Up",
+         "artist": "Isao Suzuki Quartet", "browseId": "MPREquartet"},
+        {"resultType": "album", "title": "Blow Up",
+         "artist": "Isao Suzuki", "browseId": "MPREsolo"},
+    ]
+    resolved = pick_exact_album("Isao Suzuki", "Blow Up", results)
+    assert resolved["artist"] == "Isao Suzuki"
+    assert resolved["artist_match_type"] == "exact"
+    assert resolved["url"].endswith("MPREsolo")
+
+
+def test_youtube_lookup_searches_alternative_ensemble_credits(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from app import youtube_album as service
+
+    queries = []
+    def search(query, filter, limit):
+        queries.append(query)
+        if query == "Isao Suzuki Quartet Blow Up":
+            return [{"resultType": "album", "title": "BLOW UP",
+                     "artist": "Isao Suzuki Trio & Isao Suzuki Quartet",
+                     "browseId": "MPREsuzuki"}]
+        return []
+
+    monkeypatch.setitem(sys.modules, "ytmusicapi",
+                        SimpleNamespace(YTMusic=lambda: SimpleNamespace(search=search)))
+    service._lookup.cache_clear()
+    try:
+        result = service.lookup_album("Isao Suzuki", "Blow Up")
+        assert result["status"] == "found"
+        assert result["artist_match_type"] == "ensemble"
+        assert queries == [
+            "Isao Suzuki Blow Up", "Isao Suzuki Blow Up deluxe",
+            "Isao Suzuki Blow Up remastered",
+            "Isao Suzuki Trio Blow Up", "Isao Suzuki Quartet Blow Up",
+        ]
+    finally:
+        service._lookup.cache_clear()
