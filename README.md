@@ -110,7 +110,7 @@ more than one playlist, and per-playlist artist/album diversity, overlap
 across playlists and recently added music.
 
 Playlists are **Curated** unless you explicitly mark them **Rotating** in the
-Health view. Status lives in the separate \`/data/playlist-policies.yml\` file,
+Health view. Status lives in the separate `/data/playlist-policies.yml` file,
 so changing a policy never changes the playlist definitions or triggers a
 Plex sync. The initial advisory targets for rotating playlists (12+ tracks):
 no more than 20% from one artist, 25% from one album, and at least 15% of
@@ -130,14 +130,18 @@ the definition pending for retry. Playlist curation is always opt-in.
 **Find album** accepts artist and album and queries YouTube Music's public
 album catalog (no user account or API key needed). An exact artist/title
 match with a real album ID produces a **direct album URL**
-(\`music.youtube.com/playlist?list=OLAK5uy_...\` or an album browse URL).
-It never silently sends you to a generic search page or guesses a URL from
-an imprecise result. No match or a network error is reported explicitly.
+(`music.youtube.com/playlist?list=OLAK5uy_...` or an album browse URL).
+The app displays a **copyable direct URL**. It never silently sends you to a
+generic search page or guesses a URL from an imprecise result. No match or a network error is reported explicitly.
 YouTube Music may still impose regional playback restrictions.
 
-API routes: \`GET /api/insights?recent_days=30\`,
-\`PUT /api/playlist-policy/{name}\`, \`POST /api/curate-tracks\`,
-\`GET /api/youtube-album?artist=...&album=...\`.
+API routes: `GET /api/insights?recent_days=30`,
+`PUT /api/playlist-policy/{name}`, `POST /api/curate-tracks`,
+`GET /api/youtube-album?artist=...&album=...`.
+
+For one-click links to share from music discovery recommendations, use
+`GET /open-youtube-album?artist=...&album=...`: it redirects only for a
+verified catalog match and returns a 404 if no exact album was found.
 
 ## Playlist versions and sync status
 
