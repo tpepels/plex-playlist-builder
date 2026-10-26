@@ -594,13 +594,14 @@ function renderInsights() {
   const rows = [...insightsData.playlists].sort((a,b) => b.flags.length-a.flags.length || a.name.localeCompare(b.name));
   $("healthRows").innerHTML = `<table class="insight-table"><thead><tr>
     <th>Playlist</th><th>Tracks</th><th>Artists</th><th>Albums</th>
-    <th>Top artist</th><th>Top album</th><th>Recent</th><th>Type</th>
+    <th>Top artist</th><th>Top album</th><th>Shared</th><th>Recent</th><th>Type</th>
   </tr></thead><tbody>${rows.map(p => `<tr>
     <td><strong>${esc(p.name)}</strong><div>${p.flags.map(f=>`<span class="flag">${esc(f)}</span>`).join("")}</div></td>
     <td>${p.tracks}${p.repeated_tracks ? ` · ${p.repeated_tracks} repeats` : ""}</td>
     <td>${p.artists}</td><td>${p.albums}</td>
     <td title="${esc(p.top_artist)}">${Math.round(p.top_artist_share*100)}%</td>
     <td>${Math.round(p.top_album_share*100)}%</td>
+    <td>${Math.round(p.shared_share*100)}%</td>
     <td>${Math.round(p.recent_share*100)}%</td>
     <td><select class="policyKind" data-name="${esc(p.name)}" aria-label="Mode for ${esc(p.name)}">
       <option value="curated" ${p.kind==="curated" ? "selected" : ""}>Curated</option>
@@ -670,8 +671,12 @@ function renderRecentAlbums() {
           body:JSON.stringify({playlist,rating_keys:selected,album_key:a.album_key,version_id:config.version.id})
         });
         await loadConfig();
-        result.textContent = `${d.added} added to "${playlist}". ${d.added ? "Sync the pending playlist to Plex." : "Already there."}`;
-        showNotice(result.textContent);
+        if (d.added) {
+          const synced = await api("/api/sync/" + encodeURIComponent(playlist), {method:"POST"});
+          if (synced.status !== "synced") throw new Error(synced.message || "Plex sync blocked; changes remain pending.");
+          await loadConfig();
+        }
+        showNotice(`${d.added} tracks added to "${playlist}"${d.added ? " and synced to Plex" : " (already included)"}.`);
         await loadInsights(true);
       } catch(e) {
         result.textContent = "Could not add tracks: " + e.message;
