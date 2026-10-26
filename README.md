@@ -101,9 +101,9 @@ The endpoint is `/api/library-recent.tsv?mode=hours&limit=48`, or
 
 The **Discover** tab is a read-only source of album ideas from
 [In Sheep's Clothing's public album collection](https://insheepsclothinghifi.com/collection/).
-The dashboard surveys the newest visible collection entries in seven
-source-defined sections: Japan, Jazz, Fusion, Ambient, Experimental, Pop and
-Electronic. Linked albums under the site's **Suggested Records** recommendations
+The dashboard surveys the newest visible collection entries in eight
+source-defined sections: Japan, Jazz, Funk, Fusion, Ambient,
+Experimental, Pop and Electronic. Linked albums under the site's **Suggested Records** recommendations
 are included with explicit attribution to the recommending record; they do
 **not** automatically inherit its genre. This is a **bounded selection, not
 the site's entire historical catalog**. A limited number of linked album
