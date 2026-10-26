@@ -128,12 +128,23 @@ synced to Plex using the existing per-playlist sync function; failure leaves
 the definition pending for retry. Playlist curation is always opt-in.
 
 **Find album** accepts artist and album and queries YouTube Music's public
-album catalog (no user account or API key needed). An exact artist/title
-match with a real album ID produces a **direct album URL**
-(`music.youtube.com/playlist?list=OLAK5uy_...` or an album browse URL).
-The app displays a **copyable direct URL**. It never silently sends you to a
-generic search page or guesses a URL from an imprecise result. No match or a network error is reported explicitly.
-YouTube Music may still impose regional playback restrictions.
+album catalog (no user account or API key needed). It returns a **direct album
+URL** only when the artist and title match and the result has a valid YouTube
+Music album ID.
+
+The resolver now recognizes common *release editions*. For example, `Hats`,
+`Hats (Deluxe Edition)` and `Hats (2002 Remaster)` may all resolve to the
+same album. It always prefers an exact title; if none is present it accepts a
+known edition variant and labels the result **edition match**. If an initial
+catalog query returns no match, it retries the base album title or targeted
+deluxe/remaster searches.
+
+This matching is deliberately conservative: suffixes like `(Live)`,
+`(Acoustic)`, `(Demo)` and unrelated titles are **not** discarded. An album
+by a different artist will not match. We display the actual catalog title,
+plus a **copyable direct URL**, never a generic YouTube search link. No match
+or a network error is reported explicitly. YouTube Music may still impose
+regional playback restrictions.
 
 API routes: `GET /api/insights?recent_days=30`,
 `PUT /api/playlist-policy/{name}`, `POST /api/curate-tracks`,
