@@ -92,6 +92,37 @@ textarea{width:100%;min-height:360px;resize:vertical;background:#111215;color:#e
 small{color:var(--muted)}
 .empty{padding:22px;color:var(--muted);border:1px dashed #555;border-radius:10px}
 @media(max-width:720px){main{padding:16px 13px 40px}.playlist-meta{white-space:normal}.playlist>summary{flex-wrap:wrap}.playlist-body{padding-left:16px}.recent-form{align-items:center}}
+
+.view-tabs{display:flex;gap:6px;margin:16px 0 12px;border-bottom:1px solid var(--line);padding-bottom:8px}
+.view-tabs button{background:transparent;border-color:transparent;border-radius:7px;padding:8px 13px;color:var(--muted)}
+.view-tabs button.active{background:var(--surface);color:var(--text);font-weight:700}
+.data-strip{display:flex;gap:16px;flex-wrap:wrap;padding:8px 0 13px;color:var(--muted)}
+.data-strip strong{color:var(--text);font-size:21px;margin-right:5px}
+.insights-tools{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:12px 0}
+.insight-table{width:100%;border-collapse:collapse;font-size:13px}
+.insight-table th{text-align:left;color:var(--muted);font-weight:550;border-bottom:1px solid var(--line);padding:9px 6px}
+.insight-table td{padding:9px 6px;border-bottom:1px solid var(--line)}
+.insight-table th:not(:first-child),.insight-table td:not(:first-child){white-space:nowrap}
+.insight-table td:first-child{max-width:330px;overflow-wrap:anywhere}
+.insight-table select,.album-card select{max-width:190px;background:var(--surface);border:1px solid var(--line);border-radius:7px;color:var(--text);padding:5px}
+.insight-scroll{overflow-x:auto}
+.album-card{margin:9px 0;border:1px solid var(--line);border-radius:9px;background:var(--panel)}
+.album-card>summary{list-style:none;cursor:pointer;display:flex;gap:12px;align-items:center;padding:12px 14px}
+.album-card>summary::-webkit-details-marker{display:none}
+.album-card>summary::before{content:"›";color:var(--muted);font-size:20px}
+.album-card[open]>summary::before{content:"⌄"}
+.album-card .album-body{padding:0 15px 14px 35px}
+.album-title{flex:1;min-width:0;overflow-wrap:anywhere}
+.album-meta{font-size:12px;color:var(--muted)}
+.album-tracks{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:3px 12px;margin:12px 0}
+.album-tracks label{display:flex;align-items:baseline;gap:8px;font-size:13px}
+.album-tracks label span{color:var(--muted)}
+.flag{display:inline-block;margin:2px 4px 2px 0;color:var(--warning);font-size:12px}
+.tag{font-size:12px;background:var(--surface);color:var(--muted);border-radius:6px;padding:3px 7px}
+.album-lookup{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.album-lookup input{background:var(--surface);color:var(--text);padding:9px;border:1px solid var(--line);border-radius:8px;min-width:180px;flex:1}
+#ytResult{margin-top:13px;overflow-wrap:anywhere}
+@media(max-width:720px){.view-tabs{overflow-x:auto}.insight-table{font-size:12px}.album-card>summary{flex-wrap:wrap}}
 </style>
 </head>
 <body>
@@ -146,6 +177,13 @@ small{color:var(--muted)}
   </div>
 </section>
 
+<nav class="view-tabs" aria-label="Playlist builder views">
+  <button class="view-tab active" type="button" data-view="playlists">Playlists</button>
+  <button class="view-tab" type="button" data-view="health">Health</button>
+  <button class="view-tab" type="button" data-view="newmusic">New music</button>
+  <button class="view-tab" type="button" data-view="discover">Find album</button>
+</nav>
+<section id="viewPlaylists">
 <div class="section-title"><h2>Playlists</h2><small id="listHint"></small></div>
 <div class="playlist-tools">
   <input id="searchPlaylists" type="search" placeholder="Search playlists…" aria-label="Search playlists">
@@ -165,9 +203,38 @@ small{color:var(--muted)}
     </div>
   </div>
 </details>
+</section>
+<section id="viewHealth" class="panel" hidden>
+  <div class="section-title"><h2>Playlist health</h2><button class="refreshInsights" type="button">Refresh</button></div>
+  <div id="healthTotals" class="data-strip"></div>
+  <div class="insights-tools"><span class="tag">Rotating targets: ≤20% per artist · ≤25% per album · ≥15% recently added</span>
+  <span class="tag">Curated lists are not judged or auto-changed</span></div>
+  <div id="healthRows" class="insight-scroll"><span class="album-meta">Open this tab to analyze the library.</span></div>
+</section>
+<section id="viewNewmusic" class="panel" hidden>
+  <div class="section-title"><h2>New music</h2><button class="refreshInsights" type="button">Refresh</button></div>
+  <div class="insights-tools">
+    <label for="insightDays">Added within</label>
+    <select id="insightDays" aria-label="Days to review"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="365">365 days</option></select>
+    <label><input id="needsAttention" type="checkbox" checked> Needs attention only</label>
+    <span id="newMusicSummary" class="album-meta"></span>
+  </div>
+  <div id="newMusicRows"></div>
+</section>
+<section id="viewDiscover" class="panel" hidden>
+  <h2>Find an actual YouTube Music album</h2>
+  <form id="albumLookupForm" class="album-lookup">
+    <input id="ytArtist" aria-label="Artist" placeholder="Artist" required maxlength="200">
+    <input id="ytAlbum" aria-label="Album" placeholder="Album" required maxlength="250">
+    <button type="submit" class="primary">Find album URL</button>
+  </form>
+  <div id="ytResult" role="status"></div>
+</section>
 </main>
 <script>
 const $ = id => document.getElementById(id);
+let insightsData = null;
+let activeView = "playlists";
 let config = null;
 let editorDirty = false;
 let syncing = false;
@@ -515,6 +582,155 @@ $("packFile").onchange = async () => {
     updateActions();
   }
 };
+
+function renderInsights() {
+  if (!insightsData) return;
+  const s = insightsData.summary;
+  $("healthTotals").innerHTML = [
+    [s.library_tracks, "Plex tracks"], [s.unlisted_tracks, "not in playlists"],
+    [s.in_multiple_playlists, "in 2+ playlists"], [s.missing_references, "unresolved entries"],
+    [s.rotating_playlists, "rotating"]
+  ].map(([value,label]) => `<span><strong>${value.toLocaleString()}</strong>${esc(label)}</span>`).join("");
+  const rows = [...insightsData.playlists].sort((a,b) => b.flags.length-a.flags.length || a.name.localeCompare(b.name));
+  $("healthRows").innerHTML = `<table class="insight-table"><thead><tr>
+    <th>Playlist</th><th>Tracks</th><th>Artists</th><th>Albums</th>
+    <th>Top artist</th><th>Top album</th><th>Recent</th><th>Type</th>
+  </tr></thead><tbody>${rows.map(p => `<tr>
+    <td><strong>${esc(p.name)}</strong><div>${p.flags.map(f=>`<span class="flag">${esc(f)}</span>`).join("")}</div></td>
+    <td>${p.tracks}${p.repeated_tracks ? ` · ${p.repeated_tracks} repeats` : ""}</td>
+    <td>${p.artists}</td><td>${p.albums}</td>
+    <td title="${esc(p.top_artist)}">${Math.round(p.top_artist_share*100)}%</td>
+    <td>${Math.round(p.top_album_share*100)}%</td>
+    <td>${Math.round(p.recent_share*100)}%</td>
+    <td><select class="policyKind" data-name="${esc(p.name)}" aria-label="Mode for ${esc(p.name)}">
+      <option value="curated" ${p.kind==="curated" ? "selected" : ""}>Curated</option>
+      <option value="rotating" ${p.kind==="rotating" ? "selected" : ""}>Rotating</option>
+    </select></td>
+  </tr>`).join("")}</tbody></table>`;
+  for (const picker of $("healthRows").querySelectorAll(".policyKind")) {
+    picker.onchange = async () => {
+      picker.disabled = true;
+      try {
+        await api("/api/playlist-policy/" + encodeURIComponent(picker.dataset.name), {
+          method:"PUT", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({kind:picker.value})
+        });
+        await loadInsights();
+        showNotice(`Set "${picker.dataset.name}" to ${picker.value}.`);
+      } catch(e) {
+        picker.disabled = false;
+        showNotice("Policy update failed: " + e.message, true);
+      }
+    };
+  }
+  renderRecentAlbums();
+}
+
+function renderRecentAlbums() {
+  if (!insightsData) return;
+  const albums = insightsData.recent_albums.filter(a=>!$("needsAttention").checked || a.needs_attention);
+  $("newMusicSummary").textContent = `${albums.length} shown · ${insightsData.summary.uncurated_recent_albums} need attention`;
+  const playlistOptions = Object.keys(config?.definitions || {})
+    .map(name=>`<option value="${esc(name)}">${esc(name)}</option>`).join("");
+  $("newMusicRows").innerHTML = albums.length ? albums.map((a,i)=>`
+    <details class="album-card" data-index="${i}">
+      <summary><span class="album-title"><strong>${esc(a.album)}</strong><br><span class="album-meta">${esc(a.artist)} · ${esc(a.added_at.slice(0,10))}</span></span>
+        <span class="tag">${a.covered_tracks}/${a.tracks} in playlists</span>
+        ${a.needs_attention ? '<span class="flag">Needs attention</span>' : ""}
+      </summary>
+      <div class="album-body">
+        <div class="album-meta">${a.playlists.length ? `In: ${esc(a.playlists.join(", "))}` : "Not in any playlist"}</div>
+        <div class="album-tracks">${a.track_items.map(t=>`<label><input type="checkbox" class="track-choice" value="${esc(t.key)}"> ${esc(t.title)} ${t.listed ? '<span>✓</span>' : ""}</label>`).join("")}</div>
+        <div class="actions">
+          <select class="targetPlaylist" aria-label="Playlist for selected tracks"><option value="">Choose playlist…</option>${playlistOptions}</select>
+          <button type="button" class="addTracks primary">Add selected</button>
+          <button type="button" class="resolveAlbum">YouTube album URL</button>
+        </div>
+        <div class="result" role="status"></div>
+      </div>
+    </details>`).join("") : '<div class="empty">No albums to review.</div>';
+  for (const [i,card] of [...$("newMusicRows").querySelectorAll(".album-card")].entries()) {
+    const a = albums[i], result = card.querySelector(".result");
+    card.querySelector(".addTracks").onclick = async () => {
+      const selected = [...card.querySelectorAll(".track-choice:checked")].map(c=>c.value);
+      const playlist = card.querySelector(".targetPlaylist").value;
+      if (!selected.length || !playlist) {
+        result.textContent = "Select tracks and a destination playlist.";
+        return;
+      }
+      if (syncing || editorDirty) {
+        result.textContent = "Finish the current operation and save YAML edits first.";
+        return;
+      }
+      syncing = true;
+      updateActions();
+      try {
+        const d = await api("/api/curate-tracks", {
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({playlist,rating_keys:selected,album_key:a.album_key,version_id:config.version.id})
+        });
+        await loadConfig();
+        result.textContent = `${d.added} added to "${playlist}". ${d.added ? "Sync the pending playlist to Plex." : "Already there."}`;
+        showNotice(result.textContent);
+        await loadInsights(true);
+      } catch(e) {
+        result.textContent = "Could not add tracks: " + e.message;
+      } finally { syncing=false; updateActions(); }
+    };
+    card.querySelector(".resolveAlbum").onclick = () => resolveYoutubeAlbum(a.artist,a.album,result);
+  }
+}
+
+async function loadInsights(refresh=false) {
+  if (!config) return;
+  const days = Number($("insightDays").value);
+  $("healthRows").textContent = "Analyzing Plex library…";
+  $("newMusicRows").textContent = "Loading recent albums…";
+  try {
+    insightsData = await api(`/api/insights?recent_days=${days}&refresh=${refresh}`);
+    renderInsights();
+  } catch(e) {
+    $("healthRows").textContent = "Analysis unavailable: " + e.message;
+    $("newMusicRows").textContent = "Could not load albums: " + e.message;
+  }
+}
+
+async function resolveYoutubeAlbum(artist,album,target) {
+  target.textContent = "Checking YouTube Music…";
+  try {
+    const d = await api("/api/youtube-album?artist="+encodeURIComponent(artist)+"&album="+encodeURIComponent(album));
+    if (d.status !== "found") {
+      target.textContent = "No exact album in YouTube Music's catalog. No guessed link.";
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = d.url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = `Open album: ${d.artist} — ${d.album}`;
+    target.replaceChildren(a);
+  } catch(e) { target.textContent = "YouTube Music lookup failed: " + e.message; }
+}
+
+$("albumLookupForm").onsubmit = async (event) => {
+  event.preventDefault();
+  await resolveYoutubeAlbum($("ytArtist").value,$("ytAlbum").value,$("ytResult"));
+};
+$("needsAttention").onchange = renderRecentAlbums;
+$("insightDays").onchange = () => loadInsights();
+for (const b of document.querySelectorAll(".refreshInsights"))
+  b.onclick = () => loadInsights(true);
+for (const b of document.querySelectorAll(".view-tab")) b.onclick = async () => {
+  activeView = b.dataset.view;
+  for (const tab of document.querySelectorAll(".view-tab"))
+    tab.classList.toggle("active", tab===b);
+  for (const [view,id] of Object.entries({
+    playlists:"viewPlaylists",health:"viewHealth",newmusic:"viewNewmusic",discover:"viewDiscover"
+  })) $(id).hidden = view !== activeView;
+  if ((activeView==="health" || activeView==="newmusic") && !insightsData)
+    await loadInsights();
+};
+
 checkHealth();
 loadConfig().catch(e => { $("cards").innerHTML = `<div class="empty">Could not load playlists: ${esc(e.message)}</div>`; });
 </script>
