@@ -21,7 +21,7 @@ DISC_DIR = re.compile(r"(?i)^(?:disc|disk|cd)[\s._-]*0*[1-9][0-9]*$")
 TSV_COLUMNS = (
     "group", "match", "artist", "album", "release", "directory",
     "folder_review_candidate", "folder_status", "tracks", "matched_tracks",
-    "total_duration_ms", "album_rating_key", "track_rating_keys",
+    "total_duration_ms", "formats", "album_rating_key", "track_rating_keys",
     "media_files", "missing_media_paths",
 )
 
@@ -113,6 +113,9 @@ def _public_release(r):
     return {
         "id": r["id"], "album": r["album"], "directory": r["directory"],
         "album_rating_key": r["album_rating_key"],
+        "formats": sorted({PurePosixPath(path).suffix.lower().lstrip(".")
+                           for t in r["tracks"] for path in t["paths"]
+                           if PurePosixPath(path).suffix}),
         "tracks": len(r["tracks"]), "total_duration_ms": sum(t["duration_ms"] for t in r["tracks"]),
         "track_rating_keys": [t["rating_key"] for t in r["tracks"]],
         "media_files": sum(len(t["paths"]) for t in r["tracks"]),
@@ -301,6 +304,7 @@ def duplicates_tsv(report):
                 "folder_status": release["folder_status"],
                 "tracks": release["tracks"], "matched_tracks": release["matched_tracks"],
                 "total_duration_ms": release["total_duration_ms"],
+                "formats": ", ".join(release["formats"]),
                 "album_rating_key": release["album_rating_key"],
                 "track_rating_keys": ";".join(release["track_rating_keys"]),
                 "media_files": release["media_files"],
