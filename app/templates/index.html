@@ -714,7 +714,7 @@ async function resolveYoutubeAlbum(artist,album,target) {
     a.href = d.url;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    a.textContent = `Open album: ${d.artist} — ${d.album}${d.match_type === "edition" ? " (edition match)" : ""}`;
+    a.textContent = `Open album: ${d.artist} — ${d.album}${d.match_type === "edition" ? " (edition match)" : ""}${d.artist_match_type === "ensemble" ? " (ensemble credit match)" : ""}`;
     const url = document.createElement("input");
     url.type = "text";
     url.value = d.url;
