@@ -308,3 +308,30 @@ test("Duplicates view groups complete albums with candidate folders and edition 
   assert.ok(h.calls.includes("/api/duplicates?refresh=true"));
   assert.ok(!h.calls.some(c => /sync-pending|curate-tracks/.test(c)));
 });
+
+
+test("Choosing the retained album only marks other complete folders for manual review", async () => {
+  const h = makeHarness();
+  await new Promise(resolve => setImmediate(resolve));
+  const node = h.$("duplicateRows");
+  const pickers = [];
+  node.querySelectorAll = (selector) => {
+    if (selector !== ".duplicateKeep") return [];
+    const picker = fakeElement();
+    picker.dataset.group = "0";
+    picker.value = "";
+    pickers.push(picker);
+    return [picker];
+  };
+  await h.tabs.find(t => t.dataset.view === "duplicates").onclick();
+  assert.match(node.innerHTML, /Choose a copy to keep/);
+  assert.doesNotMatch(node.innerHTML, /Review for removal/);
+  const picker = pickers.at(-1);
+  assert.equal(typeof picker.onchange, "function");
+  picker.value = "1";
+  picker.onchange();
+  assert.match(node.innerHTML, /Keep selected/);
+  assert.match(node.innerHTML, /Review for removal/);
+  assert.match(node.innerHTML, /\/music\/Bill Evans\/Duplicate/);
+  assert.ok(!h.calls.some(c=>/sync-pending|curate-tracks/.test(c)));
+});
