@@ -89,3 +89,34 @@ def test_cannot_add_to_nonexisting_playlist(tmp_path, monkeypatch):
     with pytest.raises(HTTPException) as raised:
         main.curate_tracks(command(playlist="Nothing"))
     assert raised.value.status_code == 404
+
+
+def test_album_level_playlist_reference_prevents_duplicate_track(tmp_path, monkeypatch):
+    file, _ = setup(tmp_path, monkeypatch)
+    file.write_text(
+        "playlists:\n  Main:\n    items:\n      - artist: Artist\n        album: Record\n",
+        encoding="utf-8",
+    )
+    result = main.curate_tracks(command(keys=["1", "2"]))
+    assert result["added"] == 0
+    assert len(config_store.load()["playlists"]["Main"]["items"]) == 1
+
+
+def test_one_click_youtube_resolver_redirects_only_after_exact_match(monkeypatch):
+    monkeypatch.setattr(main, "lookup_album", lambda artist, album: {
+        "status": "found",
+        "url": "https://music.youtube.com/playlist?list=OLAK5uy_correct",
+    })
+    response = main.open_youtube_album("Artist", "Album")
+    assert response.status_code == 302
+    assert response.headers["location"].startswith("https://music.youtube.com/playlist?")
+
+
+def test_one_click_youtube_resolver_not_found_is_not_search_redirect(monkeypatch):
+    monkeypatch.setattr(main, "lookup_album", lambda artist, album: {
+        "status": "not_found",
+        "message": "No exact album match.",
+    })
+    with pytest.raises(HTTPException) as raised:
+        main.open_youtube_album("Artist", "Unknown")
+    assert raised.value.status_code == 404
