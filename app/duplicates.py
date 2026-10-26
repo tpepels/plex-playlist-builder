@@ -215,6 +215,8 @@ def find_duplicates(tracks):
         folder = r["directory"]
         if not folder:
             r["folder_status"] = "Plex did not expose a dedicated album directory"
+        elif normalize(PurePosixPath(folder).name) == normalize(r["artist"]):
+            r["folder_status"] = "Artist directory - not a removal candidate"
         elif len(directory_owners[folder]) != 1:
             r["folder_status"] = "Shared directory - not a removal candidate"
         elif not r["_complete"]:
