@@ -121,6 +121,16 @@ small{color:var(--muted)}
 .tag{font-size:12px;background:var(--surface);color:var(--muted);border-radius:6px;padding:3px 7px}
 .album-lookup{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .album-lookup input{background:var(--surface);color:var(--text);padding:9px;border:1px solid var(--line);border-radius:8px;min-width:180px;flex:1}
+
+.discovery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin:14px 0}
+.discovery-record{padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.discovery-record h3{font-size:15px;font-weight:650;margin:0 0 4px;overflow-wrap:anywhere}
+.discovery-record p{margin:4px 0 8px;color:var(--muted);font-size:13px}
+.discovery-record .row{margin:8px 0 0;gap:12px}
+.discovery-record a{overflow-wrap:anywhere}
+#iscSearch{min-width:200px;flex:1;max-width:380px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px}
+#iscMood,#iscStatus{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px}
+
 #ytResult{margin-top:13px;overflow-wrap:anywhere}
 @media(max-width:720px){.view-tabs{overflow-x:auto}.insight-table{font-size:12px}.album-card>summary{flex-wrap:wrap}}
 </style>
@@ -182,6 +192,7 @@ small{color:var(--muted)}
   <button class="view-tab" type="button" data-view="health">Health</button>
   <button class="view-tab" type="button" data-view="duplicates">Duplicates</button>
   <button class="view-tab" type="button" data-view="newmusic">New music</button>
+  <button class="view-tab" type="button" data-view="isc">Discover</button>
   <button class="view-tab" type="button" data-view="discover">Find album</button>
 </nav>
 <section id="viewPlaylists">
@@ -240,6 +251,37 @@ small{color:var(--muted)}
   </div>
   <div id="newMusicRows"></div>
 </section>
+<section id="viewIsc" class="panel" hidden>
+  <div class="section-title">
+    <h2>Discover · In Sheep's Clothing</h2>
+    <button id="iscRefresh" type="button">Refresh source</button>
+  </div>
+  <p class="album-meta">Curated albums from In Sheep's Clothing Hi-Fi, compared with your Plex library. Suggestions only; your playlists are never changed. Genres are suggested from the source's published styles and tags.</p>
+  <div id="iscTotals" class="data-strip"></div>
+  <div class="insights-tools">
+    <input id="iscSearch" type="search" placeholder="Search artist or album…" aria-label="Search discoveries">
+    <label for="iscStatus">Library</label>
+    <select id="iscStatus" aria-label="Library ownership">
+      <option value="missing" selected>Missing</option>
+      <option value="all">All</option>
+      <option value="owned">In Plex</option>
+      <option value="edition">Other edition in Plex</option>
+    </select>
+    <label for="iscMood">Mood</label>
+    <select id="iscMood" aria-label="Music discovery mood">
+      <option value="all">All styles</option>
+      <option value="japanese-jazz-funk">Japanese jazz-funk</option>
+      <option value="deep-listening">Deep listening</option>
+      <option value="ecm-jazz">ECM-like jazz</option>
+      <option value="ambient">Ambient</option>
+      <option value="experimental-pop">Experimental pop</option>
+    </select>
+    <span id="iscShown" class="album-meta"></span>
+  </div>
+  <p id="iscMeta" class="album-meta" role="status">Open this tab to load the collection.</p>
+  <div id="iscRows" class="discovery-grid"></div>
+  <button id="iscMore" type="button" hidden>Show more albums</button>
+</section>
 <section id="viewDiscover" class="panel" hidden>
   <h2>Find an actual YouTube Music album</h2>
   <form id="albumLookupForm" class="album-lookup">
@@ -253,6 +295,8 @@ small{color:var(--muted)}
 <script>
 const $ = id => document.getElementById(id);
 let insightsData = null;
+let iscData = null;
+let iscDisplayLimit = 40;
 let duplicateData = null;
 let duplicateKeepByAlbum = new Map();
 let activeView = "playlists";
@@ -707,6 +751,76 @@ function renderRecentAlbums() {
   }
 }
 
+
+const iscMoodNames = {
+  "japanese-jazz-funk":"Japanese jazz-funk",
+  "deep-listening":"Deep listening",
+  "ecm-jazz":"ECM-like jazz",
+  "ambient":"Ambient",
+  "experimental-pop":"Experimental pop",
+};
+function renderIsc() {
+  if (!iscData) return;
+  const totals = iscData.summary;
+  $("iscTotals").innerHTML = [
+    [totals.total, "curated albums"],
+    [totals.missing, "missing"],
+    [totals.owned, "in Plex"],
+    [totals.edition, "other edition"],
+  ].map(([n, label]) => `<span><strong>${Number(n).toLocaleString()}</strong>${esc(label)}</span>`).join("");
+  const status = $("iscStatus").value;
+  const mood = $("iscMood").value;
+  const query = $("iscSearch").value.trim().toLocaleLowerCase();
+  const filtered = iscData.albums.filter(a =>
+    (status === "all" || status === a.status) &&
+    (mood === "all" || a.moods.includes(mood)) &&
+    (!query || [a.artist, a.album, ...a.site_tags, ...a.site_styles]
+      .some(value => String(value).toLocaleLowerCase().includes(query)))
+  );
+  const selected = filtered.slice(0, iscDisplayLimit);
+  $("iscShown").textContent = `${filtered.length.toLocaleString()} results`;
+  $("iscMore").hidden = selected.length >= filtered.length;
+  $("iscRows").innerHTML = selected.length ? selected.map(a => {
+    const url = "/open-youtube-album?artist=" + encodeURIComponent(a.artist) +
+      "&album=" + encodeURIComponent(a.album);
+    const state = a.status === "missing" ? "Missing" :
+      a.status === "edition" ? "Other edition in Plex" : "In Plex";
+    const genres = a.moods.map(m => iscMoodNames[m] || m);
+    const match = a.plex_matches.length ?
+      a.plex_matches.slice(0, 3).map(p => p.album + " (" + p.tracks + " tracks)").join(" · ") : "";
+    return `<article class="discovery-record">
+      <h3>${esc(a.album)}</h3>
+      <p>${esc(a.artist)}${a.year ? " · " + a.year : ""}</p>
+      <div class="row">
+        <span class="tag">${state}</span>
+        ${genres.map(m => `<span class="tag">${esc(m)}</span>`).join("")}
+      </div>
+      ${match ? `<p>In Plex: ${esc(match)}</p>` : ""}
+      ${a.site_styles.length || a.source_styles.length ? `<p>Source genres: ${esc((a.site_styles.length ? a.site_styles : a.source_styles).join(", "))}</p>` : ""}
+      <div class="row">
+        <a href="${esc(a.source_url)}" target="_blank" rel="noopener noreferrer">Read album</a>
+        ${a.status !== "owned" ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open on YouTube Music</a>` : ""}
+      </div>
+    </article>`;
+  }).join("") : '<div class="empty">No albums match these filters.</div>';
+}
+async function loadIsc(refresh=false) {
+  $("iscMeta").textContent = refresh ? "Refreshing the source collection…" : "Loading source collection and comparing Plex…";
+  $("iscRefresh").disabled = true;
+  try {
+    iscData = await api("/api/discover/isc?refresh=" + String(refresh));
+    iscDisplayLimit = 40;
+    renderIsc();
+    const date = dateLabel(iscData.fetched_at);
+    $("iscMeta").textContent = `In Sheep's Clothing Hi-Fi · ${iscData.sources_scanned} source sections · last fetched ${date}${iscData.stale ? " · old cached collection" : ""}${iscData.warnings.length ? " · some sections unavailable" : ""}. YouTube Music links resolve only to verified albums when clicked.`;
+  } catch(e) {
+    $("iscMeta").textContent = "Discovery unavailable: " + e.message;
+    $("iscRows").textContent = "";
+  } finally {
+    $("iscRefresh").disabled = false;
+  }
+}
+
 function renderDuplicates() {
   if (!duplicateData) return;
   const summary = duplicateData.summary;
@@ -879,6 +993,11 @@ $("albumLookupForm").onsubmit = async (event) => {
 };
 $("needsAttention").onchange = renderRecentAlbums;
 $("insightDays").onchange = () => loadInsights();
+$("iscSearch").oninput = () => { iscDisplayLimit = 40; renderIsc(); };
+$("iscStatus").onchange = () => { iscDisplayLimit = 40; renderIsc(); };
+$("iscMood").onchange = () => { iscDisplayLimit = 40; renderIsc(); };
+$("iscRefresh").onclick = () => loadIsc(true);
+$("iscMore").onclick = () => { iscDisplayLimit += 40; renderIsc(); };
 $("duplicateSearch").oninput = renderDuplicates;
 $("duplicateKind").onchange = renderDuplicates;
 $("refreshDuplicates").onclick = () => loadDuplicates(true);
@@ -889,12 +1008,14 @@ for (const b of document.querySelectorAll(".view-tab")) b.onclick = async () => 
   for (const tab of document.querySelectorAll(".view-tab"))
     tab.classList.toggle("active", tab===b);
   for (const [view,id] of Object.entries({
-    playlists:"viewPlaylists",health:"viewHealth",duplicates:"viewDuplicates",newmusic:"viewNewmusic",discover:"viewDiscover"
+    playlists:"viewPlaylists",health:"viewHealth",duplicates:"viewDuplicates",newmusic:"viewNewmusic",isc:"viewIsc",discover:"viewDiscover"
   })) $(id).hidden = view !== activeView;
   if ((activeView==="health" || activeView==="newmusic") && !insightsData)
     await loadInsights();
   if (activeView==="duplicates" && !duplicateData)
     await loadDuplicates();
+  if (activeView==="isc" && !iscData)
+    await loadIsc();
 };
 
 checkHealth();
