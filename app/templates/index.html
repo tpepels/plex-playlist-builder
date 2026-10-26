@@ -254,6 +254,7 @@ small{color:var(--muted)}
 const $ = id => document.getElementById(id);
 let insightsData = null;
 let duplicateData = null;
+let duplicateKeepByAlbum = new Map();
 let activeView = "playlists";
 let config = null;
 let editorDirty = false;
@@ -726,7 +727,10 @@ function renderDuplicates() {
   const shown = groups.slice(0, 100);
   $("duplicateShown").textContent = `${groups.length.toLocaleString()} albums${groups.length > shown.length ? " · first 100 shown, export for all" : ""}`;
   const statusName = {full:"Complete album match",edition:"Alternate edition",partial:"Partial overlap"};
-  $("duplicateRows").innerHTML = shown.length ? shown.map(g => `
+  $("duplicateRows").innerHTML = shown.length ? shown.map(g => {
+    const groupIndex = duplicateData.groups.indexOf(g);
+    const keptId = duplicateKeepByAlbum.get(groupIndex) || "";
+    return `
     <details class="album-card">
       <summary>
         <span class="album-title"><strong>${esc(g.album)}</strong><br>
@@ -736,12 +740,25 @@ function renderDuplicates() {
         ${g.reviewable_folders ? `<span class="tag">${g.reviewable_folders} folders to review</span>` : ""}
       </summary>
       <div class="album-body">
+        ${g.kind === "full" ? `<div class="row">
+          <label>Keep this folder
+            <select class="duplicateKeep" data-group="${groupIndex}">
+              <option value="">Choose a copy to keep…</option>
+              ${g.releases.filter(r=>r.match === "full" && r.directory).map(r=>
+                `<option value="${r.id}" ${String(r.id)===keptId ? "selected" : ""}>${esc(r.directory)} (${esc((r.formats||[]).join(", ") || "unknown format")})</option>`
+              ).join("")}
+            </select>
+          </label>
+        </div>` : ""}
         ${g.releases.map(r => `
           <div class="album-card" style="padding:12px">
             <div class="row"><strong>${esc(r.album)}</strong>
               <span class="tag">${r.tracks} tracks</span>
+              <span class="tag">${esc((r.formats || []).join(", ") || "format unknown")}</span>
               <span class="tag">${statusName[r.match] || "Review"}</span>
-              ${r.folder_review_candidate ? '<span class="flag">Folder review candidate</span>' : ""}
+              ${keptId && String(r.id) === keptId ? '<span class="tag">Keep selected</span>' :
+                 r.folder_review_candidate ? (keptId ? '<span class="flag">Review for removal</span>' :
+                 '<span class="tag">Duplicate folder</span>') : ""}
             </div>
             <div class="album-meta">${esc(r.folder_status)}</div>
             <div class="row">
@@ -763,10 +780,16 @@ function renderDuplicates() {
             </details>
           </div>
         `).join("")}
-        <small>Keep at least one full copy. Confirm audio quality, bonus tracks, other files and playlist references before manually removing a folder. Plex paths may differ from host paths.</small>
+        <small>Select which copy to keep. Only other complete, dedicated album folders may be review candidates. Verify audio quality, bonus tracks, unindexed files and playlist references before manually removing anything. Plex paths may differ from host paths.</small>
       </div>
-    </details>`).join("") :
+    </details>`;
+  }).join("") :
     '<div class="empty">No matching album duplicates found. This does not prove all audio files are unique.</div>';
+  for (const picker of $("duplicateRows").querySelectorAll(".duplicateKeep"))
+    picker.onchange = () => {
+      duplicateKeepByAlbum.set(Number(picker.dataset.group), picker.value);
+      renderDuplicates();
+    };
   for (const button of $("duplicateRows").querySelectorAll(".copyAlbumDir"))
     button.onclick = async () => {
       try {
@@ -782,6 +805,7 @@ async function loadDuplicates(refresh=false) {
   $("duplicateRows").textContent = "Scanning Plex music library…";
   try {
     duplicateData = await api("/api/duplicates?refresh=" + String(refresh));
+    duplicateKeepByAlbum = new Map();
     renderDuplicates();
   } catch(e) {
     duplicateData = null;
