@@ -179,6 +179,17 @@ def test_directory_at_artist_or_music_root_is_not_removable():
     assert report["summary"]["folder_review_candidates"] == 0
 
 
+def test_nested_artist_root_is_never_suggested_as_a_disposable_folder():
+    report = find_duplicates([
+        track(1, album_id="A", path="/mnt/music/Bill Evans/01.flac"),
+        track(2, album_id="B", path="/mnt/music/Bill Evans Backup/01.flac"),
+    ])
+    assert report["summary"]["full_album_groups"] == 1
+    assert report["summary"]["folder_review_candidates"] == 1
+    statuses = {r["directory"]: r["folder_status"] for r in report["groups"][0]["releases"]}
+    assert statuses["/mnt/music/Bill Evans"] == "Artist directory - not a removal candidate"
+
+
 def test_duplicate_same_rating_key_is_not_double_counted():
     one = track(1, path="/music/Bill Evans/Original/01.flac")
     report = find_duplicates([one, one, track(2, path="/music/Bill Evans/Backup/01.flac")])
