@@ -7,7 +7,7 @@ import pytest
 
 from app.insights import analyze
 from app.playlist_policies import read_policies, set_policy
-from app.youtube_album import pick_exact_album, lookup_album
+from app.youtube_album import base_album_title, pick_exact_album, lookup_album
 
 
 NOW = datetime(2026, 10, 26, 8, 0, tzinfo=timezone.utc)
@@ -104,7 +104,9 @@ def test_youtube_album_resolver_only_returns_exact_official_album_links():
     assert link["url"] == "https://music.youtube.com/playlist?list=OLAK5uy_correctID"
     assert link["catalog_verified"] is True
     assert pick_exact_album("Nils Frahm", "Not Felt", results) is None
-    assert pick_exact_album("Nils Frahm", "Felt", results[:3]) is None
+    variant = pick_exact_album("Nils Frahm", "Felt", results[:3])
+    assert variant["match_type"] == "edition"
+    assert variant["album"] == "Felt (Remastered)"
 
 
 def test_youtube_album_url_never_guessed_without_valid_id():
@@ -118,3 +120,138 @@ def test_youtube_album_url_never_guessed_without_valid_id():
 def test_youtube_album_empty_input_validation():
     with pytest.raises(ValueError):
         lookup_album(" ", "Felt")
+
+
+
+@pytest.mark.parametrize("title,expected", [
+    ("Hats (Deluxe Edition)", "Hats"),
+    ("Hats [Deluxe Version]", "Hats"),
+    ("Hats (2002 Remaster)", "Hats"),
+    ("Hats (Remastered 2011)", "Hats"),
+    ("Hats - 2013 Remaster", "Hats"),
+    ("Hats – Expanded Edition", "Hats"),
+    ("Hats (40th Anniversary Edition)", "Hats"),
+    ("Hats (Deluxe Edition) [2020 Remaster]", "Hats"),
+    ("Hats", "Hats"),
+    ("Hats (Live)", "Hats (Live)"),
+    ("Hats (Acoustic)", "Hats (Acoustic)"),
+    ("Hats (Vol. 2)", "Hats (Vol. 2)"),
+    ("Hats (Demo)", "Hats (Demo)"),
+    ("The Complete Edition", "The Complete Edition"),
+])
+def test_youtube_album_known_edition_tags_only(title, expected):
+    assert base_album_title(title) == expected
+
+
+def test_youtube_resolver_matches_deluxe_and_remaster_in_both_directions():
+    records = [
+        {"resultType": "album", "title": "Hats (Deluxe Edition)",
+         "artist": "The Blue Nile", "browseId": "MPREdeluxe"},
+        {"resultType": "album", "title": "Hats (2002 Remaster)",
+         "artist": "The Blue Nile", "playlistId": "OLAK5uy_remaster"},
+    ]
+    match = pick_exact_album("The Blue Nile", "Hats", records)
+    assert match["status"] == "found"
+    assert match["match_type"] == "edition"
+    assert match["url"].startswith("https://music.youtube.com/")
+    assert match["requested_album"] == "Hats"
+
+    specific = pick_exact_album("The Blue Nile", "Hats (2002 Remaster)", records)
+    assert specific["match_type"] == "exact"
+    assert specific["album"] == "Hats (2002 Remaster)"
+    regular = pick_exact_album("The Blue Nile", "Hats (2002 Remaster)", [
+        {"resultType": "album", "title": "Hats",
+         "artist": "The Blue Nile", "browseId": "MPREstandard"}
+    ])
+    assert regular["match_type"] == "edition"
+
+
+def test_youtube_resolver_prefers_exact_standard_album_over_other_editions():
+    records = [
+        {"resultType": "album", "title": "Hats (Deluxe Edition)",
+         "artist": "The Blue Nile", "browseId": "MPREdeluxe"},
+        {"resultType": "album", "title": "Hats",
+         "artist": "The Blue Nile", "browseId": "MPREstandard"},
+    ]
+    result = pick_exact_album("The Blue Nile", "Hats", records)
+    assert result["album"] == "Hats"
+    assert result["match_type"] == "exact"
+
+
+def test_youtube_resolver_preserves_album_identity_and_safe_urls():
+    records = [
+        {"resultType": "album", "title": "Hats (Deluxe Edition)",
+         "artist": "Another Artist", "browseId": "MPREwrongartist"},
+        {"resultType": "album", "title": "Hats (Live)",
+         "artist": "The Blue Nile", "browseId": "MPRElive"},
+        {"resultType": "album", "title": "Hats: The Live Sessions",
+         "artist": "The Blue Nile", "browseId": "MPREsessions"},
+        {"resultType": "song", "title": "Hats",
+         "artist": "The Blue Nile", "browseId": "MPREsong"},
+        {"resultType": "album", "title": "Hats [2011 Remaster]",
+         "artist": "The Blue Nile", "playlistId": "https://evil.example"},
+    ]
+    assert pick_exact_album("The Blue Nile", "Hats", records) is None
+    assert pick_exact_album("The Blue Nile", "Hats (Live)", records)["album"] == "Hats (Live)"
+
+
+def test_youtube_resolver_supports_artist_list_from_catalog():
+    result = pick_exact_album("Arve Henriksen", "Places of Worship", [
+        {"resultType": "album", "title": "Places of Worship (Remastered)",
+         "artists": [{"name": "Arve Henriksen"}], "browseId": "MPREreal"},
+    ])
+    assert result["match_type"] == "edition"
+
+
+def test_youtube_lookup_broadens_queries_after_no_match(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from app import youtube_album as service
+
+    queries = []
+    def search(query, filter, limit):
+        queries.append((query, filter, limit))
+        if query == "The Blue Nile Hats deluxe":
+            return [{"resultType": "album", "title": "Hats (Deluxe Edition)",
+                     "artist": "The Blue Nile", "browseId": "MPREreal"}]
+        return []
+
+    monkeypatch.setitem(sys.modules, "ytmusicapi",
+                        SimpleNamespace(YTMusic=lambda: SimpleNamespace(search=search)))
+    service._lookup.cache_clear()
+    try:
+        result = service.lookup_album("The Blue Nile", "Hats")
+        assert result["status"] == "found"
+        assert result["match_type"] == "edition"
+        assert [q[0] for q in queries] == [
+            "The Blue Nile Hats", "The Blue Nile Hats deluxe"
+        ]
+    finally:
+        service._lookup.cache_clear()
+
+
+def test_youtube_lookup_retries_without_requested_edition(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from app import youtube_album as service
+
+    queries = []
+    def search(query, filter, limit):
+        queries.append(query)
+        if query == "The Blue Nile Hats":
+            return [{"resultType": "album", "title": "Hats",
+                     "artist": "The Blue Nile", "browseId": "MPREreal"}]
+        return []
+
+    monkeypatch.setitem(sys.modules, "ytmusicapi",
+                        SimpleNamespace(YTMusic=lambda: SimpleNamespace(search=search)))
+    service._lookup.cache_clear()
+    try:
+        result = service.lookup_album("The Blue Nile", "Hats (2002 Remaster)")
+        assert result["status"] == "found"
+        assert result["match_type"] == "edition"
+        assert queries == [
+            "The Blue Nile Hats (2002 Remaster)", "The Blue Nile Hats"
+        ]
+    finally:
+        service._lookup.cache_clear()
