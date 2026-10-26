@@ -174,6 +174,12 @@ def analyze(tracks, definitions, policies=None, now=None, recent_days=30, latest
         })
     recent_albums.sort(key=lambda a: (a["added_at"], a["artist"], a["album"]), reverse=True)
 
+    for item in playlist_metrics:
+        membership = [k for k in coverage if item["name"] in coverage[k]]
+        shared = sum(len(coverage[k]) > 1 for k in membership)
+        item["shared_tracks"] = shared
+        item["shared_share"] = round(shared / item["tracks"], 3) if item["tracks"] else 0
+
     covered = sum(key in coverage for key in library)
     return {
         "summary": {
