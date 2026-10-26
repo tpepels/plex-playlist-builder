@@ -796,6 +796,7 @@ function renderIsc() {
         ${genres.map(m => `<span class="tag">${esc(m)}</span>`).join("")}
       </div>
       ${match ? `<p>In Plex: ${esc(match)}</p>` : ""}
+      ${(a.recommended_by || []).length ? `<p>Suggested alongside: ${(a.recommended_by || []).slice(0,2).map(x => `<a href="${esc(x.source_url)}" target="_blank" rel="noopener noreferrer">${esc(x.artist)} — ${esc(x.album)}</a>`).join(" · ")}</p>` : ""}
       ${a.site_styles.length || a.source_styles.length ? `<p>Source genres: ${esc((a.site_styles.length ? a.site_styles : a.source_styles).join(", "))}</p>` : ""}
       <div class="row">
         <a href="${esc(a.source_url)}" target="_blank" rel="noopener noreferrer">Read album</a>
