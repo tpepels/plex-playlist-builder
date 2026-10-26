@@ -27,8 +27,9 @@ SOURCE = "https://insheepsclothinghifi.com"
 SOURCE_HOSTS = frozenset({"insheepsclothinghifi.com", "www.insheepsclothinghifi.com"})
 SOURCE_STYLES = ("japan", "jazz", "fusion", "ambient", "experimental", "pop", "electronic")
 DEFAULT_TTL = 24 * 60 * 60
-MAX_ALBUMS = 170
+MAX_ALBUMS = 220
 DETAIL_LIMIT = 36
+RECOMMENDED_DETAIL_LIMIT = 12
 CACHE = Path(os.environ.get("ISC_DISCOVERY_CACHE", "/data/isc-discovery.json"))
 _LOCK = threading.Lock()
 LINK_RE = re.compile(r"/album/[^/?#]+/?$")
@@ -113,10 +114,33 @@ def parse_album_details(html):
     def terms(s):
         return [v.strip() for v in re.split(r"\s*[/,]\s*", s) if v.strip() and len(v.strip()) < 70][:12]
     year = re.search(r"\b(?:19|20)\d\d\b", labels.get("Released", ""))
+    suggestions = []
+    # An album's "Suggested Records" section contains directly linked curated
+    # recommendations. Do not parse arbitrary artists in editorial prose.
+    section = soup.find(
+        lambda node: node.name in ("h2", "h3", "h4", "strong")
+        and node.get_text(" ", strip=True).casefold() == "suggested records"
+    )
+    if section:
+        for a in section.find_all_next("a", href=True, limit=32):
+            url = _safe_album_url(a.get("href"))
+            image = a.find("img")
+            label = a.get_text(" ", strip=True)
+            credit = _parse_credit(label)
+            if not credit and image:
+                credit = _parse_credit(image.get("alt", "").removesuffix(" album cover"))
+            if not url or not credit or any(x["source_url"] == url for x in suggestions):
+                continue
+            suggestions.append({
+                "source_url": url, "artist": credit[0], "album": credit[1],
+            })
+            if len(suggestions) == 4:
+                break
     return {
         "site_styles": terms(labels.get("Style", "")),
         "site_tags": terms(labels.get("Tags", "")),
         "year": int(year.group()) if year else None,
+        "suggestions": suggestions,
     }
 
 
@@ -253,6 +277,38 @@ def fetch_catalog(*, refresh=False, fetch_html=None):
                 if detail:
                     album.update(detail)
                     album["details_status"] = "detail"
+        # Album detail pages also publish a small "Suggested Records" set.
+        # Include these actual album links as distinct discoveries, but don't
+        # assign the parent's genres to them; that would be misleading.
+        extras = []
+        for parent in records[:DETAIL_LIMIT]:
+            suggestions = parent.pop("suggestions", [])
+            for suggestion in suggestions:
+                url = suggestion["source_url"]
+                origin = {
+                    "artist": parent["artist"], "album": parent["album"],
+                    "source_url": parent["source_url"],
+                }
+                if url in by_url:
+                    existing = by_url[url].setdefault("recommended_by", [])
+                    if origin not in existing:
+                        existing.append(origin)
+                elif len(records) + len(extras) < MAX_ALBUMS:
+                    record = {
+                        **suggestion, "source_styles": [], "site_styles": [],
+                        "site_tags": [], "details_status": "recommendation",
+                        "year": None, "recommended_by": [origin],
+                    }
+                    by_url[url] = record
+                    extras.append(record)
+        with ThreadPoolExecutor(max_workers=3) as workers:
+            details = workers.map(enrich, extras[:RECOMMENDED_DETAIL_LIMIT])
+            for album, detail in zip(extras[:RECOMMENDED_DETAIL_LIMIT], details):
+                if detail:
+                    album.update(detail)
+                    album.pop("suggestions", None)
+                    album["details_status"] = "detail"
+        records.extend(extras)
         for album in records:
             album["moods"] = categorize(album)
         payload = {
