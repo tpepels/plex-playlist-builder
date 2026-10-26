@@ -104,7 +104,8 @@ def _compare(left, right):
         and bool(a[k]["duration_ms"]) and bool(b[k]["duration_ms"])
         for k in common
     )
-    full = (usable_a and usable_b and len(a) == len(b)
+    full = (usable_a and usable_b and left["_complete"] and right["_complete"]
+            and len(a) == len(b)
             and matches == len(a) and len(a) > 0)
     return ("full" if full else "partial", matches)
 
@@ -112,6 +113,7 @@ def _compare(left, right):
 def _public_release(r):
     return {
         "id": r["id"], "album": r["album"], "directory": r["directory"],
+        "complete_in_plex": r["_complete"],
         "album_rating_key": r["album_rating_key"],
         "formats": sorted({PurePosixPath(path).suffix.lower().lstrip(".")
                            for t in r["tracks"] for path in t["paths"]
@@ -153,6 +155,14 @@ def find_duplicates(tracks):
                 snapshots[item["rating_key"]] = item
 
     releases = {}
+    # All tracks attached to a Plex album ID must be represented in a folder
+    # before that folder is treated as a complete copy. Two matching disc
+    # fragments in different folders must never look like a removable album.
+    album_footprints = defaultdict(set)
+    for item in snapshots.values():
+        if item["album_rating_key"]:
+            album_footprints[(item["_artist"], item["_album"], item["album_rating_key"])].add(_track_id(item))
+
     # Folder usage is counted over the whole library, not just matching titles.
     # An artist folder, shared directory or directory holding other albums may
     # not be presented as a clean album-folder candidate.
@@ -198,6 +208,10 @@ def find_duplicates(tracks):
 
     for r in releases.values():
         r["tracks"].sort(key=lambda x: (x["disc"], x["position"], x["_title"], x["rating_key"]))
+        album_id = r["album_rating_key"]
+        ref = (normalize(r["artist"]), normalize(r["album"]), album_id)
+        r["_complete"] = (bool(album_id) and
+                          {_track_id(t) for t in r["tracks"]} == album_footprints[ref])
         folder = r["directory"]
         if not folder:
             r["folder_status"] = "Plex did not expose a dedicated album directory"
@@ -255,7 +269,7 @@ def find_duplicates(tracks):
             r["folder_review_candidate"] = (
                 is_exact_copy and bool(r["directory"])
                 and r["folder_status"] == "Dedicated album folder in Plex - check files manually"
-                and all(t["paths"] for t in r["tracks"])
+                and r["_complete"] and all(t["paths"] for t in r["tracks"])
             )
             shown.append(_public_release(r))
 
