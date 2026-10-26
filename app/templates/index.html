@@ -213,18 +213,19 @@ small{color:var(--muted)}
   <div id="healthRows" class="insight-scroll"><span class="album-meta">Open this tab to analyze the library.</span></div>
 </section>
 <section id="viewDuplicates" class="panel" hidden>
-  <div class="section-title"><h2>Library duplicates</h2><button id="refreshDuplicates" type="button">Refresh</button></div>
-  <p class="album-meta">Read-only review based on Plex track metadata and duration (within 2 seconds), not audio fingerprints. Different live takes and different albums are not assumed to be duplicates.</p>
+  <div class="section-title"><h2>Duplicate albums</h2><button id="refreshDuplicates" type="button">Refresh</button></div>
+  <p class="album-meta">Complete albums compared by artist, release, tracklist, disc/track positions and duration (±2 seconds). Files and folders are never deleted. A marked folder is a review candidate, not a confirmed safe deletion.</p>
   <div id="duplicateTotals" class="data-strip"></div>
   <div class="insights-tools">
-    <input id="duplicateSearch" type="search" placeholder="Search artist, album, track…" aria-label="Search potential duplicates">
+    <input id="duplicateSearch" type="search" placeholder="Search artist, album, folder…" aria-label="Search duplicate albums">
     <label for="duplicateKind">Show</label>
-    <select id="duplicateKind" aria-label="Duplicate classification">
-      <option value="all">All candidates</option>
-      <option value="likely">Same album + position</option>
-      <option value="edition">Alternate editions</option>
+    <select id="duplicateKind" aria-label="Album comparison type">
+      <option value="all">All matches</option>
+      <option value="full">Complete duplicates</option>
+      <option value="edition">Different editions</option>
+      <option value="partial">Partial overlap</option>
     </select>
-    <a href="/api/duplicates.tsv" download="plex-library-duplicates.tsv">Download TSV</a>
+    <a href="/api/duplicates.tsv" download="plex-library-duplicates.tsv">Download album folders TSV</a>
     <span id="duplicateShown" class="album-meta"></span>
   </div>
   <div id="duplicateRows">Open this tab to scan Plex.</div>
@@ -709,42 +710,72 @@ function renderDuplicates() {
   if (!duplicateData) return;
   const summary = duplicateData.summary;
   $("duplicateTotals").innerHTML = [
-    [summary.likely_groups, "likely duplicate groups"],
-    [summary.likely_extra_entries, "extra Plex entries"],
+    [summary.full_album_groups, "complete duplicate albums"],
+    [summary.folder_review_candidates, "folders to review"],
     [summary.edition_groups, "edition overlaps"],
-    [summary.edition_entries_to_review, "edition entries to review"],
+    [summary.partial_groups, "partial albums"],
   ].map(([value,label]) => `<span><strong>${Number(value).toLocaleString()}</strong>${esc(label)}</span>`).join("");
   const kind = $("duplicateKind").value;
   const needle = $("duplicateSearch").value.trim().toLocaleLowerCase();
   const groups = duplicateData.groups.filter(g =>
     (kind === "all" || g.kind === kind) &&
-    (!needle || [g.artist, g.title, ...g.albums, ...g.entries.map(e=>e.rating_key)]
-      .some(v => String(v || "").toLocaleLowerCase().includes(needle)))
+    (!needle || [g.artist, g.album, ...g.releases.flatMap(r => [
+      r.album, r.directory, r.album_rating_key, ...r.track_rating_keys
+    ])].some(v => String(v || "").toLocaleLowerCase().includes(needle)))
   );
   const shown = groups.slice(0, 100);
-  $("duplicateShown").textContent = `${groups.length.toLocaleString()} groups${groups.length > shown.length ? " · first 100 shown; download TSV for all" : ""}`;
+  $("duplicateShown").textContent = `${groups.length.toLocaleString()} albums${groups.length > shown.length ? " · first 100 shown, export for all" : ""}`;
+  const statusName = {full:"Complete album match",edition:"Alternate edition",partial:"Partial overlap"};
   $("duplicateRows").innerHTML = shown.length ? shown.map(g => `
     <details class="album-card">
       <summary>
-        <span class="album-title"><strong>${esc(g.title)}</strong><br>
-          <span class="album-meta">${esc(g.artist)} · ${esc(g.albums.join(" / "))}</span>
+        <span class="album-title"><strong>${esc(g.album)}</strong><br>
+          <span class="album-meta">${esc(g.artist)} · ${g.total_copies} album copies</span>
         </span>
-        <span class="tag">${g.entries.length} entries</span>
-        <span class="tag">${g.kind === "likely" ? "Likely duplicate" : "Edition overlap"}</span>
+        <span class="tag">${statusName[g.kind] || "Review"}</span>
+        ${g.reviewable_folders ? `<span class="tag">${g.reviewable_folders} folders to review</span>` : ""}
       </summary>
-      <div class="album-body insight-scroll">
-        <table class="insight-table">
-          <thead><tr><th>Album</th><th>Disc / track</th><th>Duration</th><th>Plex ID</th></tr></thead>
-          <tbody>${g.entries.map(e => `<tr>
-            <td>${esc(e.album)}</td>
-            <td>${e.disc || "?"} / ${e.track || "?"}</td>
-            <td>${(e.duration_ms / 1000).toFixed(1)} s</td>
-            <td>${esc(e.rating_key)}</td>
-          </tr>`).join("")}</tbody>
-        </table>
+      <div class="album-body">
+        ${g.releases.map(r => `
+          <div class="album-card" style="padding:12px">
+            <div class="row"><strong>${esc(r.album)}</strong>
+              <span class="tag">${r.tracks} tracks</span>
+              <span class="tag">${statusName[r.match] || "Review"}</span>
+              ${r.folder_review_candidate ? '<span class="flag">Folder review candidate</span>' : ""}
+            </div>
+            <div class="album-meta">${esc(r.folder_status)}</div>
+            <div class="row">
+              <code style="overflow-wrap:anywhere;max-width:100%;user-select:text">${esc(r.directory || "Path unavailable from Plex")}</code>
+              ${r.directory ? `<button type="button" class="copyAlbumDir" data-dir="${esc(r.directory)}">Copy path</button>` : ""}
+            </div>
+            <details>
+              <summary class="album-meta">Tracklist · ${r.matched_tracks} matching tracks · Plex album ${esc(r.album_rating_key || "unknown")}</summary>
+              <div class="insight-scroll">
+                <table class="insight-table">
+                  <thead><tr><th>Track</th><th>Duration</th><th>Plex track ID</th></tr></thead>
+                  <tbody>${r.track_details.map(t => `<tr>
+                    <td>${esc((t.disc || "?") + "/" + (t.track || "?") + " " + t.title)}</td>
+                    <td>${(t.duration_ms / 1000).toFixed(1)}s</td>
+                    <td>${esc(t.rating_key)}</td>
+                  </tr>`).join("")}</tbody>
+                </table>
+              </div>
+            </details>
+          </div>
+        `).join("")}
+        <small>Keep at least one full copy. Confirm audio quality, bonus tracks, other files and playlist references before manually removing a folder. Plex paths may differ from host paths.</small>
       </div>
     </details>`).join("") :
-    '<div class="empty">No matching duplicate candidates. This does not prove the audio files are unique.</div>';
+    '<div class="empty">No matching album duplicates found. This does not prove all audio files are unique.</div>';
+  for (const button of $("duplicateRows").querySelectorAll(".copyAlbumDir"))
+    button.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.dir);
+        button.textContent = "Copied";
+      } catch(e) {
+        button.textContent = "Select path above";
+      }
+    };
 }
 
 async function loadDuplicates(refresh=false) {
