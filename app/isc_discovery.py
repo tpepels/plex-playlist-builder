@@ -7,6 +7,7 @@ only on explicit collection styles / tags, never fabricated genres.
 from __future__ import annotations
 
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urljoin, urlsplit, urlunsplit
@@ -27,7 +28,7 @@ SOURCE_HOSTS = frozenset({"insheepsclothinghifi.com", "www.insheepsclothinghifi.
 SOURCE_STYLES = ("japan", "jazz", "fusion", "ambient", "experimental", "pop", "electronic")
 DEFAULT_TTL = 24 * 60 * 60
 MAX_ALBUMS = 170
-DETAIL_LIMIT = 55
+DETAIL_LIMIT = 36
 CACHE = Path(os.environ.get("ISC_DISCOVERY_CACHE", "/data/isc-discovery.json"))
 _LOCK = threading.Lock()
 LINK_RE = re.compile(r"/album/[^/?#]+/?$")
@@ -199,7 +200,7 @@ def fetch_catalog(*, refresh=False, fetch_html=None):
     """Fetch a bounded cross-section of the source collection, with stale fallback.
 
     There is no general internet crawling: only 7 known style collections and
-    at most 55 linked album pages. Refresh is user-initiated; ordinary requests
+    at most 36 linked album pages. Refresh is user-initiated; ordinary requests
     reuse a day-old persistent cache.
     """
     fetcher = fetch_html or _fetch_html
@@ -238,12 +239,20 @@ def fetch_catalog(*, refresh=False, fetch_html=None):
         records = list(by_url.values())
         # Enrich a limited sample with explicit site tags / styles to support
         # nuanced moods; other records retain reliable category-level labels.
-        for album in records[:DETAIL_LIMIT]:
+        # Bound remote traffic and keep discovery responsive while enriching
+        # records with site-defined tags. Only 3 album pages in flight.
+        def enrich(album):
             try:
-                album.update(parse_album_details(fetcher(album["source_url"])))
-                album["details_status"] = "detail"
+                return parse_album_details(fetcher(album["source_url"]))
             except (requests.RequestException, ValueError, OSError):
-                pass
+                return None
+
+        with ThreadPoolExecutor(max_workers=3) as workers:
+            details = workers.map(enrich, records[:DETAIL_LIMIT])
+            for album, detail in zip(records[:DETAIL_LIMIT], details):
+                if detail:
+                    album.update(detail)
+                    album["details_status"] = "detail"
         for album in records:
             album["moods"] = categorize(album)
         payload = {
