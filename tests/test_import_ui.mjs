@@ -35,13 +35,15 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     return elements.get(id);
   }
 
-  const tabs = ["playlists", "health", "duplicates", "newmusic", "discover"].map(view => {
+  const tabs = ["playlists", "health", "duplicates", "newmusic", "isc", "discover"].map(view => {
     const e = fakeElement();
     e.dataset.view = view;
     return e;
   });
   $("insightDays").value = "30";
   $("duplicateKind").value = "all";
+  $("iscStatus").value = "missing";
+  $("iscMood").value = "all";
   const document = {
     getElementById: $,
     querySelectorAll(query) {
@@ -103,6 +105,31 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
           missing_references: 0, rotating_playlists: 0, uncurated_recent_albums: 0,
         },
         playlists: [], recent_albums: [],
+      };
+    } else if (url.startsWith("/api/discover/isc?")) {
+      body = {
+        source:"In Sheep's Clothing Hi-Fi",
+        source_url:"https://insheepsclothinghifi.com/collection/",
+        fetched_at:"2026-10-26T18:00:00+00:00",
+        sources_scanned:7, stale:false, warnings:[],
+        summary:{total:3,missing:1,owned:1,edition:1,
+                 source_categories:["ambient","japanese-jazz-funk"]},
+        albums:[
+          {artist:"Hiroshi Suzuki",album:"Cat",year:1975,status:"missing",
+           source_url:"https://insheepsclothinghifi.com/album/hiroshi-suzuki-cat/",
+           source_styles:["japan"],site_styles:["Jazz","Funk"],site_tags:["Jazz-Funk"],
+           moods:["japanese-jazz-funk"],plex_matches:[]},
+          {artist:"The Blue Nile",album:"Hats",year:1989,status:"edition",
+           source_url:"https://insheepsclothinghifi.com/album/blue-nile-hats/",
+           source_styles:["pop"],site_styles:["Pop"],site_tags:[],
+           moods:[],plex_matches:[{artist:"The Blue Nile",album:"Hats (Remastered)",
+                                  album_rating_key:"a",tracks:7}]},
+          {artist:"Paul Bley",album:"Open, to Love",year:1973,status:"owned",
+           source_url:"https://insheepsclothinghifi.com/album/paul-bley-open-to-love/",
+           source_styles:["jazz"],site_styles:["Jazz","Ambient"],site_tags:[],
+           moods:["ambient","ecm-jazz"],plex_matches:[{artist:"Paul Bley",
+                                album:"Open, to Love",album_rating_key:"b",tracks:7}]}
+        ]
       };
     } else if (url.startsWith("/api/duplicates?")) {
       const sampleDetails = [{disc:1,track:1,title:"My Foolish Heart",duration_ms:300000,rating_key:"1"}];
@@ -334,4 +361,39 @@ test("Choosing the retained album only marks other complete folders for manual r
   assert.match(node.innerHTML, /Review for removal/);
   assert.match(node.innerHTML, /\/music\/Bill Evans\/Duplicate/);
   assert.ok(!h.calls.some(c=>/sync-pending|curate-tracks/.test(c)));
+});
+
+
+test("Discover tab compares curated albums with Plex and offers exact resolver URLs", async () => {
+  const h = makeHarness();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(!h.calls.some(x=>x.startsWith("/api/discover/isc?")));
+  await h.tabs.find(x=>x.dataset.view==="isc").onclick();
+  assert.equal(h.$("viewIsc").hidden, false);
+  assert.match(h.$("iscTotals").innerHTML, /curated albums/);
+  assert.match(h.$("iscRows").innerHTML, /Hiroshi Suzuki/);
+  assert.match(h.$("iscRows").innerHTML, /japanese-jazz-funk/i);
+  assert.doesNotMatch(h.$("iscRows").innerHTML, /Paul Bley/);
+  assert.match(h.$("iscRows").innerHTML,
+    /\/open-youtube-album\?artist=Hiroshi%20Suzuki&amp;album=Cat/);
+  assert.match(h.$("iscRows").innerHTML,
+    /https:\/\/insheepsclothinghifi.com\/album\/hiroshi-suzuki-cat\//);
+  h.$("iscStatus").value = "edition";
+  h.$("iscStatus").onchange();
+  assert.match(h.$("iscRows").innerHTML, /Hats/);
+  assert.match(h.$("iscRows").innerHTML, /Hats \(Remastered\)/);
+  h.$("iscStatus").value = "all";
+  h.$("iscStatus").onchange();
+  h.$("iscMood").value = "ecm-jazz";
+  h.$("iscMood").onchange();
+  assert.match(h.$("iscRows").innerHTML, /Paul Bley/);
+  assert.doesNotMatch(h.$("iscRows").innerHTML, /Hiroshi Suzuki/);
+  h.$("iscMood").value = "all";
+  h.$("iscMood").onchange();
+  h.$("iscSearch").value = "nowhere";
+  h.$("iscSearch").oninput();
+  assert.match(h.$("iscRows").innerHTML, /No albums match these filters/);
+  await h.$("iscRefresh").onclick();
+  assert.ok(h.calls.includes("/api/discover/isc?refresh=true"));
+  assert.ok(!h.calls.some(c => /curate-tracks|sync-pending/.test(c)));
 });
