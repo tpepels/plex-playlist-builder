@@ -38,6 +38,8 @@ def track_model(track):
     return {
         "key": key, "album_key": album_key, "artist": artist, "album": album,
         "title": title, "added": timestamp(getattr(track, "addedAt", None)),
+        "disc": getattr(track, "parentIndex", 0) or 0,
+        "index": getattr(track, "index", 0) or 0,
     }
 
 
@@ -164,6 +166,11 @@ def analyze(tracks, definitions, policies=None, now=None, recent_days=30, latest
             "coverage_share": round(found / album_tracks, 3),
             "playlists": examples, "playlist_count": len(names),
             "needs_attention": found < album_tracks / 2,
+            "track_items": [
+                {"key": entry["key"], "title": entry["title"],
+                 "listed": bool(coverage.get(entry["key"]))}
+                for entry in sorted(entries, key=lambda x: (int(x["disc"]), int(x["index"])))
+            ],
         })
     recent_albums.sort(key=lambda a: (a["added_at"], a["artist"], a["album"]), reverse=True)
 
