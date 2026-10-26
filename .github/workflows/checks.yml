@@ -33,3 +33,5 @@ jobs:
           node --check /tmp/playlist-builder-ui.js
       - name: Browser import and sync flow tests
         run: node --test tests/test_import_ui.mjs
+      - name: Docker image build
+        run: docker build --pull -t plex-playlist-builder:ci .
