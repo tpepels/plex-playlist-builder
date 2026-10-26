@@ -41,6 +41,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     return e;
   });
   $("insightDays").value = "30";
+  $("duplicateKind").value = "all";
   const document = {
     getElementById: $,
     querySelectorAll(query) {
