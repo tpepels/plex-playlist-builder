@@ -708,12 +708,39 @@ async function resolveYoutubeAlbum(artist,album,target) {
       target.textContent = "No exact album in YouTube Music's catalog. No guessed link.";
       return;
     }
+    const wrap = document.createElement("div");
+    wrap.className = "resolved-album";
     const a = document.createElement("a");
     a.href = d.url;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
     a.textContent = `Open album: ${d.artist} — ${d.album}`;
-    target.replaceChildren(a);
+    const url = document.createElement("input");
+    url.type = "text";
+    url.value = d.url;
+    url.readOnly = true;
+    url.setAttribute("aria-label", "Actual YouTube Music album URL");
+    url.style.width = "min(100%, 550px)";
+    url.style.margin = "8px 8px 0 0";
+    url.onclick = () => url.select();
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.textContent = "Copy URL";
+    copy.onclick = async () => {
+      try {
+        if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(d.url);
+        else {
+          url.select();
+          if (!document.execCommand("copy")) throw new Error("Clipboard is unavailable");
+        }
+        copy.textContent = "Copied";
+      } catch(e) {
+        url.select();
+        copy.textContent = "Select and copy the URL";
+      }
+    };
+    wrap.append(a, document.createElement("div"), url, copy);
+    target.replaceChildren(wrap);
   } catch(e) { target.textContent = "YouTube Music lookup failed: " + e.message; }
 }
 
