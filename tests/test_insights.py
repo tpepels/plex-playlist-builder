@@ -42,7 +42,9 @@ def test_insights_are_based_on_unique_keys_and_expose_missing_references():
     assert first["tracks"] == 2
     assert first["repeated_tracks"] == 1
     assert first["missing_references"] == 1
-    assert first["recent_tracks"] == 1
+    assert first["recent_tracks"] == 2  # both tracks were added within the 30-day window
+    assert first["shared_tracks"] == 1
+    assert first["shared_share"] == 0.5
     assert first["flags"] == ["Missing library matches", "Repeated tracks"]
     # Curated playlists are observed but never judged by concentration targets.
     assert "Artist concentration" not in first["flags"]
