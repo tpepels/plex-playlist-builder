@@ -259,6 +259,15 @@ def _same_artist(a, b):
     na, nb = normalize(a), normalize(b)
     if na == nb:
         return True
+    # Accept the same named collaborators with a different delimiter, but
+    # never a single artist as a match for a collaboration with other people.
+    def collaborators(credit):
+        pieces = [normalize(x) for x in re.split(
+            r"\s*(?:,|&|\band\b)\s*", credit, flags=re.IGNORECASE)]
+        return pieces if len(pieces) >= 2 and all(pieces) else []
+    left, right = collaborators(a), collaborators(b)
+    if left and right and left == right:
+        return True
     # A different artist's album must never be called owned from a shared title.
     return _ensemble_credit_matches(a, b) or _ensemble_credit_matches(b, a)
 
