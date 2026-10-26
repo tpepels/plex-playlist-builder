@@ -99,14 +99,17 @@ The endpoint is `/api/library-recent.tsv?mode=hours&limit=48`, or
 
 ## Discover: In Sheep's Clothing Hi-Fi
 
-The **Discover** tab is a read-only source of new album ideas from
+The **Discover** tab is a read-only source of album ideas from
 [In Sheep's Clothing's public album collection](https://insheepsclothinghifi.com/collection/).
 The dashboard surveys the newest visible collection entries in seven
 source-defined sections: Japan, Jazz, Fusion, Ambient, Experimental, Pop and
-Electronic. This is a **bounded selection, not the site's entire historical
-catalog**. A limited number of linked album pages are enriched with their
-published styles, tags and release years. The app stores only concise album
-metadata and source URLs, not editorial articles or artwork.
+Electronic. Linked albums under the site's **Suggested Records** recommendations
+are included with explicit attribution to the recommending record; they do
+**not** automatically inherit its genre. This is a **bounded selection, not
+the site's entire historical catalog**. A limited number of linked album
+pages are enriched with their published styles, tags and release years.
+The app stores only concise album metadata and source URLs, not editorial
+articles or artwork.
 
 Every entry is compared to all Plex Music tracks on **artist + album**,
 normalizing punctuation and known Deluxe/Remastered edition suffixes. Strict
