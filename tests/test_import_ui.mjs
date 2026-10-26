@@ -105,21 +105,34 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
         playlists: [], recent_albums: [],
       };
     } else if (url.startsWith("/api/duplicates?")) {
+      const sampleDetails = [{disc:1,track:1,title:"My Foolish Heart",duration_ms:300000,rating_key:"1"}];
       body = {
         summary: {
-          library_tracks: 5, likely_groups: 1, likely_extra_entries: 1,
-          edition_groups: 1, edition_entries_to_review: 2,
+          library_tracks:6,album_groups:2,full_album_groups:1,
+          edition_groups:1,partial_groups:0,folder_review_candidates:2,
+          tracks_without_media_path:0,
         },
         groups: [
-          {kind:"likely",artist:"Bill Evans",title:"My Foolish Heart",
-           albums:["Waltz for Debby"],entries:[
-             {album:"Waltz for Debby",disc:1,track:1,duration_ms:299900,rating_key:"1"},
-             {album:"Waltz for Debby",disc:1,track:1,duration_ms:300000,rating_key:"2"}]},
-          {kind:"edition",artist:"Bill Evans",title:"B Minor Waltz",
-           albums:["You Must Believe in Spring","You Must Believe in Spring (2022 Remaster)"],
-           entries:[
-             {album:"You Must Believe in Spring",disc:1,track:1,duration_ms:240000,rating_key:"3"},
-             {album:"You Must Believe in Spring (2022 Remaster)",disc:1,track:1,duration_ms:240900,rating_key:"4"}]},
+          {kind:"full",artist:"Bill Evans",album:"Waltz for Debby",total_copies:2,reviewable_folders:2,
+           releases:[
+             {id:1,album:"Waltz for Debby",directory:"/music/Bill Evans/Original",
+              folder_status:"Dedicated album folder in Plex - check files manually",
+              folder_review_candidate:true,match:"full",tracks:1,matched_tracks:1,
+              album_rating_key:"a",track_rating_keys:["1"],track_details:sampleDetails},
+             {id:2,album:"Waltz for Debby",directory:"/music/Bill Evans/Duplicate",
+              folder_status:"Dedicated album folder in Plex - check files manually",
+              folder_review_candidate:true,match:"full",tracks:1,matched_tracks:1,
+              album_rating_key:"b",track_rating_keys:["2"],track_details:sampleDetails}]},
+          {kind:"edition",artist:"Bill Evans",album:"You Must Believe in Spring",
+           total_copies:2,reviewable_folders:0,
+           releases:[
+             {id:3,album:"You Must Believe in Spring",directory:"/music/Bill Evans/Spring",
+              folder_status:"Review",folder_review_candidate:false,match:"edition",
+              tracks:1,matched_tracks:1,album_rating_key:"c",track_rating_keys:["3"],track_details:sampleDetails},
+             {id:4,album:"You Must Believe in Spring (2022 Remaster)",
+              directory:"/music/Bill Evans/Spring 2022",folder_status:"Review",
+              folder_review_candidate:false,match:"edition",tracks:1,matched_tracks:1,
+              album_rating_key:"d",track_rating_keys:["4"],track_details:sampleDetails}]},
         ],
       };
     } else if (url.startsWith("/api/youtube-album?")) {
@@ -268,27 +281,29 @@ test("album lookup never offers a generic search link when the album is absent",
 });
 
 
-test("Duplicates view scans on demand and filters read-only candidate groups", async () => {
+test("Duplicates view groups complete albums with candidate folders and edition warnings", async () => {
   const h = makeHarness();
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(!h.calls.some(c => c.startsWith("/api/duplicates?")));
   await h.tabs.find(t => t.dataset.view === "duplicates").onclick();
   assert.equal(h.$("viewDuplicates").hidden, false);
   assert.equal(h.$("viewHealth").hidden, true);
-  assert.match(h.$("duplicateTotals").innerHTML, /likely duplicate groups/);
-  assert.match(h.$("duplicateRows").innerHTML, /My Foolish Heart/);
-  assert.match(h.$("duplicateRows").innerHTML, /B Minor Waltz/);
+  assert.match(h.$("duplicateTotals").innerHTML, /complete duplicate albums/);
+  assert.match(h.$("duplicateTotals").innerHTML, /folders to review/);
+  assert.match(h.$("duplicateRows").innerHTML, /Waltz for Debby/);
+  assert.match(h.$("duplicateRows").innerHTML, /\/music\/Bill Evans\/Original/);
+  assert.match(h.$("duplicateRows").innerHTML, /You Must Believe in Spring/);
   assert.match(html, /href="\/api\/duplicates.tsv"/);
   h.$("duplicateKind").value = "edition";
   h.$("duplicateKind").onchange();
-  assert.doesNotMatch(h.$("duplicateRows").innerHTML, /My Foolish Heart/);
-  assert.match(h.$("duplicateRows").innerHTML, /B Minor Waltz/);
+  assert.doesNotMatch(h.$("duplicateRows").innerHTML, /Waltz for Debby/);
+  assert.match(h.$("duplicateRows").innerHTML, /You Must Believe in Spring/);
   h.$("duplicateSearch").value = "nothing";
   h.$("duplicateSearch").oninput();
-  assert.match(h.$("duplicateRows").innerHTML, /No matching duplicate candidates/);
+  assert.match(h.$("duplicateRows").innerHTML, /No matching album duplicates/);
   h.$("duplicateSearch").value = "2022";
   h.$("duplicateSearch").oninput();
-  assert.match(h.$("duplicateRows").innerHTML, /B Minor Waltz/);
+  assert.match(h.$("duplicateRows").innerHTML, /You Must Believe in Spring/);
   await h.$("refreshDuplicates").onclick();
   assert.ok(h.calls.includes("/api/duplicates?refresh=true"));
   assert.ok(!h.calls.some(c => /sync-pending|curate-tracks/.test(c)));
