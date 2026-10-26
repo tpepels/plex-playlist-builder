@@ -105,7 +105,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
       };
     } else if (url.startsWith("/api/youtube-album?")) {
       body = albumFound
-        ? {status:"found",artist:"Nils Frahm",album:"Felt",
+        ? {status:"found",artist:"Nils Frahm",album:"Felt (Deluxe Edition)",match_type:"edition",
            url:"https://music.youtube.com/playlist?list=OLAK5uy_verified"}
         : {status:"not_found"};
     } else if (url === "/api/inspect-config") {
@@ -234,6 +234,7 @@ test("album lookup exposes the direct YouTube Music URL, not a search URL", asyn
   assert.ok(wrap);
   const input = wrap.children.find(n=>n.value?.startsWith("https://music.youtube.com/"));
   assert.equal(input.value, "https://music.youtube.com/playlist?list=OLAK5uy_verified");
+  assert.match(wrap.children[0].textContent, /Felt \(Deluxe Edition\).*edition match/);
   assert.doesNotMatch(input.value, /search\\?q=/);
 });
 
@@ -243,6 +244,6 @@ test("album lookup never offers a generic search link when the album is absent",
   h.$("ytArtist").value = "Arve Henriksen";
   h.$("ytAlbum").value = "The Nature of Connections";
   await h.$("albumLookupForm").onsubmit({preventDefault(){}});
-  assert.match(h.$("ytResult").textContent, /No exact album/);
+  assert.match(h.$("ytResult").textContent, /No matching album or recognized edition/);
   assert.equal(h.$("ytResult").children.length, 0);
 });
