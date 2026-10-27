@@ -257,51 +257,40 @@ A different content ID proves a file's definitions differ; it **cannot** prove w
 
 Existing `playlist-state.yml` files with a legacy `pending` list remain supported. Importing a valid YAML file automatically synchronizes new and changed, enabled playlists to Plex (and may replace existing Plex playlists with the same titles). Manually editing the saved YAML in the advanced editor still requires a separate sync. If an automatic sync fails, its playlist remains pending so the sync button can retry it.
 
-## Playlist cover images (standalone script)
+## Playlist covers: ZIP upload in the web UI
 
-No UI changes, cover recognition, or new dependencies. The standalone
-`scripts/upload_playlist_covers.py` matches **exact playlist titles**
-against JPEG/PNG filenames in the host directory
-`/srv/complete/plex-playlist-covers/` (Unicode canonical equivalence only;
-case, punctuation and spacing must otherwise match). For example:
+Use **Upload cover ZIP** at the top of the Playlist Manager web interface.
+Select a ZIP containing square JPG, JPEG or PNG images in its top level.
+**Each filename without the extension must exactly match a Plex audio playlist title**
+(Unicode NFC-equivalent names are accepted, but no fuzzy matching or case folding).
+Example: `3 AM.jpg` for the playlist `3 AM`.
 
-```text
-/srv/complete/plex-playlist-covers/
-  3 AM.jpg
-  Morning – Clear Head.png
-  Jazz – The Trio Conversation.jpg
-```
+The manager saves all valid, unambiguous images to
+`/data/playlist-covers/` on the existing persistent `/data` volume.
+With the sample Docker Compose configuration they remain at
+`/srv/plex-playlist-manager/playlist-covers/` on the host.
+No additional Docker mount, Python package, or cover recognition is required.
 
-Copy square cover images (around 1000–1200px recommended) into the folder.
-Run from the Git checkout **on the Plex host**, not inside the Playlist Manager
-Docker container, unless the cover folder and Plex credentials are mounted there.
+- A new image for an existing playlist name **replaces its previous version**,
+  even if the format changes from JPG to PNG or vice versa.
+- After saving, the manager immediately uploads matching covers to Plex.
+  Unmatched images are saved for later; the results panel shows new, updated,
+  applied, unmatched, pending, failed, and skipped counts and file details.
+- **Playlist synchronization automatically reapplies the stored cover**
+  whenever Plex deletes and recreates a managed audio playlist.
+- Only top-level JPG/PNG files are accepted. Unsafe paths, duplicate images
+  for the same playlist within one ZIP, and invalid images are skipped.
+  Limits: 70 MiB compressed ZIP, 150 MiB expanded contents, 400 archive
+  entries and 12 MiB per image.
+- If Plex is offline, successfully imported images remain on disk; re-upload
+  the same ZIP after reconnecting, or sync affected playlists to restore them.
 
-```bash
-mkdir -p /srv/complete/plex-playlist-covers
-python3 scripts/upload_playlist_covers.py --plan
-python3 scripts/upload_playlist_covers.py --apply
-```
+API: `POST /api/playlist-covers/import-zip` with the raw ZIP body and
+`Content-Type: application/zip`. The JSON response reports counts and
+per-file outcomes. It does not edit playlist YAML or music files.
 
-`--plan` is the default: it lists matching covers and cannot upload anything.
-`--apply` uploads/replaces artwork **only** for the matching Plex **audio**
-playlist via Plex's poster endpoint. Playlist members, names, ordering and
-YAML are unchanged. An unmatched filename, two cover files for one name, or
-multiple audio playlists with the same title are skipped with a message.
-Images must be valid JPG or PNG files, at most 15 MiB.
-
-The script uses the current user token from `PLEX_TOKEN`, or reads
-`PlexOnlineToken` from common Plex preferences paths, including
-`/srv/plex/config/Library/Application Support/Plex Media Server/Preferences.xml`.
-Use `--preferences /path/to/Preferences.xml` when stored elsewhere, or
-`--plex http://media-server:32400` if localhost port 32400 is not exposed.
-It uses **only Python's standard library**.
-
-**Important:** The existing Playlist Manager sync deletes and recreates
-the matching Plex playlist. This loses the cover. Rerun `--apply`
-**after** a playlist sync to restore images; the cover script is intentionally
-independent of the manager. Re-running it with the same filenames updates
-those posters again, without changing playlists' tracks.
-
+The older command-line `scripts/upload_playlist_covers.py` remains optional
+for anyone who prefers managing covers directly on the host.
 ## YAML format
 
 ```yaml
