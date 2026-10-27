@@ -177,17 +177,18 @@ def apply_poster(plex, playlist, image: Path):
 def restore_after_sync(plex, playlist, folder: Path | None = None) -> dict:
     title = str(getattr(playlist, "title", ""))
     with _LOCK:
-        image = stored_cover(title, folder)
-        if image is None:
-            return {"status": "none"}
+        image = None
         try:
+            image = stored_cover(title, folder)
+            if image is None:
+                return {"status": "none"}
             apply_poster(plex, playlist, image)
             return {"status": "applied", "file": image.name}
         except Exception as exc:
             # A playlist was successfully recreated; artwork failure must not
             # lie about that sync outcome or trigger a retry that deletes it.
-            return {"status": "failed", "file": image.name,
-                    "message": f"Cover upload failed: {type(exc).__name__}"}
+            return {"status": "failed", "file": image.name if image else "",
+                    "message": f"Cover restore failed: {type(exc).__name__}"}
 
 
 def import_cover_zip(payload: bytes, plex=None, folder: Path | None = None) -> dict:
@@ -212,23 +213,29 @@ def import_cover_zip(payload: bytes, plex=None, folder: Path | None = None) -> d
                 item["reason"] = "Saved; Plex is unavailable"
         else:
             playlists = defaultdict(list)
-            for playlist in plex.playlists(playlistType="audio"):
-                playlists[canonical(str(playlist.title))].append(playlist)
-            for item in stored:
-                matches = playlists.get(item["title"], [])
-                if not matches:
-                    item["status"] = "unmatched"
-                    item["reason"] = "No audio playlist with this exact name"
-                elif len(matches) > 1:
-                    item["status"] = "unmatched"
-                    item["reason"] = "Multiple audio playlists share this name"
-                else:
-                    try:
-                        apply_poster(plex, matches[0], folder / item["file"])
-                        item["status"] = "applied"
-                    except Exception as exc:
-                        item["status"] = "failed"
-                        item["reason"] = f"Plex cover upload failed: {type(exc).__name__}"
+            try:
+                for playlist in plex.playlists(playlistType="audio"):
+                    playlists[canonical(str(playlist.title))].append(playlist)
+            except Exception:
+                for item in stored:
+                    item["status"] = "pending"
+                    item["reason"] = "Saved, but Plex playlist listing is unavailable"
+            else:
+                for item in stored:
+                    matches = playlists.get(item["title"], [])
+                    if not matches:
+                        item["status"] = "unmatched"
+                        item["reason"] = "No audio playlist with this exact name"
+                    elif len(matches) > 1:
+                        item["status"] = "unmatched"
+                        item["reason"] = "Multiple audio playlists share this name"
+                    else:
+                        try:
+                            apply_poster(plex, matches[0], folder / item["file"])
+                            item["status"] = "applied"
+                        except Exception as exc:
+                            item["status"] = "failed"
+                            item["reason"] = f"Plex cover upload failed: {type(exc).__name__}"
     return {
         "count": len(accepted),
         "new": sum(x["version"] == "new" for x in stored),
