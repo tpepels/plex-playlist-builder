@@ -69,6 +69,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
   let imported = false;
   let synced = false;
   const calls = [];
+  const requests = [];
   const filename = "new-playlists.yml";
 
   function snapshot() {
@@ -90,8 +91,9 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     };
   }
 
-  async function fetch(url) {
+  async function fetch(url, options={}) {
     calls.push(url);
+    requests.push({url, options});
     let body = {};
     let status = 200;
     if (url === "/api/health") {
@@ -167,6 +169,17 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
         ? {status:"found",artist:"Nils Frahm",album:"Felt (Deluxe Edition)",match_type:"edition",
            url:"https://music.youtube.com/playlist?list=OLAK5uy_verified"}
         : {status:"not_found"};
+    } else if (url === "/api/playlist-covers/import-zip") {
+      body = {
+        count:3,new:1,updated:2,applied:2,unmatched:1,pending:0,failed:0,
+        skipped:1,
+        files:[
+          {title:"3 AM",source:"3 AM.jpg",file:"3 AM.jpg",version:"updated",status:"applied",reason:""},
+          {title:"Jazz",source:"Jazz.jpg",file:"Jazz.jpg",version:"updated",status:"applied",reason:""},
+          {title:"Unknown",source:"Unknown.jpg",file:"Unknown.jpg",version:"new",status:"unmatched",reason:"No playlist"},
+        ],
+        skipped_files:[{file:"manifest.csv",reason:"Not a top-level JPG/PNG file"}]
+      };
     } else if (url === "/api/inspect-config") {
       if (invalid) {
         status = 400;
@@ -198,7 +211,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     input.files = [{ name: filename, text: async () => "playlists:\n  Beta: {}\n" }];
     await input.onchange();
   }
-  return { chooseFile, calls, $, tabs, filename, get imported() { return imported; }, get synced() { return synced; } };
+  return { chooseFile, calls, requests, $, tabs, filename, get imported() { return imported; }, get synced() { return synced; } };
 }
 
 test("valid file immediately imports and syncs new playlists", async () => {
@@ -396,4 +409,37 @@ test("Discover tab compares curated albums with Plex and offers exact resolver U
   await h.$("iscRefresh").onclick();
   assert.ok(h.calls.includes("/api/discover/isc?refresh=true"));
   assert.ok(!h.calls.some(c => /curate-tracks|sync-pending/.test(c)));
+});
+
+
+test("cover ZIP picker uploads raw ZIP, reports overwrites and unmatched, not YAML changes", async () => {
+  const h = makeHarness();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(html, /id="importCoverZip"[^>]*>Upload cover ZIP/);
+  assert.match(html, /id="coverZipFile"[^>]+accept="\.zip/);
+  const file = {name:"plex-playlist-covers-109.zip"};
+  h.$("coverZipFile").files = [file];
+  await h.$("coverZipFile").onchange();
+  const request = h.requests.find(r=>r.url==="/api/playlist-covers/import-zip");
+  assert.ok(request, "ZIP endpoint was called");
+  assert.equal(request.options.method, "POST");
+  assert.equal(request.options.headers["Content-Type"], "application/zip");
+  assert.equal(request.options.body, file);
+  assert.match(h.$("coverImportTotals").textContent, /3 saved.*1 new.*2 replaced.*2 applied/);
+  assert.match(h.$("coverImportDetails").innerHTML, /Unknown.jpg/);
+  assert.match(h.$("coverImportDetails").innerHTML, /manifest.csv/);
+  assert.equal(h.$("coverImportResult").hidden, false);
+  assert.equal(h.$("coverZipFile").value, "");
+  assert.equal(h.$("importCoverZip").disabled, false);
+  assert.ok(!h.calls.includes("/api/import-config"));
+  assert.ok(!h.calls.some(r => r.startsWith("/api/sync-pending/")));
+});
+
+test("cover ZIP picker rejects nonzip files before sending requests", async () => {
+  const h = makeHarness();
+  await new Promise(resolve => setImmediate(resolve));
+  h.$("coverZipFile").files = [{name:"image.png"}];
+  await h.$("coverZipFile").onchange();
+  assert.match(h.$("notice").textContent, /Select a ZIP file/);
+  assert.ok(!h.calls.includes("/api/playlist-covers/import-zip"));
 });
