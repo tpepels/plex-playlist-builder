@@ -133,6 +133,10 @@ small{color:var(--muted)}
 
 #ytResult{margin-top:13px;overflow-wrap:anywhere}
 @media(max-width:720px){.view-tabs{overflow-x:auto}.insight-table{font-size:12px}.album-card>summary{flex-wrap:wrap}}
+.cover-import-details{max-height:260px;overflow-y:auto;font-size:13px;margin-top:10px}
+.cover-import-details .cover-row{padding:6px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
+.cover-import-details .cover-row:first-child{border-top:0}
+.cover-import-details .cover-bad{color:var(--bad)}
 </style>
 </head>
 <body>
@@ -156,6 +160,8 @@ small{color:var(--muted)}
   <div class="actions">
     <button id="importPack" class="primary" title="Validate YAML, import, and sync changes to Plex">Import &amp; sync</button>
     <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
+    <button id="importCoverZip" type="button" title="Upload playlist covers from a ZIP, replacing previous versions by filename">Upload cover ZIP</button>
+    <input id="coverZipFile" type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden>
     <a class="button" href="/api/library-export.tsv" download="plex-music-library.tsv">Full library TSV</a>
     <a class="button" href="/api/playlists-export.yml" download="plex-playlists.yml">Plex playlists YAML</a>
   </div>
@@ -170,6 +176,11 @@ small{color:var(--muted)}
   </form>
 </section>
 <div id="notice" class="notice" role="status" hidden></div>
+<section id="coverImportResult" class="panel" aria-label="Cover ZIP import results" hidden>
+  <div class="section-title"><h2>Playlist covers</h2><small id="coverImportTotals"></small></div>
+  <p class="album-meta">Image filename = exact Plex playlist name. Re-uploading a name replaces its previous cover. Covers are restored after playlist sync.</p>
+  <div id="coverImportDetails" class="cover-import-details" role="status"></div>
+</section>
 
 <section id="bulkPanel" class="panel bulk-panel" aria-label="Plex updates" hidden>
   <div class="bulk-head">
@@ -304,6 +315,7 @@ let config = null;
 let editorDirty = false;
 let syncing = false;
 let stopRequested = false;
+let coverUploading = false;
 
 async function api(url, options={}) {
   const r = await fetch(url, options);
@@ -366,6 +378,7 @@ function updateActions() {
   $("bulkSummary").textContent = names.length ? `${names.length} pending` : "";
   $("bulkPanel").hidden = !syncing && names.length === 0 && $("bulkErrors").textContent === "";
   for (const id of ["save", "reload", "importPack"]) $(id).disabled = syncing;
+  $("importCoverZip").disabled = syncing || coverUploading;
   $("yaml").disabled = syncing;
   document.querySelectorAll(".build").forEach(button => {
     button.disabled = syncing || button.closest(".playlist")?.dataset.disabled === "true";
@@ -644,6 +657,60 @@ $("packFile").onchange = async () => {
     // Allow the same file to be picked again for retry.
     $("packFile").value = "";
     syncing = false;
+    updateActions();
+  }
+};
+
+
+$("importCoverZip").onclick = () => {
+  if (syncing || coverUploading) {
+    showNotice("Finish the current playlist operation before uploading covers.", true);
+    return;
+  }
+  $("coverZipFile").click();
+};
+$("coverZipFile").onchange = async () => {
+  const file = $("coverZipFile").files[0];
+  if (!file) return;
+  if (syncing || coverUploading) {
+    $("coverZipFile").value = "";
+    showNotice("Finish the current operation before importing covers.", true);
+    return;
+  }
+  if (!file.name.toLowerCase().endsWith(".zip")) {
+    $("coverZipFile").value = "";
+    showNotice("Select a ZIP file containing JPG or PNG playlist covers.", true);
+    return;
+  }
+  coverUploading = true;
+  updateActions();
+  $("coverImportResult").hidden = false;
+  $("coverImportTotals").textContent = "Uploading…";
+  $("coverImportDetails").textContent = "Reading archive, saving cover versions and applying them to Plex…";
+  try {
+    const data = await api("/api/playlist-covers/import-zip", {
+      method:"POST", headers:{"Content-Type":"application/zip"}, body:file
+    });
+    const stored = data.new + data.updated;
+    $("coverImportTotals").textContent =
+      stored + " saved · " + data.new + " new · " + data.updated + " replaced · " + data.applied + " applied to Plex";
+    const issues = [
+      ...data.files.filter(f => f.status !== "applied").map(f =>
+        ({file:f.source, reason:f.status + ": " + f.reason})),
+      ...data.skipped_files.map(f => ({file:f.file,reason:"skipped: " + f.reason})),
+    ];
+    $("coverImportDetails").innerHTML = issues.length
+      ? issues.map(i => '<div class="cover-row cover-bad">' + esc(i.file) + " — " + esc(i.reason) + "</div>").join("")
+      : '<div class="cover-row">All ' + data.applied + " covers successfully applied to Plex.</div>";
+    showNotice('Cover ZIP "' + file.name + '" imported: ' + stored + " saved, " + data.applied + " applied, " + data.unmatched + " unmatched, " + data.pending + " pending, " + data.failed + " failed, " + data.skipped + " skipped.",
+      Boolean(data.failed || data.pending || data.skipped));
+  } catch(e) {
+    $("coverImportTotals").textContent = "Import failed";
+    $("coverImportDetails").textContent = e.message;
+    showNotice("Could not import cover ZIP: " + e.message, true);
+  } finally {
+    $("coverZipFile").value = "";
+    coverUploading = false;
     updateActions();
   }
 };
