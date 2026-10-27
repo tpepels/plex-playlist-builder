@@ -31,6 +31,7 @@ from .recent_export import export_recent_tracks
 from .insights import analyze
 from .duplicates import find_duplicates, duplicates_tsv
 from .isc_discovery import fetch_catalog, compare_library
+from .playlist_covers import import_cover_zip, MAX_ZIP_BYTES
 from .playlist_policies import read_policies, set_policy
 from .youtube_album import lookup_album
 from .plex_client import (
@@ -194,6 +195,35 @@ def import_config(body: ImportBody):
         }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/playlist-covers/import-zip")
+async def import_playlist_cover_archive(request: Request):
+    """Upload a ZIP of JPG/PNG covers. Files are persisted in /data before Plex calls."""
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type not in ("application/zip", "application/x-zip-compressed", "application/octet-stream"):
+        raise HTTPException(status_code=415, detail="Please upload a ZIP archive.")
+    length = request.headers.get("content-length", "0")
+    if length.isdigit() and int(length) > MAX_ZIP_BYTES:
+        raise HTTPException(status_code=413, detail="ZIP exceeds 70 MiB.")
+    parts = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > MAX_ZIP_BYTES:
+            raise HTTPException(status_code=413, detail="ZIP exceeds 70 MiB.")
+        parts.append(chunk)
+    try:
+        try:
+            plex, _ = connect()
+        except Exception:
+            # Keep valid covers on disk even if Plex is temporarily offline.
+            plex = None
+        return import_cover_zip(b"".join(parts), plex=plex)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="Could not save playlist covers to persistent storage.") from exc
 
 
 @app.get("/api/library-export.tsv")
