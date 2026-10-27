@@ -377,7 +377,7 @@ function updateActions() {
   button.disabled = syncing || editorDirty || names.length === 0;
   $("bulkSummary").textContent = names.length ? `${names.length} pending` : "";
   $("bulkPanel").hidden = !syncing && names.length === 0 && $("bulkErrors").textContent === "";
-  for (const id of ["save", "reload", "importPack"]) $(id).disabled = syncing;
+  for (const id of ["save", "reload", "importPack"]) $(id).disabled = syncing || coverUploading;
   $("importCoverZip").disabled = syncing || coverUploading;
   $("yaml").disabled = syncing;
   document.querySelectorAll(".build").forEach(button => {
@@ -612,7 +612,7 @@ $("save").onclick = async () => {
 $("reload").onclick = () => loadConfig().catch(e => $("saveState").textContent = "Error: " + e.message);
 
 $("importPack").onclick = () => {
-  if (syncing) return;
+  if (syncing || coverUploading) return;
   if (editorDirty) {
     showNotice("Save or discard your unsaved YAML editor changes before importing another version.", true);
     return;
@@ -624,7 +624,7 @@ $("packFile").onchange = async () => {
   if (!file) return;
   // An import is one transaction from the user's perspective: validate,
   // persist the pack, and sync changed playlists. Lock the editor throughout.
-  if (syncing || editorDirty) {
+  if (syncing || coverUploading || editorDirty) {
     $("packFile").value = "";
     showNotice("Finish the current operation or save editor changes before importing.", true);
     return;
