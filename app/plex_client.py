@@ -10,6 +10,7 @@ from typing import Any, Iterable
 
 import requests
 import urllib3
+from .playlist_covers import restore_after_sync
 from plexapi.server import PlexServer
 from plexapi.exceptions import NotFound
 
@@ -328,7 +329,8 @@ def sync_playlist(plex, music, name: str, spec: dict[str, Any]):
     for playlist in existing:
         playlist.delete()
 
-    plex.createPlaylist(title=name, items=tracks)
+    created = plex.createPlaylist(title=name, items=tracks)
+    result["cover"] = restore_after_sync(plex, created)
     result["status"] = "synced"
     result["changed"] = True
     result["message"] = f"Created '{name}' with {len(tracks)} tracks."
