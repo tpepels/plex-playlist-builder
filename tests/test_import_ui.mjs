@@ -323,7 +323,7 @@ test("album lookup never offers a generic search link when the album is absent",
   h.$("ytArtist").value = "Arve Henriksen";
   h.$("ytAlbum").value = "The Nature of Connections";
   await h.$("albumLookupForm").onsubmit({preventDefault(){}});
-  assert.match(h.$("ytResult").textContent, /No matching album or title variant/);
+  assert.match(h.$("ytResult").textContent, /No album satisfies the deterministic matching rules/);
   assert.equal(h.$("ytResult").children.length, 0);
 });
 
