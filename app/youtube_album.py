@@ -66,7 +66,17 @@ def parenthetical_base_album_title(title):
 
 
 def _requests_complete_release(title):
-    return any("complete" in tag.split() for tag in _edition_parts(title)[1])
+    text = str(title or "").strip()
+    for _ in range(4):
+        if any("complete" in tag.split() for tag in _edition_parts(text)[1]):
+            return True
+        # Only inspect past one of these trailing recording labels when
+        # checking for Complete; this does not remove it for title matching.
+        match = _TRAILING_PARENS.fullmatch(text)
+        if not match or norm(match.group("tag")) not in {"live", "mono", "stereo"}:
+            break
+        text = match.group("base").strip()
+    return False
 
 
 # This explicit catalog-alias whitelist is intentionally small. A real album
