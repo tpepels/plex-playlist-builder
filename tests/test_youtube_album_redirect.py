@@ -73,7 +73,8 @@ def test_ajax_post_reports_queued_job_id_and_status(monkeypatch):
     queued = []
     def queue(url, audit):
         queued.append((url, audit))
-        return {"job_id": "job123", "duplicate": False, "status": "queued"}
+        return {"job_id": "job123", "duplicate": False, "status": "queued",
+                "visible": True, "latest_job_id": "job123", "message": "Waiting for worker"}
     monkeypatch.setattr(main, "queue_album", queue)
     monkeypatch.setattr(main, "downloader_ui_url", lambda: "http://media-server:4545/")
     token = main._album_action_token("Jim Hall", "Jim Hall Live!", int(main.time.time() // 3600))
@@ -82,8 +83,10 @@ def test_ajax_post_reports_queued_job_id_and_status(monkeypatch):
     assert response.status_code == 200
     payload = json.loads(response.body)
     assert payload == {
-        "ok": True, "job_id": "job123", "status": "queued",
-        "duplicate": False, "downloader_url": "http://media-server:4545/",
+        "ok": True, "job_id": "job123", "latest_job_id": "job123",
+        "status": "queued", "duplicate": False, "visible": True,
+        "active": True, "message": "Waiting for worker",
+        "downloader_url": "http://media-server:4545/?job=job123",
     }
     assert queued[0][1]["normalization_rules"] == ["redundant_artist_prefix"]
     assert response.headers["cache-control"] == "no-store"
@@ -93,7 +96,9 @@ def test_ajax_post_reports_existing_job_without_requeue_ambiguity(monkeypatch):
     monkeypatch.setattr(main, "youtube_album", lambda a, b: _matched())
     monkeypatch.setattr(main, "_owned_album", lambda a, b: False)
     monkeypatch.setattr(main, "queue_album", lambda *args: {
-        "job_id": "existing", "duplicate": True, "status": "succeeded"})
+        "job_id": "existing", "latest_job_id": "existing",
+        "duplicate": True, "status": "succeeded", "visible": False,
+        "message": "Completed job removed from history."})
     token = main._album_action_token("Jim Hall", "Jim Hall Live!", int(main.time.time() // 3600))
     response = asyncio.run(main.queue_youtube_album(_request(
         f"artist=Jim+Hall&album=Jim+Hall+Live%21&token={token}", "application/json")))
@@ -101,13 +106,16 @@ def test_ajax_post_reports_existing_job_without_requeue_ambiguity(monkeypatch):
     assert payload["job_id"] == "existing"
     assert payload["duplicate"] is True
     assert payload["status"] == "succeeded"
+    assert payload["visible"] is False
+    assert payload["active"] is False
 
 
 def test_non_ajax_post_still_redirects_after_enqueue(monkeypatch):
     monkeypatch.setattr(main, "youtube_album", lambda a, b: _matched())
     monkeypatch.setattr(main, "_owned_album", lambda a, b: False)
     monkeypatch.setattr(main, "queue_album", lambda *args: {
-        "job_id": "manual", "duplicate": False, "status": "queued"})
+        "job_id": "manual", "latest_job_id": "manual",
+        "duplicate": False, "status": "queued", "visible": True, "message": ""})
     token = main._album_action_token("Jim Hall", "Jim Hall Live!", int(main.time.time() // 3600))
     response = asyncio.run(main.queue_youtube_album(_request(
         f"artist=Jim+Hall&album=Jim+Hall+Live%21&token={token}")))
@@ -138,3 +146,40 @@ def test_resolver_api_remains_read_only(monkeypatch):
     expected = {"status": "not_found", "message": "Not found"}
     monkeypatch.setattr(main, "lookup_album", lambda a, b: expected)
     assert main.youtube_album("Jim Hall", "Jim Hall Live!") == expected
+
+
+def test_historical_job_does_not_redirect_to_empty_downloader(monkeypatch):
+    monkeypatch.setattr(main, "youtube_album", lambda a, b: _matched())
+    monkeypatch.setattr(main, "_owned_album", lambda a, b: False)
+    monkeypatch.setattr(main, "queue_album", lambda *args: {
+        "job_id": "old", "latest_job_id": "old",
+        "status": "succeeded", "duplicate": True,
+        "visible": False, "message": "Already downloaded, hidden from list.",
+    })
+    token = main._album_action_token("Jim Hall", "Jim Hall Live!", int(main.time.time() // 3600))
+    body = f"artist=Jim+Hall&album=Jim+Hall+Live%21&token={token}"
+    response = asyncio.run(main.queue_youtube_album(_request(body, "application/json")))
+    data = json.loads(response.body)
+    assert data["active"] is False
+    assert data["visible"] is False
+    assert data["message"] == "Already downloaded, hidden from list."
+    manual = asyncio.run(main.queue_youtube_album(_request(body)))
+    assert manual.status_code == 409
+    assert "Download not queued" in manual.body.decode()
+
+
+def test_failed_visible_job_does_not_redirect(monkeypatch):
+    monkeypatch.setattr(main, "youtube_album", lambda a, b: _matched())
+    monkeypatch.setattr(main, "_owned_album", lambda a, b: False)
+    monkeypatch.setattr(main, "queue_album", lambda *args: {
+        "job_id": "failed", "latest_job_id": "failed",
+        "status": "failed", "duplicate": True, "visible": True,
+        "message": "yt-dlp exited with code 1",
+    })
+    token = main._album_action_token("Jim Hall", "Jim Hall Live!", int(main.time.time() // 3600))
+    response = asyncio.run(main.queue_youtube_album(_request(
+        f"artist=Jim+Hall&album=Jim+Hall+Live%21&token={token}", "application/json")))
+    data = json.loads(response.body)
+    assert data["active"] is False
+    assert data["status"] == "failed"
+    assert data["downloader_url"].endswith("?job=failed")
