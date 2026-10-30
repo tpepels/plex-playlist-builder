@@ -68,6 +68,7 @@ def test_api_creates_one_job_and_returns_same_id_after_repeated_requests(server)
     assert second.status_code == 200
     assert second.get_json()["duplicate"] is True
     assert second.get_json()["job_id"] == job_id
+    assert second.get_json()["visible"] is True
     assert server.download_queue.qsize() == 1
 
     detail = client.get(f"/api/albums/{job_id}")
@@ -78,24 +79,42 @@ def test_api_creates_one_job_and_returns_same_id_after_repeated_requests(server)
     assert persisted["album_submissions"][submission_key(URL)]["job_id"] == job_id
 
 
-def test_claim_survives_restart_and_pruned_history(server):
+def test_orphaned_queued_claim_creates_new_visible_job(server):
     client = server.app.test_client()
     job_id = client.post("/api/albums", json={"url": URL}).get_json()["job_id"]
     with server.jobs_lock:
-        server.jobs.clear()  # Historical job was pruned from the UI.
-    duplicate = client.post("/api/albums", json={"url": URL})
-    assert duplicate.status_code == 200
-    assert duplicate.get_json()["job_id"] == job_id
-    assert duplicate.get_json()["status"] == "queued"  # persisted last-known status
-    assert server.download_queue.qsize() == 1
+        server.jobs.clear()  # Corrupt/stale claim with no real download job.
+    repaired = client.post("/api/albums", json={"url": URL})
+    assert repaired.status_code == 201
+    new_id = repaired.get_json()["job_id"]
+    assert new_id != job_id
+    assert repaired.get_json()["visible"] is True
+    assert server.download_queue.qsize() == 2
+    verified = client.get(f"/api/albums/{new_id}").get_json()
+    assert verified["visible"] is True
 
-    # Simulate state restoration: the submission key survives pruning.
-    with server.jobs_lock:
-        server.album_submissions.clear()
+    # Persisted repair survives restarting the service.
     server.load_persisted_jobs()
     after_restart = client.post("/api/albums", json={"url": URL})
     assert after_restart.status_code == 200
-    assert after_restart.get_json()["job_id"] == job_id
+    assert after_restart.get_json()["job_id"] == new_id
+
+
+def test_completed_pruned_job_is_historical_not_a_queue_item(server):
+    client = server.app.test_client()
+    job_id = client.post("/api/albums", json={"url": URL}).get_json()["job_id"]
+    with server.jobs_lock:
+        server.jobs[job_id]["status"] = "succeeded"
+        assert server.persist_jobs_locked()
+        server.jobs.clear()
+        assert server.persist_jobs_locked()
+    duplicate = client.post("/api/albums", json={"url": URL})
+    assert duplicate.status_code == 200
+    assert duplicate.get_json()["duplicate"] is True
+    assert duplicate.get_json()["status"] == "succeeded"
+    assert duplicate.get_json()["visible"] is False
+    assert client.get(f"/api/albums/{job_id}").get_json()["visible"] is False
+    assert server.download_queue.qsize() == 1
 
 
 def test_bad_album_url_never_enqueues(server):
