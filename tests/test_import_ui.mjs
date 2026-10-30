@@ -311,6 +311,8 @@ test("album lookup exposes the direct YouTube Music URL, not a search URL", asyn
   assert.ok(wrap);
   const input = wrap.children.find(n=>n.value?.startsWith("https://music.youtube.com/"));
   assert.equal(input.value, "https://music.youtube.com/playlist?list=OLAK5uy_verified");
+  const queueLink = wrap.children.find(n => n.textContent === "Queue on yt-dlp");
+  assert.equal(queueLink.href, "/open-youtube-album?artist=Nils%20Frahm&album=Felt");
   assert.match(wrap.children[0].textContent, /Felt \(Deluxe Edition\).*edition match/);
   assert.doesNotMatch(input.value, /search\\?q=/);
 });
@@ -394,6 +396,7 @@ test("Discover tab compares curated albums with Plex and offers exact resolver U
   assert.doesNotMatch(h.$("iscRows").innerHTML, /Paul Bley/);
   assert.match(h.$("iscRows").innerHTML,
     /\/open-youtube-album\?artist=Hiroshi%20Suzuki&amp;album=Cat/);
+  assert.match(h.$("iscRows").innerHTML, /Queue on yt-dlp/);
   assert.match(h.$("iscRows").innerHTML,
     /https:\/\/insheepsclothinghifi.com\/album\/hiroshi-suzuki-cat\//);
   h.$("iscStatus").value = "edition";
