@@ -86,7 +86,7 @@ def test_claim_survives_restart_and_pruned_history(server):
     duplicate = client.post("/api/albums", json={"url": URL})
     assert duplicate.status_code == 200
     assert duplicate.get_json()["job_id"] == job_id
-    assert duplicate.get_json()["status"] == "previously_submitted"
+    assert duplicate.get_json()["status"] == "queued"  # persisted last-known status
     assert server.download_queue.qsize() == 1
 
     # Simulate state restoration: the submission key survives pruning.
