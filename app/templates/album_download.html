@@ -45,6 +45,7 @@
         <button id="retry-button" type="button" hidden>Try again</button>
         <a id="search-link" href="{{ search_url }}" hidden>Search on YouTube Music</a>
         <a id="direct-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Inspect album</a>
+        <a id="downloader-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Inspect yt-dlp job</a>
       </div>
     </form>
     <noscript>
@@ -70,6 +71,7 @@
     const retryButton = document.getElementById("retry-button");
     const searchLink = document.getElementById("search-link");
     const directLink = document.getElementById("direct-link");
+    const downloaderLink = document.getElementById("downloader-link");
     let start = performance.now();
     let busy = false;
     let resolved = null;
@@ -118,13 +120,27 @@
           body: new URLSearchParams(new FormData(form)),
           credentials: "same-origin"
         });
-        const result = response.duplicate ? "Already in the download queue" : "Added to the download queue";
-        heading.textContent = result;
-        showStatus("Job " + response.job_id + " · " + response.status,
-          "Opening the yt-dlp dashboard…", false);
+        downloaderLink.href = response.downloader_url;
+        downloaderLink.hidden = false;
         elapsedTime();
-        // Keep the acknowledgement visible briefly before opening the queue.
-        setTimeout(() => window.location.assign(response.downloader_url), 900);
+        if (!response.active) {
+          // Failed, completed or pruned jobs are not in the active queue.
+          heading.textContent = response.status === "succeeded"
+            ? "Album was downloaded previously" : "No active download job";
+          showStatus("Job " + response.job_id + " · " + response.status,
+            response.message || (response.visible
+              ? "The job is not queued or running. Inspect it in the downloader."
+              : "This historical job is no longer visible in the download list."), false);
+          queueButton.hidden = true;
+          busy = false;
+          return;
+        }
+        const result = response.duplicate ? "Existing active download found" : "Added to the download queue";
+        heading.textContent = result;
+        showStatus("Job " + response.latest_job_id + " · " + response.status,
+          "Confirmed in yt-dlp. Opening this job in the downloader…", false);
+        // Keep the job acknowledgement visible before opening the correct card.
+        setTimeout(() => window.location.assign(response.downloader_url), 1500);
       } catch (error) {
         setError(error.message || "Could not submit album.");
       }
@@ -144,6 +160,7 @@
       queueButton.disabled = false;
       retryButton.hidden = true;
       directLink.hidden = true;
+      downloaderLink.hidden = true;
       searchLink.hidden = true;
       showStatus("Searching YouTube Music…",
         "Comparing catalog results using exact titles and explicit edition rules.");
