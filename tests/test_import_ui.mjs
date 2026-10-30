@@ -254,6 +254,11 @@ test("failed Plex sync keeps import and reports a retryable error", async () => 
   assert.equal(h.$("syncPending").disabled, false);
 });
 
+test("compact album export remains available beside full library export", () => {
+  assert.match(html, /href="\/api\/library-albums\.tsv"[^>]+download="plex-albums\.tsv"/);
+  assert.match(html, /href="\/api\/library-export\.tsv"[^>]+download="plex-music-library\.tsv"/);
+});
+
 test("recent export form supports last hours and last N albums", async () => {
   const h = makeHarness();
   await new Promise((resolve) => setImmediate(resolve));
