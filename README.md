@@ -142,13 +142,13 @@ genre/tag metadata**, not claims about the source's own playlist categories.
 Albums without evidence for these moods remain visible under All styles.
 
 Each record links to its originating ISC album page. Missing and
-edition-different records also have **Queue on yt-dlp**, using the
-`/open-youtube-album` resolver. Clicking this is a download action: when
-YouTube Music confirms an album match, the manager submits the verified album
-URL directly to the yt-dlp server's existing `POST /download` endpoint with
-playlist mode enabled, then opens the downloader's jobs page. An unmatched
-album opens YouTube Music search for exactly `artist album`; no download
-is queued. Discovery itself
+edition-different records also have **Review and queue album**, using the
+`/open-youtube-album` resolver. GET requests only show a preview and a
+signed confirmation form. **Only an explicit form POST** submits the verified
+album to the downloader's idempotent `POST /api/albums` endpoint and then
+opens the downloader's jobs page. Repeated submissions of the same YouTube
+album ID return the original job ID. An unmatched album opens a YouTube Music
+search for exactly `artist album`, without a download. Discovery itself
 does not alter playlist definitions.
 
 The catalog is cached for 24 hours in /data/isc-discovery.json so normal
@@ -236,63 +236,50 @@ album catalog (no user account or API key needed). It returns a **direct album
 URL** only when the artist and title match and the result has a valid YouTube
 Music album ID.
 
-The resolver recognizes common *release editions*. For example, `Hats`,
-`Hats (Deluxe Edition)` and `Hats (2002 Remaster)` may all resolve to the
-same album. Comma/dash/bracket suffixes indicating a **Complete** release are
-also recognized. For example, `In Person Friday And Saturday Nights At The
-Blackhawk, Complete` may match the same album labeled `- Complete (Live)`;
-punctuation such as colons is already ignored. If **Complete** was requested,
-the candidate must also identify itself as complete, so a short edition cannot
-silently replace the requested complete edition. Different source recordings,
-such as Friday-only versus both Friday and Saturday performances, remain
-distinct albums.
+The resolver uses strictly defined canonicalization: punctuation, \`&\` / \`and\`,
+\`Vol.\` / \`Volume\`, and \`Pt.\` / \`Part\` are equivalent. Only a fixed list of
+trailing release qualifiers (e.g. Deluxe, Remastered, Complete, Expanded) can
+be removed, and a requested **Complete** release will not resolve to a shorter
+edition. \`(Live)\`, \`(Demo)\`, \`(Acoustic)\`, \`(Mono)\`, \`(Stereo)\`, and volume
+numbers remain meaningful. Two exceptions are explicitly documented in the
+resolver: Stan Getz's *Getz at the Gate (Live)* and Miles Davis's *Blackhawk
+Complete (Live)* catalog label. New exceptions require intentional code changes.
 
-The resolver also accepts **arbitrary trailing parenthetical qualifiers**
-as a lower-priority title variant: `Getz at the Gate` can match
-`Getz At The Gate (Live)`, and the reverse direction also works. An exact
-title is preferred, then a recognized edition, then a parenthetical variant.
-Parenthetical matches are labeled **parenthetical title match**.
+All bounded catalog searches are evaluated before choosing a result. Exact
+titles rank above recognized editions and explicit aliases. Two different
+album IDs tied at the best rank yield \`status: ambiguous\`: neither is sent
+to the downloader. The resolved response includes the applied
+\`normalization_rules\`, search queries and candidate count, which are passed
+to the downloader for persistent provenance.
 
-Only trailing parentheses are ignored (not words in the middle of a title or
-unrelated subtitles). The artist must still match, and a real album catalog
-URL is required. This looser fallback can conflate different versions such
-as `(Live)`, `(Demo)`, and `(Vol. 2)`; check the displayed catalog title
-when that distinction matters. If a matching album cannot be found,
-the one-click redirect opens YouTube Music search for exactly `artist album`.
-If the album matches, clicking a recommendation link immediately queues it
-on the yt-dlp service and opens that service's jobs page instead of YouTube
-Music. The **Find album** screen retains the verified direct album URL and
-offers a separate **Queue on yt-dlp** link. A network error is reported
-explicitly; YouTube Music may also impose regional playback restrictions.
+API routes: \`GET /api/youtube-album?artist=...&album=...\` for read-only
+resolution, \`GET /open-youtube-album?artist=...&album=...\` for read-only
+confirmation, and \`POST /queue-youtube-album\` for the signed user action.
+A missing album redirects to a YouTube Music search for exactly \`artist album\`.
+An ambiguous match displays candidates but never submits a job.
 
-API routes: `GET /api/insights?recent_days=30`,
-`PUT /api/playlist-policy/{name}`, `POST /api/curate-tracks`,
-`GET /api/youtube-album?artist=...&album=...`.
+The POST first checks the current Plex Music library for the exact normalized
+artist/title pair. An owned album is rejected with HTTP 409. Otherwise, the
+manager prefers an \`OLAK5uy_\` audio playlist over a \`browse/MPRE...\` link,
+submits JSON to the yt-dlp server's \`POST /api/albums\`, and receives a stable
+\`job_id\`, \`duplicate\` flag, and current job status. On network timeout the
+manager does not claim success; retrying the same album is safe because the
+downloader persists the album-ID key alongside job state across restarts.
+Submission audit records include requested/matched titles, matched URL, search
+queries and applied normalization rules. A queue response confirms admission,
+not successful download or completed metadata validation.
 
-For one-click links to share from music discovery recommendations, use
-`GET /open-youtube-album?artist=...&album=...`. A verified match sends a
-form-encoded `url=<verified-album-url>&playlist=on` request directly to the
-existing downloader service and redirects the browser to its queue page.
-The service prefers an album's `OLAK5uy_` audio playlist URL when YouTube
-Music initially returns a `browse/MPRE...` album URL, because yt-dlp can fail
-to interpret some browse links. If the extra catalog lookup fails, the
-original verified album URL is passed through.
-A downloader failure returns HTTP 502 (and never claims the job was queued).
-An unmatched album opens YouTube Music search for exactly `artist album`
-without submitting a download. Invalid input and catalog errors are reported.
+Configure \`YTDLP_SERVER_URL\` (default \`http://yt-dlp-server:4545\`) to reach
+the downloader over the shared Docker network. \`YTDLP_PUBLIC_URL\` (default
+\`http://media-server:4545\`) is the browser-facing downloader address. For
+multiple playlist manager workers, configure the same \`ALBUM_ACTION_SECRET\`
+on all workers so signed form tokens remain valid across workers. The default
+uses a per-process random signing key. The yt-dlp service must be updated to
+include \`/api/albums\` before this version of the playlist manager is deployed.
 
-Configure `YTDLP_SERVER_URL` (default `http://yt-dlp-server:4545`) as the
-internal address reachable from the playlist manager container; both services
-must share a Docker network. `YTDLP_PUBLIC_URL` (default
-`http://media-server:4545`) is the browser-reachable URL after submission.
-The yt-dlp service itself does not require a change. If the services use
-separate Docker networks, supply a reachable internal address instead.
-The downloader may still leave a job in **Needs metadata** before publication,
-and a queue acknowledgement does not guarantee the download will succeed.
-
-**Important:** Every visit to a successfully resolved shared link submits a
-download job. Reloading or reopening the link may enqueue it again; do not
-treat this route as a read-only album preview.
+**Note:** The shared links are now safe to open or preview. Clicking the
+confirmation button initiates the download. Album titles with equal best
+catalog rankings are deliberately not downloaded automatically.
 
 ## Playlist versions and sync status
 
