@@ -37,6 +37,7 @@ def test_resolved_album_get_requires_explicit_post(monkeypatch):
     assert 'method="post" action="/queue-youtube-album"' in page
     assert "Getz at the Gate (Live)" in page
     assert "Queue on yt-dlp" in page
+    assert 'document.getElementById("queue-album-form").submit();' not in page
     assert response.headers["cache-control"] == "no-store"
 
 
@@ -109,3 +110,37 @@ def test_not_found_api_remains_read_only(monkeypatch):
     expected = {"status": "not_found", "message": "Not found"}
     monkeypatch.setattr(main, "lookup_album", lambda a, b: expected)
     assert main.youtube_album("Stan Getz", "Getz at the Gate") == expected
+
+
+@pytest.mark.parametrize("match_type", ["exact", "artist_prefix"])
+def test_single_strict_album_match_automatically_posts_from_browser(monkeypatch, match_type):
+    monkeypatch.setattr(main, "youtube_album", lambda a, b: {
+        "status": "found", "url": "https://music.youtube.com/browse/MPREb_IObRABnIPO3",
+        "artist": "Jim Hall", "album": "Live!", "match_type": match_type,
+        "artist_match_type": "exact",
+    })
+    monkeypatch.setattr(main, "queue_album", lambda *args: pytest.fail("GET must remain read only"))
+    response = main.open_youtube_album("Jim Hall", "Jim Hall Live!")
+    assert response.status_code == 200
+    html = response.body.decode()
+    assert 'method="post" action="/queue-youtube-album"' in html
+    assert 'document.getElementById("queue-album-form").submit();' in html
+    assert "Sending album to yt-dlp" in html
+
+
+@pytest.mark.parametrize("match_type,artist_match_type", [
+    ("edition", "exact"),
+    ("explicit_alias", "exact"),
+    ("exact", "ensemble"),
+    ("artist_prefix", "ensemble"),
+])
+def test_weaker_or_ensemble_matches_keep_manual_review(monkeypatch, match_type, artist_match_type):
+    monkeypatch.setattr(main, "youtube_album", lambda a, b: {
+        "status": "found", "url": "https://music.youtube.com/browse/MPREdifferent",
+        "artist": "Jim Hall", "album": "Live!", "match_type": match_type,
+        "artist_match_type": artist_match_type,
+    })
+    response = main.open_youtube_album("Jim Hall", "Jim Hall Live!")
+    assert response.status_code == 200
+    assert 'document.getElementById("queue-album-form").submit();' not in response.body.decode()
+    assert "Review album match before downloading" in response.body.decode()
