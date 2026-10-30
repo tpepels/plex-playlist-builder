@@ -98,6 +98,12 @@ def _explicit_alias(artist, requested, found):
     return False
 
 
+def same_owned_release(artist, requested_album, owned_album):
+    """Only identical titles or explicit same-release aliases block re-download."""
+    return (norm(requested_album) == norm(owned_album)
+            or _explicit_alias(artist, requested_album, owned_album))
+
+
 def _artist_names(item):
     names = []
     artist = item.get("artist")
