@@ -123,7 +123,8 @@
         showStatus("Job " + response.job_id + " · " + response.status,
           "Opening the yt-dlp dashboard…", false);
         elapsedTime();
-        window.location.assign(response.downloader_url);
+        // Keep the acknowledgement visible briefly before opening the queue.
+        setTimeout(() => window.location.assign(response.downloader_url), 900);
       } catch (error) {
         setError(error.message || "Could not submit album.");
       }
