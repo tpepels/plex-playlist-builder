@@ -113,3 +113,21 @@ def test_full_queue_does_not_create_a_job_or_claim(server):
     response = server.app.test_client().post("/api/albums", json={"url": URL})
     assert response.status_code == 429
     assert not server.album_submissions
+
+
+def test_html_album_submission_and_json_api_share_identity(server, monkeypatch):
+    monkeypatch.setattr(server, "probe_url", lambda url: {
+        "kind": "playlist", "title": "Test Album",
+        "count": 4, "album_artist": "Artist", "thumbnail": None,
+    })
+    client = server.app.test_client()
+    first = client.post("/download", data={"url": URL, "playlist": "on"})
+    assert first.status_code == 302
+    original = next(iter(server.jobs))
+    again = client.post("/download", data={"url": URL, "playlist": "on"})
+    assert again.status_code == 302
+    assert server.download_queue.qsize() == 1
+    api = client.post("/api/albums", json={"url": URL})
+    assert api.status_code == 200
+    assert api.get_json()["duplicate"] is True
+    assert api.get_json()["job_id"] == original
