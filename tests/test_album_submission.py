@@ -170,3 +170,12 @@ def test_stable_album_job_id_follows_retry_status(server):
     detail = client.get(f"/api/albums/{original}").get_json()
     assert detail["status"] == "succeeded"
     assert detail["latest_job_id"] == "retry-1"
+
+
+def test_downloader_dashboard_highlights_requested_job_and_reports_absent_job():
+    from pathlib import Path
+    html = (Path(__file__).parents[1] / "templates" / "index.html").read_text()
+    assert 'new URLSearchParams(window.location.search).get("job")' in html
+    assert 'card.classList.add("targeted")' in html
+    assert "not visible on this downloader" in html
+    assert "request_member_ids" in html
