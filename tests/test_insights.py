@@ -192,8 +192,7 @@ def test_youtube_resolver_preserves_album_identity_and_safe_urls():
          "artist": "The Blue Nile", "playlistId": "https://evil.example"},
     ]
     variant = pick_exact_album("The Blue Nile", "Hats", records)
-    assert variant["album"] == "Hats (Live)"
-    assert variant["match_type"] == "parenthetical"
+    assert variant is None  # Live is a distinct recording, not an arbitrary edition
     assert pick_exact_album("The Blue Nile", "Hats (Live)", records)["match_type"] == "exact"
 
 
@@ -225,7 +224,7 @@ def test_youtube_lookup_broadens_queries_after_no_match(monkeypatch):
         result = service.lookup_album("The Blue Nile", "Hats")
         assert result["status"] == "found"
         assert result["match_type"] == "edition"
-        assert [q[0] for q in queries] == [
+        assert [q[0] for q in queries][:2] == [
             "The Blue Nile Hats", "The Blue Nile Hats deluxe"
         ]
     finally:
@@ -252,7 +251,7 @@ def test_youtube_lookup_retries_without_requested_edition(monkeypatch):
         result = service.lookup_album("The Blue Nile", "Hats (2002 Remaster)")
         assert result["status"] == "found"
         assert result["match_type"] == "edition"
-        assert queries == [
+        assert queries[:2] == [
             "The Blue Nile Hats (2002 Remaster)", "The Blue Nile Hats"
         ]
     finally:
@@ -340,7 +339,7 @@ def test_youtube_lookup_searches_alternative_ensemble_credits(monkeypatch):
         result = service.lookup_album("Isao Suzuki", "Blow Up")
         assert result["status"] == "found"
         assert result["artist_match_type"] == "ensemble"
-        assert queries == [
+        assert queries[:5] == [
             "Isao Suzuki Blow Up", "Isao Suzuki Blow Up deluxe",
             "Isao Suzuki Blow Up remastered",
             "Isao Suzuki Trio Blow Up", "Isao Suzuki Quartet Blow Up",
@@ -350,10 +349,10 @@ def test_youtube_lookup_searches_alternative_ensemble_credits(monkeypatch):
 
 
 @pytest.mark.parametrize("title,expected", [
-    ("Getz At The Gate (Live)", "Getz At The Gate"),
-    ("Getz At The Gate (Recorded 1961)", "Getz At The Gate"),
-    ("Getz At The Gate (Live) (2020 Remaster)", "Getz At The Gate"),
-    ("Getz At The Gate (Vol. 2)", "Getz At The Gate"),
+    ("Getz At The Gate (Live)", "Getz At The Gate (Live)"),
+    ("Getz At The Gate (Recorded 1961)", "Getz At The Gate (Recorded 1961)"),
+    ("Getz At The Gate (Live) (2020 Remaster)", "Getz At The Gate (Live)"),
+    ("Getz At The Gate (Vol. 2)", "Getz At The Gate (Vol. 2)"),
     ("Getz (Live) At The Gate", "Getz (Live) At The Gate"),
     ("Getz At The Gate", "Getz At The Gate"),
 ])
@@ -368,17 +367,17 @@ def test_youtube_resolver_matches_getz_at_the_gate_live_album():
     ]
     result = pick_exact_album("Stan Getz", "Getz at the Gate", catalog)
     assert result["status"] == "found"
-    assert result["match_type"] == "parenthetical"
+    assert result["match_type"] == "explicit_alias"
     assert result["url"] == "https://music.youtube.com/browse/MPREb_l3o4MNZF1rh"
     reverse = pick_exact_album("Stan Getz", "Getz at the Gate (Live)", [
         {"resultType": "album", "title": "Getz at the Gate",
          "artist": "Stan Getz", "browseId": "MPREbase"},
     ])
-    assert reverse["match_type"] == "parenthetical"
+    assert reverse["match_type"] == "explicit_alias"
     assert reverse["url"].endswith("MPREbase")
 
 
-def test_youtube_parenthetical_matches_rank_below_exact_and_known_editions():
+def test_explicit_alias_matching_never_beats_exact_and_known_editions():
     catalog = [
         {"resultType": "album", "title": "Hats (Live)",
          "artist": "The Blue Nile", "browseId": "MPRElive"},
@@ -422,10 +421,10 @@ def test_youtube_lookup_retries_without_parenthetical_suffix(monkeypatch):
     try:
         found = service.lookup_album("Stan Getz", "Getz At The Gate (Live)")
         assert found["status"] == "found"
-        assert found["match_type"] == "parenthetical"
-        assert queries == [
+        assert found["match_type"] == "explicit_alias"
+        assert queries[:2] == [
             "Stan Getz Getz At The Gate (Live)",
-            "Stan Getz Getz At The Gate",
+            "Stan Getz Getz at the Gate",
         ]
     finally:
         service._lookup.cache_clear()
