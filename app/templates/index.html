@@ -868,7 +868,7 @@ function renderIsc() {
       ${a.site_styles.length || a.source_styles.length ? `<p>Source genres: ${esc((a.site_styles.length ? a.site_styles : a.source_styles).join(", "))}</p>` : ""}
       <div class="row">
         <a href="${esc(a.source_url)}" target="_blank" rel="noopener noreferrer">Read album</a>
-        ${a.status !== "owned" ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Open on YouTube Music</a>` : ""}
+        ${a.status !== "owned" ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">Queue on yt-dlp</a>` : ""}
       </div>
     </article>`;
   }).join("") : '<div class="empty">No albums match these filters.</div>';
@@ -1051,7 +1051,13 @@ async function resolveYoutubeAlbum(artist,album,target) {
         copy.textContent = "Select and copy the URL";
       }
     };
-    wrap.append(a, document.createElement("div"), url, copy);
+    const queue = document.createElement("a");
+    queue.href = "/open-youtube-album?artist=" + encodeURIComponent(artist) +
+      "&album=" + encodeURIComponent(album);
+    queue.target = "_blank";
+    queue.rel = "noopener noreferrer";
+    queue.textContent = "Queue on yt-dlp";
+    wrap.append(a, document.createTextNode(" · "), queue, document.createElement("div"), url, copy);
     target.replaceChildren(wrap);
   } catch(e) { target.textContent = "YouTube Music lookup failed: " + e.message; }
 }
