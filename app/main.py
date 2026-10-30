@@ -41,7 +41,7 @@ from .duplicates import find_duplicates, duplicates_tsv
 from .isc_discovery import fetch_catalog, compare_library
 from .playlist_covers import import_cover_zip, MAX_ZIP_BYTES
 from .playlist_policies import read_policies, set_policy
-from .youtube_album import lookup_album, norm
+from .youtube_album import lookup_album, norm, same_owned_release
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
@@ -510,10 +510,9 @@ def _valid_album_action(artist: str, album: str, token: str) -> bool:
 def _owned_album(artist: str, album: str) -> bool:
     """Conservative, exact artist/title equivalence; no inference across editions."""
     _, music = connect()
-    target = (norm(artist), norm(album))
     return any(
-        (norm(getattr(track, "grandparentTitle", "")),
-         norm(getattr(track, "parentTitle", ""))) == target
+        norm(getattr(track, "grandparentTitle", "")) == norm(artist)
+        and same_owned_release(artist, album, getattr(track, "parentTitle", ""))
         for track in music.searchTracks()
     )
 
