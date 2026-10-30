@@ -149,6 +149,10 @@ VERSIONS = {
 
 def persist_jobs_locked():
     """Persist the complete UI/job state atomically. Caller must hold jobs_lock."""
+    for claim in album_submissions.values():
+        current = jobs.get(claim.get("job_id"))
+        if current:
+            claim["last_status"] = current["status"]
     payload = {
         "version": 1,
         "saved_at": time.time(),
@@ -1820,7 +1824,7 @@ def enqueue_verified_album():
             return jsonify({
                 "ok": True, "duplicate": True, "job_id": claim["job_id"],
                 "idempotency_key": key,
-                "status": existing["status"] if existing else "previously_submitted",
+                "status": existing["status"] if existing else claim.get("last_status", "previously_submitted"),
             }), 200
 
         if download_queue.full():
@@ -1847,7 +1851,8 @@ def enqueue_verified_album():
             "album_submission_key": key, "match_audit": audit,
         }
         jobs[job_id] = job
-        album_submissions[key] = {"job_id": job_id, "created_at": job["created_at"]}
+        album_submissions[key] = {"job_id": job_id, "created_at": job["created_at"],
+                                  "match_audit": audit, "last_status": "queued"}
         if not persist_jobs_locked():
             jobs.pop(job_id, None)
             album_submissions.pop(key, None)
@@ -1870,13 +1875,20 @@ def enqueue_verified_album():
 def album_submission_status(job_id):
     with jobs_lock:
         job = jobs.get(job_id)
-        if job is None or not job.get("album_submission_key"):
-            return jsonify({"ok": False, "error": "Unknown album job."}), 404
-        return jsonify({
-            "ok": True, "job_id": job_id, "status": job["status"],
-            "idempotency_key": job["album_submission_key"],
-            "match_audit": job.get("match_audit") or {},
-        })
+        if job and job.get("album_submission_key"):
+            return jsonify({
+                "ok": True, "job_id": job_id, "status": job["status"],
+                "idempotency_key": job["album_submission_key"],
+                "match_audit": job.get("match_audit") or {},
+            })
+        for key, claim in album_submissions.items():
+            if claim.get("job_id") == job_id:
+                return jsonify({
+                    "ok": True, "job_id": job_id, "status": claim.get("last_status", "previously_submitted"),
+                    "idempotency_key": key, "historical": True,
+                    "match_audit": claim.get("match_audit") or {},
+                })
+        return jsonify({"ok": False, "error": "Unknown album job."}), 404
 
 
 @app.delete("/api/jobs/<job_id>")
