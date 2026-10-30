@@ -13,6 +13,7 @@ A tiny local web service for defining Plex music playlists in YAML, previewing m
 - Sync replaces the existing Plex playlist of the same name, making the YAML file the source of truth.
 - Reads the Plex token automatically from a **read-only** mount of Plex's `Preferences.xml`; `PLEX_TOKEN` can be used instead.
 - Includes a small browser editor at port 5051.
+- Exports a compact album-only TSV (one unique artist/album pair per row) for checking new music recommendations against the existing collection.
 - Exports the complete Plex Music library at track level as TSV for playlist design in ChatGPT (artist, album, title, disc/track number, year, duration, and Plex rating key).
 - Exports recently added music directly as TSV: last X hours (new tracks only) or last N added albums (complete albums), with their Plex rating keys and addition timestamps.
 - Exports all current Plex audio playlists as importable YAML, preserving playlist order and exact Plex rating keys so the file can be uploaded in chat to avoid reusing tracks.
@@ -78,6 +79,20 @@ Use **Export Plex playlists** in the web UI, or download directly from:
 ```
 
 The export contains every audio playlist currently in Plex. Each track includes its exact Plex `rating_key` plus readable artist, album, and track metadata. Playlist order is preserved. The resulting `plex-playlists.yml` is also valid input for the playlist builder, so it can be archived, edited, or uploaded to ChatGPT when designing new playlists.
+
+## Export a compact list of owned albums
+
+Click **Album list TSV** in the import/export toolbar to download `plex-albums.tsv`,
+or open `/api/library-albums.tsv` directly.
+
+The file has only two columns, `artist` and `album`. Each distinct
+artist/album title pair appears once (case-insensitive deduplication), sorted
+alphabetically. Different artists with the same album title and different
+editions with different titles remain separate. Tracks without an album title
+are omitted. It reflects the current Plex Music library and is read-only.
+
+Use this export when asking for **albums not already in Plex**. Use **Full
+library TSV** when individual songs, track order, or rating keys matter.
 
 ## Export recent music
 
