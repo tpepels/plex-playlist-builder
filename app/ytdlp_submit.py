@@ -72,9 +72,28 @@ def queue_album(url: str, audit: dict | None = None) -> dict:
         raise AlbumQueueError("The downloader did not confirm the job. Repeating the same request is safe.") from exc
     if not isinstance(result, dict) or not result.get("ok") or not result.get("job_id"):
         raise AlbumQueueError("The downloader returned no valid job acknowledgement.")
+
+    # Never infer queue membership from a mere duplicate=True acknowledgement:
+    # old deduplication claims can outlive removed or pruned jobs.
+    try:
+        verify_request = Request(_server_url() + "/api/albums/" + result["job_id"],
+                                 headers={"Accept": "application/json"})
+        with urlopen(verify_request, timeout=10) as verification:
+            actual = json.loads(verification.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+        raise AlbumQueueError(
+            "The downloader accepted the request but its job could not be verified. "
+            "The request may already exist; retrying the same album is safe."
+        ) from exc
+    if not isinstance(actual, dict) or not actual.get("ok") or actual.get("job_id") != result["job_id"]:
+        raise AlbumQueueError("The downloader returned an inconsistent album job ID.")
+
     return {
         "job_id": result["job_id"], "duplicate": bool(result.get("duplicate")),
-        "status": result.get("status", "unknown"),
+        "status": actual.get("status", result.get("status", "unknown")),
+        "visible": actual.get("visible", not actual.get("historical", False)),
+        "latest_job_id": actual.get("latest_job_id", result.get("latest_job_id", result["job_id"])),
+        "message": actual.get("message", result.get("message", "")),
     }
 
 
