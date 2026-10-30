@@ -43,6 +43,9 @@
     .versions { color:var(--muted); font-size:12px; }
     .jobs { display:grid; gap:10px; }
     .job { min-width:0; max-width:100%; overflow:hidden; background:var(--panel2); border:1px solid var(--line); border-radius:11px; padding:13px 14px; }
+    .job.targeted { border-color:var(--good); box-shadow:0 0 0 2px #6fdc8c33; }
+    .job-notice { margin:0 0 12px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; color:var(--muted); }
+    .job-notice.warning { color:var(--bad); border-color:#713238; }
     .job-top { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:14px; align-items:start; }
     .job-release { min-width:0; display:flex; gap:10px; align-items:center; }
     .job-cover { width:54px; height:54px; border-radius:7px; object-fit:contain; background:#0e1012; border:1px solid var(--line); }
@@ -137,6 +140,7 @@
       <h2>Downloads</h2>
       <div class="versions">spotDL {{ versions.spotdl }} · yt-dlp {{ versions.yt_dlp }} · {{ versions.deno.splitlines()[0] }} · PO bgutil {{ versions.bgutil }}</div>
     </div>
+    <div id="job-notice" class="job-notice" hidden role="status" aria-live="polite"></div>
     <div id="jobs" class="jobs">{% if not jobs %}<div class="empty">No downloads yet.</div>{% endif %}</div>
   </section>
 </main>
@@ -148,6 +152,8 @@
   const playlistInput = document.getElementById("playlist-input");
   const probeResult = document.getElementById("probe-result");
 
+  const focusedJobId = new URLSearchParams(window.location.search).get("job");
+  let didScrollToJob = false;
   let probeTimer = null;
   let probeController = null;
   let probedUrl = "";
@@ -156,6 +162,17 @@
 
   function renderJobs(jobs) {
     const root = document.getElementById("jobs");
+    const notice = document.getElementById("job-notice");
+    if (focusedJobId) {
+      const found = jobs.some(job => job.id === focusedJobId ||
+        (job.request_member_ids || []).includes(focusedJobId));
+      notice.hidden = false;
+      notice.className = found ? "job-notice" : "job-notice warning";
+      notice.textContent = found
+        ? "Album job " + focusedJobId + " found in this downloader."
+        : "Album job " + focusedJobId + " is not visible on this downloader. " +
+          "Check that the playlist manager points to this same yt-dlp service.";
+    }
     const openLogs = new Set(
       Array.from(root.querySelectorAll(".job details[open]"))
         .map((details) => details.closest(".job")?.dataset.jobId)
@@ -173,6 +190,14 @@
       const card = document.createElement("article");
       card.className = "job";
       card.dataset.jobId = job.id;
+      if (focusedJobId && (job.id === focusedJobId ||
+          (job.request_member_ids || []).includes(focusedJobId))) {
+        card.classList.add("targeted");
+        if (!didScrollToJob) {
+          didScrollToJob = true;
+          requestAnimationFrame(() => card.scrollIntoView({block:"center", behavior:"smooth"}));
+        }
+      }
       const top = document.createElement("div");
       top.className = "job-top";
 
