@@ -236,46 +236,46 @@ album catalog (no user account or API key needed). It returns a **direct album
 URL** only when the artist and title match and the result has a valid YouTube
 Music album ID.
 
-The resolver uses strictly defined canonicalization: punctuation, \`&\` / \`and\`,
-\`Vol.\` / \`Volume\`, and \`Pt.\` / \`Part\` are equivalent. Only a fixed list of
+The resolver uses strictly defined canonicalization: punctuation, `&` / `and`,
+`Vol.` / `Volume`, and `Pt.` / `Part` are equivalent. Only a fixed list of
 trailing release qualifiers (e.g. Deluxe, Remastered, Complete, Expanded) can
 be removed, and a requested **Complete** release will not resolve to a shorter
-edition. \`(Live)\`, \`(Demo)\`, \`(Acoustic)\`, \`(Mono)\`, \`(Stereo)\`, and volume
+edition. `(Live)`, `(Demo)`, `(Acoustic)`, `(Mono)`, `(Stereo)`, and volume
 numbers remain meaningful. Two exceptions are explicitly documented in the
 resolver: Stan Getz's *Getz at the Gate (Live)* and Miles Davis's *Blackhawk
 Complete (Live)* catalog label. New exceptions require intentional code changes.
 
 All bounded catalog searches are evaluated before choosing a result. Exact
 titles rank above recognized editions and explicit aliases. Two different
-album IDs tied at the best rank yield \`status: ambiguous\`: neither is sent
+album IDs tied at the best rank yield `status: ambiguous`: neither is sent
 to the downloader. The resolved response includes the applied
-\`normalization_rules\`, search queries and candidate count, which are passed
+`normalization_rules`, search queries and candidate count, which are passed
 to the downloader for persistent provenance.
 
-API routes: \`GET /api/youtube-album?artist=...&album=...\` for read-only
-resolution, \`GET /open-youtube-album?artist=...&album=...\` for read-only
-confirmation, and \`POST /queue-youtube-album\` for the signed user action.
-A missing album redirects to a YouTube Music search for exactly \`artist album\`.
+API routes: `GET /api/youtube-album?artist=...&album=...` for read-only
+resolution, `GET /open-youtube-album?artist=...&album=...` for read-only
+confirmation, and `POST /queue-youtube-album` for the signed user action.
+A missing album redirects to a YouTube Music search for exactly `artist album`.
 An ambiguous match displays candidates but never submits a job.
 
 The POST first checks the current Plex Music library for the exact normalized
 artist/title pair. An owned album is rejected with HTTP 409. Otherwise, the
-manager prefers an \`OLAK5uy_\` audio playlist over a \`browse/MPRE...\` link,
-submits JSON to the yt-dlp server's \`POST /api/albums\`, and receives a stable
-\`job_id\`, \`duplicate\` flag, and current job status. On network timeout the
+manager prefers an `OLAK5uy_` audio playlist over a `browse/MPRE...` link,
+submits JSON to the yt-dlp server's `POST /api/albums`, and receives a stable
+`job_id`, `duplicate` flag, and current job status. On network timeout the
 manager does not claim success; retrying the same album is safe because the
 downloader persists the album-ID key alongside job state across restarts.
 Submission audit records include requested/matched titles, matched URL, search
 queries and applied normalization rules. A queue response confirms admission,
 not successful download or completed metadata validation.
 
-Configure \`YTDLP_SERVER_URL\` (default \`http://yt-dlp-server:4545\`) to reach
-the downloader over the shared Docker network. \`YTDLP_PUBLIC_URL\` (default
-\`http://media-server:4545\`) is the browser-facing downloader address. For
-multiple playlist manager workers, configure the same \`ALBUM_ACTION_SECRET\`
+Configure `YTDLP_SERVER_URL` (default `http://yt-dlp-server:4545`) to reach
+the downloader over the shared Docker network. `YTDLP_PUBLIC_URL` (default
+`http://media-server:4545`) is the browser-facing downloader address. For
+multiple playlist manager workers, configure the same `ALBUM_ACTION_SECRET`
 on all workers so signed form tokens remain valid across workers. The default
 uses a per-process random signing key. The yt-dlp service must be updated to
-include \`/api/albums\` before this version of the playlist manager is deployed.
+include `/api/albums` before this version of the playlist manager is deployed.
 
 **Note:** The shared links are now safe to open or preview. Clicking the
 confirmation button initiates the download. Album titles with equal best
