@@ -98,9 +98,35 @@ def _explicit_alias(artist, requested, found):
     return False
 
 
+def _title_without_artist_prefix(artist, title):
+    """Remove an exactly repeated leading artist credit, never arbitrary words.
+
+    Example: Jim Hall / Jim Hall Live! -> Live!, but a different credited
+    performer or a title without that whole initial credit is unchanged.
+    """
+    normalized_artist = norm(artist)
+    normalized_title = norm(title)
+    prefix = normalized_artist + " "
+    if normalized_artist and normalized_title.startswith(prefix):
+        return normalized_title[len(prefix):]
+    return normalized_title
+
+
+def _redundant_artist_credit(artist, first_title, second_title):
+    first = norm(first_title)
+    second = norm(second_title)
+    return (
+        bool(first and second)
+        and (first != second)
+        and (first == _title_without_artist_prefix(artist, second)
+             or second == _title_without_artist_prefix(artist, first))
+    )
+
+
 def same_owned_release(artist, requested_album, owned_album):
-    """Only identical titles or explicit same-release aliases block re-download."""
+    """Conservative equivalent releases, including the repeated artist credit."""
     return (norm(requested_album) == norm(owned_album)
+            or _redundant_artist_credit(artist, requested_album, owned_album)
             or _explicit_alias(artist, requested_album, owned_album))
 
 
@@ -163,6 +189,8 @@ def _album_url(item):
 def _rank_title(artist, requested, found):
     if norm(requested) == norm(found):
         return 0, "exact", ("case_punctuation",)
+    if _redundant_artist_credit(artist, requested, found):
+        return 1, "artist_prefix", ("redundant_artist_prefix",)
     wanted_base, wanted_tags = _edition_parts(requested)
     found_base, found_tags = _edition_parts(found)
     if norm(wanted_base) == norm(found_base) and (wanted_tags or found_tags):
@@ -172,10 +200,10 @@ def _rank_title(artist, requested, found):
         # An explicit (Live)/(Demo)/(Vol.2) on either side is part of the
         # *base* and therefore cannot disappear through edition normalization.
         if wanted_tags and found_tags and set(wanted_tags) == set(found_tags):
-            return 1, "edition", ("edition_suffix", "same_edition")
-        return 2, "edition", ("edition_suffix",)
+            return 2, "edition", ("edition_suffix", "same_edition")
+        return 3, "edition", ("edition_suffix",)
     if _explicit_alias(artist, requested, found):
-        return 3, "explicit_alias", ("explicit_album_alias",)
+        return 4, "explicit_alias", ("explicit_album_alias",)
     return None
 
 
@@ -256,6 +284,11 @@ def pick_exact_album(artist, album, results):
 def _queries(artist, album):
     base = base_album_title(album)
     queries = [f"{artist} {album}"]
+    # A supplied title may unnecessarily repeat its artist credit, e.g.
+    # 'Jim Hall — Jim Hall Live!' while the catalog album is simply 'Live!'.
+    without_credit = _title_without_artist_prefix(artist, album)
+    if without_credit != norm(album):
+        queries.append(f"{artist} {without_credit}")
     if norm(base) != norm(album):
         queries.append(f"{artist} {base}")
     else:
