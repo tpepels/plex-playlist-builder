@@ -11,6 +11,10 @@ services:
       PLEX_VERIFY_SSL: "false"
       PLEX_LIBRARY: Music
       PLAYLISTS_FILE: /data/playlists.yml
+      # Internal Docker DNS for server-to-server album queue submissions.
+      YTDLP_SERVER_URL: http://yt-dlp-server:4545
+      # Browser-reachable address shown after a successful enqueue.
+      YTDLP_PUBLIC_URL: http://media-server:4545
       # PLEX_TOKEN is optional because the Plex config is mounted read-only below.
     extra_hosts:
       - "host.docker.internal:host-gateway"
