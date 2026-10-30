@@ -17,7 +17,7 @@ from fastapi import Query
 import yaml
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -519,58 +519,16 @@ def _owned_album(artist: str, album: str) -> bool:
 
 @app.get("/open-youtube-album")
 def open_youtube_album(artist: str, album: str):
-    """Read-only album preview; only an explicit POST may queue a download."""
-    resolved = youtube_album(artist, album)
-    if resolved["status"] == "not_found":
-        query = f"{artist.strip()} {album.strip()}"
-        search_url = "https://music.youtube.com/search?" + urlencode({"q": query})
-        return RedirectResponse(search_url, status_code=302)
-    if resolved["status"] == "ambiguous":
-        items = "".join(
-            f"<li>{html.escape(item['artist'])} — {html.escape(item['album'])}</li>"
-            for item in resolved.get("candidates", [])
-        )
-        return HTMLResponse(
-            "<h2>Multiple equally ranked albums</h2><p>No download queued.</p>"
-            f"<ul>{items}</ul>", status_code=409,
-            headers={"Cache-Control": "no-store"},
-        )
-    if resolved["status"] != "found":
-        raise HTTPException(status_code=502, detail="Unsupported resolver response.")
+    """Return an immediate, read-only page while the browser resolves the album."""
+    artist, album = artist.strip(), album.strip()
+    if not artist or not album or len(artist) > 200 or len(album) > 250:
+        raise HTTPException(status_code=422, detail="Enter a valid artist and album title.")
     token = _album_action_token(artist, album, int(time.time() // 3600))
-    # Browser navigation triggers a signed POST automatically for unambiguous
-    # exact matches. A plain GET remains free of side effects, so link
-    # previews and ordinary crawlers do not enqueue downloads.
-    auto_queue = (resolved["match_type"] in {"exact", "artist_prefix"}
-                  and resolved.get("artist_match_type") == "exact")
-    heading = ("Sending album to yt-dlp…" if auto_queue
-               else "Review album match before downloading")
-    auto_script = (
-        '<script>document.getElementById("queue-album-form").submit();</script>'
-        if auto_queue else ""
+    search_url = "https://music.youtube.com/search?" + urlencode({"q": f"{artist} {album}"})
+    page = templates.env.get_template("album_download.html").render(
+        artist=artist, album=album, token=token, search_url=search_url,
     )
-    escaped = {k: html.escape(v, quote=True) for k, v in {
-        "artist": artist, "album": album, "matched_artist": resolved["artist"],
-        "matched_album": resolved["album"], "url": resolved["url"], "token": token,
-    }.items()}
-    return HTMLResponse(f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Album download</title></head>
-<body style="font:16px system-ui;max-width:540px;margin:8vh auto;padding:16px">
-<h2>{heading}</h2>
-<p>Requested: {escaped['artist']} — {escaped['album']}</p>
-<p>Matched: <strong>{escaped['matched_artist']} — {escaped['matched_album']}</strong></p>
-<p>Rule: {html.escape(resolved['match_type'])}</p>
-<form id="queue-album-form" method="post" action="/queue-youtube-album">
-<input type="hidden" name="artist" value="{escaped['artist']}">
-<input type="hidden" name="album" value="{escaped['album']}">
-<input type="hidden" name="token" value="{escaped['token']}">
-<button type="submit">Queue on yt-dlp</button>
-</form>
-<p><a href="{escaped['url']}">Open album on YouTube Music instead</a></p>
-{auto_script}
-</body></html>""", headers={"Cache-Control": "no-store"})
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/queue-youtube-album")
@@ -607,6 +565,14 @@ async def queue_youtube_album(request: Request):
         job = await run_in_threadpool(queue_album, resolved["url"], audit)
     except AlbumQueueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({
+            "ok": True,
+            "job_id": job["job_id"],
+            "status": job["status"],
+            "duplicate": job["duplicate"],
+            "downloader_url": downloader_ui_url(),
+        }, headers={"Cache-Control": "no-store"})
     return RedirectResponse(
         downloader_ui_url(), status_code=303,
         headers={"Cache-Control": "no-store", "X-Album-Job-Id": job["job_id"]},
