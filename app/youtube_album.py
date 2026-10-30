@@ -233,6 +233,12 @@ def choose_album(artist, album, results):
     winner.pop("_score")
     winner["candidate_count"] = len(candidates)
     winner["selected_from"] = "all_catalog_results"
+    winner["selection_policy"] = "title_rank_then_artist_credit;reject_ties"
+    winner["considered_candidates"] = [
+        {"url": item["url"], "album": item["album"], "match_type": item["match_type"],
+         "title_rank": item["_score"][0], "artist_rank": item["_score"][1]}
+        for item in candidates[:20]
+    ]
     return winner
 
 
