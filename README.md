@@ -237,7 +237,11 @@ URL** only when the artist and title match and the result has a valid YouTube
 Music album ID.
 
 The resolver uses strictly defined canonicalization: punctuation, `&` / `and`,
-`Vol.` / `Volume`, and `Pt.` / `Part` are equivalent. Only a fixed list of
+`Vol.` / `Volume`, and `Pt.` / `Part` are equivalent. A leading artist
+credit repeated in the supplied album title is also redundant when it matches
+the **full artist name exactly**: `Jim Hall — Jim Hall Live!` matches the
+catalog album `Jim Hall — Live!`. The search also retries without that
+repeated title prefix. This rule never removes arbitrary words. Only a fixed list of
 trailing release qualifiers (e.g. Deluxe, Remastered, Complete, Expanded) can
 be removed, and a requested **Complete** release will not resolve to a shorter
 edition. `(Live)`, `(Demo)`, `(Acoustic)`, `(Mono)`, `(Stereo)`, and volume
@@ -246,15 +250,22 @@ resolver: Stan Getz's *Getz at the Gate (Live)* and Miles Davis's *Blackhawk
 Complete (Live)* catalog label. New exceptions require intentional code changes.
 
 All bounded catalog searches are evaluated before choosing a result. Exact
-titles rank above recognized editions and explicit aliases. Two different
+titles rank first, followed by a redundant exact artist prefix, recognized
+editions and explicit aliases. Two different
 album IDs tied at the best rank yield `status: ambiguous`: neither is sent
 to the downloader. The resolved response includes the applied
 `normalization_rules`, search queries and candidate count, which are passed
 to the downloader for persistent provenance.
 
 API routes: `GET /api/youtube-album?artist=...&album=...` for read-only
-resolution, `GET /open-youtube-album?artist=...&album=...` for read-only
-confirmation, and `POST /queue-youtube-album` for the signed user action.
+resolution, `GET /open-youtube-album?artist=...&album=...` for navigation,
+and `POST /queue-youtube-album` for the signed download action. When a
+single catalog match is **exact** (including a redundant leading artist
+prefix) and has an exact artist credit, the browser automatically submits
+the signed POST when opened. There is **no second click**. For edition
+variants, explicit album aliases and ensemble artist credits, the page
+requires review and a button click. A plain GET does not enqueue anything;
+non-JavaScript clients can still use the visible manual button.
 A missing album redirects to a YouTube Music search for exactly `artist album`.
 An ambiguous match displays candidates but never submits a job.
 
@@ -277,9 +288,12 @@ on all workers so signed form tokens remain valid across workers. The default
 uses a per-process random signing key. The yt-dlp service must be updated to
 include `/api/albums` before this version of the playlist manager is deployed.
 
-**Note:** The shared links are now safe to open or preview. Clicking the
-confirmation button initiates the download. Album titles with equal best
-catalog rankings are deliberately not downloaded automatically.
+**Note:** Ordinary link-preview fetches do not queue downloads, because
+GET is read-only; a browser executing the page JavaScript will auto-submit
+strict exact matches. Links that are rendered by automated browsers capable
+of running JavaScript may also trigger downloads. The downloader's persistent
+album-ID deduplication prevents repeat jobs for the same YouTube album ID.
+Equally ranked catalog matches are deliberately never downloaded automatically.
 
 ## Playlist versions and sync status
 
