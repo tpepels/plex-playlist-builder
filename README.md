@@ -269,8 +269,16 @@ then opens the downloader dashboard. Errors remain visible with a retry
 action; ambiguous matches show their candidate URLs without downloading.
 
 The signed POST supports `Accept: application/json` and returns
-`{ok, job_id, status, duplicate, downloader_url}` so the page can render
-specific acknowledgement and failure messages without an opaque redirect.
+`{ok, job_id, latest_job_id, status, duplicate, retried, visible, active,
+message, downloader_url}`. The manager submits a verified album to yt-dlp,
+then makes a second request to check that the job genuinely exists and is
+visible before redirecting. It never treats an old, failed, or pruned
+idempotency claim as an active queued job. A previously failed/partial
+download is retried through yt-dlp's native Retry / continue endpoint and
+the new attempt is verified before redirecting. The downloader URL includes
+`?job=<latest_job_id>` to highlight that specific job. If yt-dlp confirms
+an already completed job that is no longer visible, the manager remains on
+its status page with an explanation and an optional dashboard link.
 Traditional form POST requests retain the existing HTTP 303 redirect.
 
 When a single catalog match is **exact** (including a redundant leading
