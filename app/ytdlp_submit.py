@@ -5,6 +5,7 @@ redirects to / only *after* the job has been admitted to its queue.
 """
 from __future__ import annotations
 
+from functools import lru_cache
 import os
 import re
 from urllib.error import HTTPError, URLError
@@ -33,10 +34,34 @@ def _valid_album_url(url: str) -> bool:
     return False
 
 
+@lru_cache(maxsize=128)
+def _download_url(url: str) -> str:
+    """Prefer the OLAK playlist equivalent of a YouTube Music browse album.
+
+    yt-dlp can fail while resolving MPRE browse IDs itself. YTMusic exposes
+    the album's native audioPlaylistId, which the downloader also recognizes
+    as an album collection. If enrichment fails, preserve the verified URL.
+    """
+    parsed = urlparse(url)
+    if not parsed.path.startswith("/browse/"):
+        return url
+    try:
+        from ytmusicapi import YTMusic
+        album_id = parsed.path.rsplit("/", 1)[-1]
+        record = YTMusic().get_album(album_id)
+        playlist_id = record.get("audioPlaylistId")
+        if isinstance(playlist_id, str) and re.fullmatch(r"OLAK5uy_[A-Za-z0-9_-]+", playlist_id):
+            return "https://music.youtube.com/playlist?" + urlencode({"list": playlist_id})
+    except Exception:
+        pass  # The original verified MPRE album may still work with yt-dlp.
+    return url
+
+
 def queue_album(url: str) -> None:
-    """Submit an album once; raise unless the downloader confirms acceptance."""
+    """Submit a verified album once; raise unless the queue confirms acceptance."""
     if not _valid_album_url(url):
         raise AlbumQueueError("Album resolver returned an invalid download URL.")
+    url = _download_url(url)
 
     server = os.getenv("YTDLP_SERVER_URL", "http://yt-dlp-server:4545").rstrip("/")
     parsed_server = urlparse(server)
