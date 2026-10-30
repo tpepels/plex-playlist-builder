@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import hmac
+import html
 import io
 import os
 import secrets
@@ -564,16 +565,31 @@ async def queue_youtube_album(request: Request):
         job = await run_in_threadpool(queue_album, resolved["url"], audit)
     except AlbumQueueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # The download UI should only open automatically for an actual visible
+    # job. A historical succeeded claim or failed job is NOT a queued item.
+    active = job["visible"] and job["status"] in {
+        "queued", "running", "finalizing", "needs_metadata",
+    }
+    target_url = downloader_ui_url() + "?job=" + urlencode({
+        "id": job["latest_job_id"]
+    }).split("=", 1)[1]
     if "application/json" in request.headers.get("accept", ""):
         return JSONResponse({
-            "ok": True,
-            "job_id": job["job_id"],
-            "status": job["status"],
-            "duplicate": job["duplicate"],
-            "downloader_url": downloader_ui_url(),
+            "ok": True, "job_id": job["job_id"],
+            "latest_job_id": job["latest_job_id"],
+            "status": job["status"], "duplicate": job["duplicate"],
+            "visible": job["visible"], "active": active,
+            "message": job["message"], "downloader_url": target_url,
         }, headers={"Cache-Control": "no-store"})
+    if not active:
+        return HTMLResponse(
+            "<h2>Download not queued</h2><p>Existing job: "
+            + html.escape(job["job_id"]) + " (" + html.escape(job["status"]) + ")</p>"
+            + "<p>" + html.escape(job["message"]) + "</p>",
+            status_code=409, headers={"Cache-Control": "no-store"},
+        )
     return RedirectResponse(
-        downloader_ui_url(), status_code=303,
+        target_url, status_code=303,
         headers={"Cache-Control": "no-store", "X-Album-Job-Id": job["job_id"]},
     )
 
