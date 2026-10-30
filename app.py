@@ -1853,8 +1853,19 @@ def enqueue_verified_album():
         jobs[job_id] = job
         album_submissions[key] = {"job_id": job_id, "created_at": job["created_at"],
                                   "match_audit": audit, "last_status": "queued"}
+        pruned = {}
+        if len(jobs) > MAX_HISTORY:
+            removable = sorted(
+                (item for item in jobs.values()
+                 if item["id"] != job_id and item["status"] in {"succeeded", "partial", "failed"}),
+                key=lambda item: item["created_at"],
+            )
+            while len(jobs) > MAX_HISTORY and removable:
+                old = removable.pop(0)
+                pruned[old["id"]] = jobs.pop(old["id"])
         if not persist_jobs_locked():
             jobs.pop(job_id, None)
+            jobs.update(pruned)
             album_submissions.pop(key, None)
             return jsonify({"ok": False, "error": "Could not persist the queued job."}), 503
         try:
