@@ -215,18 +215,21 @@ album catalog (no user account or API key needed). It returns a **direct album
 URL** only when the artist and title match and the result has a valid YouTube
 Music album ID.
 
-The resolver now recognizes common *release editions*. For example, `Hats`,
+The resolver recognizes common *release editions*. For example, `Hats`,
 `Hats (Deluxe Edition)` and `Hats (2002 Remaster)` may all resolve to the
-same album. It always prefers an exact title; if none is present it accepts a
-known edition variant and labels the result **edition match**. If an initial
-catalog query returns no match, it retries the base album title or targeted
-deluxe/remaster searches.
+same album. It also accepts **arbitrary trailing parenthetical qualifiers**
+as a lower-priority title variant: `Getz at the Gate` can match
+`Getz At The Gate (Live)`, and the reverse direction also works. An exact
+title is preferred, then a recognized edition, then a parenthetical variant.
+Parenthetical matches are labeled **parenthetical title match**.
 
-This matching is deliberately conservative: suffixes like `(Live)`,
-`(Acoustic)`, `(Demo)` and unrelated titles are **not** discarded. An album
-by a different artist will not match. We display the actual catalog title,
-plus a **copyable direct URL**, never a generic YouTube search link. No match
-or a network error is reported explicitly. YouTube Music may still impose
+Only trailing parentheses are ignored (not words in the middle of a title or
+unrelated subtitles). The artist must still match, and a real album catalog
+URL is required. This looser fallback can conflate different versions such
+as `(Live)`, `(Demo)`, and `(Vol. 2)`; check the displayed catalog title
+when that distinction matters. If a matching album cannot be found,
+the one-click redirect opens YouTube Music search for exactly `artist album`.
+A network error is still reported explicitly, and YouTube Music may impose
 regional playback restrictions.
 
 API routes: `GET /api/insights?recent_days=30`,
