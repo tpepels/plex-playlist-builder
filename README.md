@@ -247,6 +247,54 @@ Legacy standalone YouTube/YouTube Music watch URLs are **skipped by default**. T
 
 Artist inference is conservative: a value must be supported by a majority of the fully inspected tracks. Explicit `album_artist` wins, followed by a stable `Artist - Topic` channel, followed by one consistent per-track artist. Playlist-level generic values are never trusted as the artist.
 
+## Idempotent album submissions from the Plex Playlist Manager
+
+The downloader exposes a dedicated JSON API alongside the existing HTML form:
+
+    POST /api/albums
+    Content-Type: application/json
+
+    {
+      "url": "https://music.youtube.com/playlist?list=OLAK5uy_...",
+      "match_audit": {
+        "requested_artist": "Miles Davis",
+        "requested_album": "At the Blackhawk, Complete",
+        "matched_artist": "Miles Davis",
+        "matched_album": "At the Blackhawk - Complete (Live)",
+        "match_type": "explicit_alias",
+        "normalization_rules": ["explicit_album_alias"],
+        "queries": ["Miles Davis At the Blackhawk, Complete"]
+      }
+    }
+
+The server validates the **YouTube Music album ID** and computes its own
+stable idempotency key from the ID. The first request returns HTTP 201 with
+\`ok: true\`, \`duplicate: false\`, \`job_id\` and \`status: "queued"\`.
+Repeated submissions return HTTP 200 with \`duplicate: true\` and the original
+\`job_id\`, without adding a job. This is atomic under the job lock, including
+simultaneous requests. The legacy HTML \`POST /download\` shares the same
+album identity check when its playlist option is enabled.
+
+Claims are persisted with \`jobs.json\` and survive restarts and visible-history
+pruning. The last-known job status and bounded match audit are retained when
+the old job itself has been pruned. Query
+\`GET /api/albums/<job_id>\` for status, source match rules and candidate
+rankings when available; \`GET /api/jobs\` still lists visible UI jobs.
+
+HTTP 429 means the queue is full; HTTP 503 means the job could not be
+persisted. The server never acknowledges a new job before its state has been
+written. A retry after a network timeout is safe because the album key is
+derived from the URL, not a client-generated random request ID.
+
+The API is for verified album URLs (\`OLAK5uy_...\` playlist links or
+\`MPRE...\` browse links); it does not accept YouTube Music search pages,
+videos or arbitrary external URLs. If the service receives an \`MPRE\` URL
+and its equivalent \`OLAK\` URL separately, they remain two different IDs;
+the playlist manager prefers \`OLAK\` URLs when available.
+
+The downloader has **no login** and is intended for a trusted LAN only.
+Do not expose the album API to the public internet.
+
 ## Removing finished or abandoned jobs
 
 Terminal job cards can be removed from the UI:
