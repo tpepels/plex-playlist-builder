@@ -94,3 +94,63 @@ def test_only_explicit_catalog_aliases_are_owned_release_equivalents():
                                      "In Person Friday And Saturday Nights At The Blackhawk - Complete (Live)")
     assert not albums.same_owned_release("Miles Davis", "Kind of Blue", "Kind of Blue (Live)")
     assert not albums.same_owned_release("Miles Davis", "Kind of Blue", "Kind of Blue (Deluxe Edition)")
+
+
+def test_jim_hall_live_catalog_title_omits_repeated_artist_credit():
+    requested = "Jim Hall Live!"
+    found = [entry("Live!", "MPREb_IObRABnIPO3", artist="Jim Hall")]
+    result = albums.pick_exact_album("Jim Hall", requested, found)
+    assert result["status"] == "found"
+    assert result["url"] == "https://music.youtube.com/browse/MPREb_IObRABnIPO3"
+    assert result["match_type"] == "artist_prefix"
+    assert result["normalization_rules"] == ["redundant_artist_prefix"]
+    assert albums.same_owned_release("Jim Hall", requested, "Live!")
+
+
+def test_redundant_artist_prefix_is_symmetric_but_not_fuzzy():
+    found = [entry("Jim Hall Live!", "MPREprefixed", artist="Jim Hall")]
+    assert albums.pick_exact_album("Jim Hall", "Live!", found)["match_type"] == "artist_prefix"
+    assert albums.pick_exact_album("Jim Hall", "Jim Hall Live!", [
+        entry("Live!", "MPREotherartist", artist="Other Artist")
+    ]) is None
+    assert albums.pick_exact_album("Jim Hall", "Hall Live!", [
+        entry("Live!", "MPREincomplete", artist="Jim Hall")
+    ]) is None
+    assert albums.pick_exact_album("Jim Hall", "Jim Hall Live!", [
+        entry("Live! (Demo)", "MPREdifferent", artist="Jim Hall")
+    ]) is None
+
+
+def test_catalog_query_retries_without_repeated_artist_credit(monkeypatch):
+    queries = []
+    def search(query, filter, limit):
+        queries.append(query)
+        if query == "Jim Hall live":
+            return [entry("Live!", "MPREb_IObRABnIPO3", artist="Jim Hall")]
+        return []
+    monkeypatch.setitem(sys.modules, "ytmusicapi",
+                        SimpleNamespace(YTMusic=lambda: SimpleNamespace(search=search)))
+    albums._lookup.cache_clear()
+    try:
+        result = albums.lookup_album("Jim Hall", "Jim Hall Live!")
+        assert result["status"] == "found"
+        assert result["match_type"] == "artist_prefix"
+        assert "Jim Hall live" in queries
+        assert result["url"].endswith("MPREb_IObRABnIPO3")
+    finally:
+        albums._lookup.cache_clear()
+
+
+def test_same_named_exact_title_beats_redundant_artist_prefix():
+    results = [
+        entry("Live!", "MPREshort", artist="Jim Hall"),
+        entry("Jim Hall Live!", "MPREexact", artist="Jim Hall"),
+    ]
+    result = albums.pick_exact_album("Jim Hall", "Jim Hall Live!", results)
+    assert result["match_type"] == "exact"
+    assert result["url"].endswith("MPREexact")
+
+
+def test_artist_prefix_never_drops_meaningful_recording_qualifiers():
+    assert not albums.same_owned_release("Jim Hall", "Jim Hall Live!", "Live! (Demo)")
+    assert not albums.same_owned_release("Jim Hall", "Jim Hall Live!", "Live! (Vol. 2)")
