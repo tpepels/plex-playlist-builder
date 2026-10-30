@@ -148,7 +148,7 @@ YouTube Music confirms an album match, the manager submits the verified album
 URL directly to the yt-dlp server's existing `POST /download` endpoint with
 playlist mode enabled, then opens the downloader's jobs page. An unmatched
 album opens YouTube Music search for exactly `artist album`; no download
-is queued. Only explicitly clicked links queue downloads. Discovery itself
+is queued. Discovery itself
 does not alter playlist definitions.
 
 The catalog is cached for 24 hours in /data/isc-discovery.json so normal
