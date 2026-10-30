@@ -538,6 +538,17 @@ def open_youtube_album(artist: str, album: str):
     if resolved["status"] != "found":
         raise HTTPException(status_code=502, detail="Unsupported resolver response.")
     token = _album_action_token(artist, album, int(time.time() // 3600))
+    # Browser navigation triggers a signed POST automatically for unambiguous
+    # exact matches. A plain GET remains free of side effects, so link
+    # previews and ordinary crawlers do not enqueue downloads.
+    auto_queue = (resolved["match_type"] in {"exact", "artist_prefix"}
+                  and resolved.get("artist_match_type") == "exact")
+    heading = ("Sending album to yt-dlp…" if auto_queue
+               else "Review album match before downloading")
+    auto_script = (
+        '<script>document.getElementById("queue-album-form").submit();</script>'
+        if auto_queue else ""
+    )
     escaped = {k: html.escape(v, quote=True) for k, v in {
         "artist": artist, "album": album, "matched_artist": resolved["artist"],
         "matched_album": resolved["album"], "url": resolved["url"], "token": token,
@@ -545,19 +556,20 @@ def open_youtube_album(artist: str, album: str):
     return HTMLResponse(f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Confirm album download</title></head>
+<title>Album download</title></head>
 <body style="font:16px system-ui;max-width:540px;margin:8vh auto;padding:16px">
-<h2>Queue album download?</h2>
+<h2>{heading}</h2>
 <p>Requested: {escaped['artist']} — {escaped['album']}</p>
 <p>Matched: <strong>{escaped['matched_artist']} — {escaped['matched_album']}</strong></p>
 <p>Rule: {html.escape(resolved['match_type'])}</p>
-<form method="post" action="/queue-youtube-album">
+<form id="queue-album-form" method="post" action="/queue-youtube-album">
 <input type="hidden" name="artist" value="{escaped['artist']}">
 <input type="hidden" name="album" value="{escaped['album']}">
 <input type="hidden" name="token" value="{escaped['token']}">
 <button type="submit">Queue on yt-dlp</button>
 </form>
 <p><a href="{escaped['url']}">Open album on YouTube Music instead</a></p>
+{auto_script}
 </body></html>""", headers={"Cache-Control": "no-store"})
 
 
