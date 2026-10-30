@@ -1938,7 +1938,8 @@ def album_submission_status(job_id):
         job = jobs.get(job_id)
         if job and job.get("album_submission_key"):
             return jsonify({
-                "ok": True, "job_id": job_id, "status": job["status"],
+                "ok": True, "job_id": job_id, "status": album_submissions.get(
+                    job["album_submission_key"], {}).get("last_status", job["status"]),
                 "idempotency_key": job["album_submission_key"],
                 "match_audit": job.get("match_audit") or {},
                 "latest_job_id": album_submissions.get(
