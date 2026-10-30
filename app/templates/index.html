@@ -1069,7 +1069,9 @@ async function resolveYoutubeAlbum(artist,album,target) {
     queue.target = "_blank";
     queue.rel = "noopener noreferrer";
     queue.textContent = "Review and queue album";
-    wrap.append(a, document.createTextNode(" · "), queue, document.createElement("div"), url, copy);
+    const separator = document.createElement("span");
+    separator.textContent = " · ";
+    wrap.append(a, separator, queue, document.createElement("div"), url, copy);
     target.replaceChildren(wrap);
   } catch(e) { target.textContent = "YouTube Music lookup failed: " + e.message; }
 }
