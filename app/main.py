@@ -36,6 +36,7 @@ from .isc_discovery import fetch_catalog, compare_library
 from .playlist_covers import import_cover_zip, MAX_ZIP_BYTES
 from .playlist_policies import read_policies, set_policy
 from .youtube_album import lookup_album
+from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
     connect,
@@ -485,13 +486,19 @@ def curate_tracks(body: CurateBody):
 
 @app.get("/open-youtube-album")
 def open_youtube_album(artist: str, album: str):
-    """Open a verified album, or fall back to an artist + album search."""
+    """Send verified albums straight to yt-dlp; search YouTube Music otherwise."""
     resolved = youtube_album(artist, album)
     if resolved["status"] != "found":
         query = f"{artist.strip()} {album.strip()}"
         search_url = "https://music.youtube.com/search?" + urlencode({"q": query})
         return RedirectResponse(search_url, status_code=302)
-    return RedirectResponse(resolved["url"], status_code=302)
+    try:
+        queue_album(resolved["url"])
+    except AlbumQueueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return RedirectResponse(
+        downloader_ui_url(), status_code=303, headers={"Cache-Control": "no-store"}
+    )
 
 
 @app.get("/api/youtube-album")
