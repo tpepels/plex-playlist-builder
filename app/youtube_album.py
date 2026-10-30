@@ -1,8 +1,7 @@
-"""Resolve genuine YouTube Music album URLs, allowing edition and title variants.
+"""Deterministic YouTube Music album resolver.
 
-Exact artist/album matches win; recognized edition suffixes rank next, then
-arbitrary trailing parenthetical qualifiers. Unrelated titles, invalid URLs,
-tracks, and videos never match.
+Only documented spelling/edition rules and explicit album-specific aliases
+are permitted. Search result order never decides what is downloaded.
 """
 from __future__ import annotations
 
@@ -12,113 +11,104 @@ import unicodedata
 
 
 def norm(value):
+    """Canonical punctuation and explicitly equivalent word abbreviations."""
     value = unicodedata.normalize("NFKD", str(value or "")).casefold()
-    value = "".join(c for c in value if not unicodedata.combining(c))
-    return re.sub(r"[^a-z0-9]+", " ", value).strip()
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    value = value.replace("&", " and ")
+    words = re.findall(r"[a-z0-9]+", value)
+    aliases = {"vol": "volume", "pt": "part"}
+    return " ".join(aliases.get(word, word) for word in words)
 
 
-# Conservative edition language: do NOT strip "(Live)", "(Acoustic)", album
-# subtitles, volume numbers, or arbitrary parenthesized text. Those can be
-# legitimately different albums, not editions of the same release.
-_EDITION_MARKER = re.compile(
-    r"(?i)\b(?:complete|deluxe|remaster(?:ed|ing)?|expanded|anniversary|"
-    r"collector(?:'s|s)?\s+edition|special\s+edition|limited\s+edition|"
+# Release qualifiers are stripped ONLY at title boundaries and ONLY on this
+# list. (Live), (Demo), (Acoustic), (Mono), (Stereo) and volume numbers stay.
+_EDITION_TAG = re.compile(
+    r"(?i)^(?:(?:the\s+)?complete(?:\s+(?:edition|recordings|collection))?|"
+    r"deluxe(?:\s+(?:edition|version))?|"
+    r"(?:\d{4}\s+)?remaster(?:ed|ing)?(?:\s+\d{4})?|"
+    r"expanded(?:\s+edition)?|anniversary(?:\s+edition)?|"
+    r"\d+(?:st|nd|rd|th)\s+anniversary(?:\s+edition)?|"
+    r"special\s+edition|limited\s+edition|collector(?:'s|s)?\s+edition|"
     r"bonus\s+(?:track|tracks|disc|edition|version)|reissue|"
-    r"original\s+recording\s+remastered)\b"
+    r"original\s+recording\s+remastered)$"
 )
-_BRACKET_SUFFIX = re.compile(r"^(?P<base>.+?)\s*[\[(](?P<tag>[^\])]{1,110})[\])]\s*$")
+_BRACKET_SUFFIX = re.compile(r"^(?P<base>.+?)\s*[\[(](?P<tag>[^\]\)]{1,110})[\])]\s*$")
 _DASH_SUFFIX = re.compile(r"^(?P<base>.+?)\s+[-–—]\s+(?P<tag>[^\[\]()]{1,110})\s*$")
 _COMMA_SUFFIX = re.compile(r"^(?P<base>.+?),\s*(?P<tag>[^,\[\]()]{1,110})\s*$")
 _TRAILING_PARENS = re.compile(r"^(?P<base>.+?)\s*\((?P<tag>[^()]{1,110})\)\s*$")
 
 
-def base_album_title(title):
-    """Remove *trailing* edition tags; preserve the actual album title.
-
-    Examples: 'Hats (2002 Remaster)' -> 'Hats'
-              'Hats (Live)' -> 'Hats (Live)' (a distinct release)
-    """
+def _edition_parts(title):
+    """Return base title and removed release labels in source order."""
     text = str(title or "").strip()
-    for _ in range(5):
-        match = (_BRACKET_SUFFIX.fullmatch(text)
-                 or _DASH_SUFFIX.fullmatch(text)
-                 or _COMMA_SUFFIX.fullmatch(text))
-        if not match or not _EDITION_MARKER.search(match.group("tag")):
+    tags = []
+    for _ in range(6):
+        match = (_BRACKET_SUFFIX.fullmatch(text) or
+                 _DASH_SUFFIX.fullmatch(text) or
+                 _COMMA_SUFFIX.fullmatch(text))
+        if not match or not _EDITION_TAG.fullmatch(match.group("tag").strip()):
             break
-        candidate = match.group("base").strip()
-        if not candidate:
+        base = match.group("base").strip()
+        if not base:
             break
-        text = candidate
-    return text
+        tags.append(norm(match.group("tag")))
+        text = base
+    return text, tuple(tags)
+
+
+def base_album_title(title):
+    return _edition_parts(title)[0]
 
 
 def parenthetical_base_album_title(title):
-    """Strip any trailing (...) qualifiers, plus recognized edition suffixes.
-
-    Other album words and non-trailing parentheses remain significant.
-    This is a fallback match only: an exact title or known edition wins.
-    """
-    text = base_album_title(title)
-    for _ in range(5):
-        match = _TRAILING_PARENS.fullmatch(text)
-        if not match:
-            break
-        text = base_album_title(match.group("base").strip())
-    return text
+    """Compatibility API: arbitrary (...) text is no longer stripped."""
+    return base_album_title(title)
 
 
 def _requests_complete_release(title):
-    """A complete reissue must not resolve to an abridged original release."""
-    text = str(title or "").strip()
-    # Recognize edition markers anywhere in a trailing sequence, including
-    # ', Complete', '- Complete (Live)', and '(Complete Edition)'.
-    for _ in range(5):
-        parens = _TRAILING_PARENS.fullmatch(text)
-        if parens:
-            if re.search(r"(?i)\bcomplete\b", parens.group("tag")):
-                return True
-            text = parens.group("base").strip()
+    return any("complete" in tag.split() for tag in _edition_parts(title)[1])
+
+
+# This explicit catalog-alias whitelist is intentionally small. A real album
+# recorded live can be labeled "(Live)" by the catalog, but the same rule is
+# NOT applied to studio albums or to arbitrary other titles.
+_EXPLICIT_ALIASES = (
+    ("Stan Getz", "Getz at the Gate", "Getz at the Gate (Live)"),
+    ("Miles Davis", "In Person Friday And Saturday Nights At The Blackhawk, Complete",
+     "In Person Friday And Saturday Nights At The Blackhawk - Complete (Live)"),
+)
+
+
+def _explicit_alias(artist, requested, found):
+    for credit, left, right in _EXPLICIT_ALIASES:
+        if norm(credit) != norm(artist):
             continue
-        suffix = (_BRACKET_SUFFIX.fullmatch(text)
-                  or _DASH_SUFFIX.fullmatch(text)
-                  or _COMMA_SUFFIX.fullmatch(text))
-        if not suffix:
-            return False
-        if re.search(r"(?i)\bcomplete\b", suffix.group("tag")):
+        if (norm(requested), norm(found)) in ((norm(left), norm(right)), (norm(right), norm(left))):
             return True
-        text = suffix.group("base").strip()
     return False
 
 
 def _artist_names(item):
-    artists = []
+    names = []
     artist = item.get("artist")
     if isinstance(artist, str):
-        artists.append(artist)
+        names.append(artist)
     elif isinstance(artist, dict):
-        artists.append(artist.get("name", ""))
+        names.append(artist.get("name", ""))
     for other in item.get("artists") or []:
         if isinstance(other, str):
-            artists.append(other)
+            names.append(other)
         elif isinstance(other, dict):
-            artists.append(other.get("name", ""))
-    return [name for name in artists if name]
+            names.append(other.get("name", ""))
+    return [name for name in names if name]
 
 
-# Jazz albums are frequently credited to the leader's Trio, Quartet, etc.
-# rather than to the leader alone. Only these well-defined ensemble suffixes
-# are accepted; collaborators or a band with a different name are not aliases.
 _ENSEMBLE_NAMES = ("Trio", "Quartet", "Quintet", "Sextet", "Septet", "Octet", "Nonet")
-_ENSEMBLE_SUFFIXES = {norm(label) for label in _ENSEMBLE_NAMES}
+_ENSEMBLE_SUFFIXES = {norm(name) for name in _ENSEMBLE_NAMES}
 _ARTIST_SEPARATOR = re.compile(r"\s*(?:&|/|\band\b)\s*", re.IGNORECASE)
 
 
 def _ensemble_credit_matches(artist, credited_name):
-    """Match 'Isao Suzuki' to 'Isao Suzuki Trio & Isao Suzuki Quartet'.
-
-    Do not accept collaborations with a different leader or arbitrary text
-    beginning with the requested name.
-    """
     expected = norm(artist)
     pieces = [norm(part) for part in _ARTIST_SEPARATOR.split(credited_name)]
     if not expected or not pieces or any(not part for part in pieces):
@@ -128,7 +118,6 @@ def _ensemble_credit_matches(artist, credited_name):
             continue
         if piece.startswith(expected + " ") and piece[len(expected) + 1:] in _ENSEMBLE_SUFFIXES:
             continue
-        # Discographical shorthand: 'Isao Suzuki Trio / Quartet'.
         if piece in _ENSEMBLE_SUFFIXES and len(pieces) > 1:
             continue
         return False
@@ -136,14 +125,10 @@ def _ensemble_credit_matches(artist, credited_name):
 
 
 def _artist_match(artist, item):
-    """Return (credit confidence, display artist) or None."""
     names = _artist_names(item)
     wanted = norm(artist)
     if any(norm(name) == wanted for name in names):
         return (0, next(name for name in names if norm(name) == wanted))
-    # When multiple artist credits are present, ALL must be safely derived
-    # from the artist's own ensemble name. Never match a mixed collaboration
-    # solely because one member has a matching prefix.
     if names and all(_ensemble_credit_matches(artist, name) for name in names):
         return (1, names[0])
     return None
@@ -159,61 +144,110 @@ def _album_url(item):
     return None
 
 
-def pick_exact_album(artist, album, results):
-    """Return the closest safe album match (exact preferred over edition).
+def _rank_title(artist, requested, found):
+    if norm(requested) == norm(found):
+        return 0, "exact", ("case_punctuation",)
+    wanted_base, wanted_tags = _edition_parts(requested)
+    found_base, found_tags = _edition_parts(found)
+    if norm(wanted_base) == norm(found_base) and (wanted_tags or found_tags):
+        # A request for a complete collection never resolves to the short one.
+        if _requests_complete_release(requested) and not _requests_complete_release(found):
+            return None
+        # An explicit (Live)/(Demo)/(Vol.2) on either side is part of the
+        # *base* and therefore cannot disappear through edition normalization.
+        if wanted_tags and found_tags and set(wanted_tags) == set(found_tags):
+            return 1, "edition", ("edition_suffix", "same_edition")
+        return 2, "edition", ("edition_suffix",)
+    if _explicit_alias(artist, requested, found):
+        return 3, "explicit_alias", ("explicit_album_alias",)
+    return None
 
-    Kept under its original function name for callers of the earlier resolver.
-    """
-    want_artist, want_exact = norm(artist), norm(album)
-    want_base = norm(base_album_title(album))
-    want_parenthetical_base = norm(parenthetical_base_album_title(album))
-    requires_complete = _requests_complete_release(album)
-    if not want_artist or not want_parenthetical_base:
-        return None
 
-    candidates = []
-    for index, item in enumerate(results):
+def album_candidates(artist, album, results):
+    """Return unique accepted catalog candidates; no search-order tie breakers."""
+    accepted = {}
+    for item in results:
         if not isinstance(item, dict) or item.get("resultType") != "album":
             continue
         artist_match = _artist_match(artist, item)
         if artist_match is None:
             continue
-        artist_rank, actual_artist = artist_match
         url = _album_url(item)
         if not url:
             continue
         found_title = str(item.get("title") or "").strip()
-        if requires_complete and not _requests_complete_release(found_title):
+        if _requests_complete_release(album) and not _requests_complete_release(found_title):
             continue
-        found_exact = norm(found_title)
-        if found_exact == want_exact:
-            match_type = "exact"
-            score = (0, artist_rank, 0, 0, index)
-        elif want_base and norm(base_album_title(found_title)) == want_base:
-            match_type = "edition"
-            # If the user requested a particular edition, prefer candidates
-            # with the same edition qualifier before other versions.
-            want_tag = norm(album.removeprefix(base_album_title(album)).strip())
-            found_tag = norm(found_title.removeprefix(base_album_title(found_title)).strip())
-            same_qualifier = bool(want_tag and found_tag and want_tag == found_tag)
-            score = (1, artist_rank, 0 if same_qualifier else 1, len(found_title), index)
-        elif (want_parenthetical_base and
-              norm(parenthetical_base_album_title(found_title)) == want_parenthetical_base):
-            match_type = "parenthetical"
-            score = (2, artist_rank, 0, len(found_title), index)
-        else:
+        title_rank = _rank_title(artist, album, found_title)
+        if title_rank is None:
             continue
-        candidates.append((score, {
-            "status": "found", "url": url,
-            "artist": actual_artist,
-            "artist_match_type": "ensemble" if artist_rank else "exact",
-            "album": found_title,
-            "requested_album": album,
-            "match_type": match_type,
+        title_priority, match_type, rules = title_rank
+        credit_rank, actual_artist = artist_match
+        score = (title_priority, credit_rank)
+        candidate = {
+            "status": "found", "url": url, "artist": actual_artist,
+            "artist_match_type": "ensemble" if credit_rank else "exact",
+            "album": found_title, "requested_album": album,
+            "match_type": match_type, "normalization_rules": list(rules),
             "year": item.get("year"), "catalog_verified": True,
-        }))
+            "_score": score,
+        }
+        # A catalog entry returned by multiple searches is one candidate.
+        previous = accepted.get(url)
+        if previous is None or (score, norm(found_title)) < (previous["_score"], norm(previous["album"])):
+            accepted[url] = candidate
+    return sorted(accepted.values(), key=lambda c: (
+        c["_score"], c["url"], norm(c["album"]),
+    ))
 
-    return min(candidates, key=lambda pair: pair[0])[1] if candidates else None
+
+def choose_album(artist, album, results):
+    candidates = album_candidates(artist, album, results)
+    if not candidates:
+        return None
+    best_score = candidates[0]["_score"]
+    best = [candidate for candidate in candidates if candidate["_score"] == best_score]
+    if len(best) != 1:
+        return {
+            "status": "ambiguous",
+            "message": "Several equally ranked albums; no automatic download.",
+            "artist": artist, "requested_album": album,
+            "candidate_count": len(candidates),
+            "candidates": [
+                {"artist": c["artist"], "album": c["album"], "url": c["url"],
+                 "match_type": c["match_type"]}
+                for c in best
+            ],
+        }
+    winner = dict(best[0])
+    winner.pop("_score")
+    winner["candidate_count"] = len(candidates)
+    winner["selected_from"] = "all_catalog_results"
+    return winner
+
+
+def pick_exact_album(artist, album, results):
+    """Compatibility entrypoint, now with deterministic tie rejection."""
+    return choose_album(artist, album, results)
+
+
+def _queries(artist, album):
+    base = base_album_title(album)
+    queries = [f"{artist} {album}"]
+    if norm(base) != norm(album):
+        queries.append(f"{artist} {base}")
+    else:
+        queries.extend((f"{artist} {base} deluxe", f"{artist} {base} remastered"))
+    # Only explicit aliases are allowed to extend the search beyond editions.
+    for credit, left, right in _EXPLICIT_ALIASES:
+        if norm(credit) == norm(artist):
+            if norm(left) == norm(album):
+                queries.append(f"{artist} {right}")
+            elif norm(right) == norm(album):
+                queries.append(f"{artist} {left}")
+    if not norm(artist).endswith(tuple(" " + norm(n) for n in _ENSEMBLE_NAMES)):
+        queries.extend(f"{artist} {ensemble} {base}" for ensemble in ("Trio", "Quartet", "Quintet"))
+    return list(dict.fromkeys(queries))
 
 
 @lru_cache(maxsize=256)
@@ -221,34 +255,18 @@ def _lookup(artist, album):
     from ytmusicapi import YTMusic
 
     catalog = YTMusic()
-    base = base_album_title(album)
-    parenthetical_base = parenthetical_base_album_title(album)
-    queries = [f"{artist} {album}"]
-    if norm(base) != norm(album):
-        queries.append(f"{artist} {base}")
-    if norm(parenthetical_base) != norm(base):
-        queries.append(f"{artist} {parenthetical_base}")
-    if len(queries) == 1:
-        # Occasionally the first album search is dominated by recordings,
-        # compilations or similarly named releases. These targeted queries
-        # let YouTube Music expose the deluxe/remastered catalog entry.
-        queries.extend((f"{artist} {base} deluxe", f"{artist} {base} remastered"))
-
-    # Some jazz releases are indexed under the leader's ensemble instead of
-    # their name (e.g. Isao Suzuki Trio/Quartet, rather than Isao Suzuki).
-    # These bounded follow-up queries are used only when normal searches fail.
-    if not norm(artist).endswith(tuple(" " + norm(n) for n in _ENSEMBLE_NAMES)):
-        queries.extend(f"{artist} {ensemble} {parenthetical_base}" for ensemble in ("Trio", "Quartet", "Quintet"))
-
-    for query in dict.fromkeys(queries):
-        results = catalog.search(query, filter="albums", limit=20)
-        match = pick_exact_album(artist, album, results)
-        if match:
-            return match
-
+    queries = _queries(artist, album)
+    results = []
+    for query in queries:
+        results.extend(catalog.search(query, filter="albums", limit=20) or [])
+    outcome = choose_album(artist, album, results)
+    if outcome is not None:
+        outcome["queries"] = queries
+        return outcome
     return {
         "status": "not_found",
-        "message": "No matching album or title variant in the YouTube Music catalog.",
+        "message": "No album matched the deterministic title and edition rules.",
+        "queries": queries,
     }
 
 
