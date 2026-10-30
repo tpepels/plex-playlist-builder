@@ -85,3 +85,12 @@ def test_complete_cannot_fall_back_to_incomplete():
 def test_different_ensemble_or_artist_does_not_match():
     catalog = [entry("Kind of Blue", "MPREother", artist="Miles Davis and John Coltrane")]
     assert albums.pick_exact_album("Miles Davis", "Kind of Blue", catalog) is None
+
+
+def test_only_explicit_catalog_aliases_are_owned_release_equivalents():
+    assert albums.same_owned_release("Stan Getz", "Getz at the Gate",
+                                     "Getz at the Gate (Live)")
+    assert albums.same_owned_release("Miles Davis", "In Person Friday And Saturday Nights At The Blackhawk, Complete",
+                                     "In Person Friday And Saturday Nights At The Blackhawk - Complete (Live)")
+    assert not albums.same_owned_release("Miles Davis", "Kind of Blue", "Kind of Blue (Live)")
+    assert not albums.same_owned_release("Miles Davis", "Kind of Blue", "Kind of Blue (Deluxe Edition)")
