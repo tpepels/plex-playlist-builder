@@ -131,3 +131,23 @@ def test_html_album_submission_and_json_api_share_identity(server, monkeypatch):
     assert api.status_code == 200
     assert api.get_json()["duplicate"] is True
     assert api.get_json()["job_id"] == original
+
+
+def test_stable_album_job_id_follows_retry_status(server):
+    client = server.app.test_client()
+    original = client.post("/api/albums", json={"url": URL}).get_json()["job_id"]
+    with server.jobs_lock:
+        root = server.jobs[original]
+        root["status"] = "failed"
+        retry = dict(root, id="retry-1", retry_of=original, attempt=2,
+                     status="succeeded", created_at=root["created_at"] + 1)
+        server.jobs[retry["id"]] = retry
+        assert server.persist_jobs_locked()
+
+    repeated = client.post("/api/albums", json={"url": URL}).get_json()
+    assert repeated["job_id"] == original
+    assert repeated["latest_job_id"] == "retry-1"
+    assert repeated["status"] == "succeeded"
+    detail = client.get(f"/api/albums/{original}").get_json()
+    assert detail["status"] == "succeeded"
+    assert detail["latest_job_id"] == "retry-1"
