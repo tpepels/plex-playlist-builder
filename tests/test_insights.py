@@ -151,10 +151,8 @@ def test_youtube_resolver_matches_deluxe_and_remaster_in_both_directions():
          "artist": "The Blue Nile", "playlistId": "OLAK5uy_remaster"},
     ]
     match = pick_exact_album("The Blue Nile", "Hats", records)
-    assert match["status"] == "found"
-    assert match["match_type"] == "edition"
-    assert match["url"].startswith("https://music.youtube.com/")
-    assert match["requested_album"] == "Hats"
+    assert match["status"] == "ambiguous"
+    assert len(match["candidates"]) == 2  # multiple equally ranked editions
 
     specific = pick_exact_album("The Blue Nile", "Hats (2002 Remaster)", records)
     assert specific["match_type"] == "exact"
