@@ -259,13 +259,26 @@ to the downloader for persistent provenance.
 
 API routes: `GET /api/youtube-album?artist=...&album=...` for read-only
 resolution, `GET /open-youtube-album?artist=...&album=...` for navigation,
-and `POST /queue-youtube-album` for the signed download action. When a
-single catalog match is **exact** (including a redundant leading artist
-prefix) and has an exact artist credit, the browser automatically submits
-the signed POST when opened. There is **no second click**. For edition
-variants, explicit album aliases and ensemble artist credits, the page
-requires review and a button click. A plain GET does not enqueue anything;
-non-JavaScript clients can still use the visible manual button.
+and `POST /queue-youtube-album` for the signed download action. The album
+link now returns an **immediate lightweight HTML page**, rather than waiting
+for YouTube Music to resolve before the browser displays anything. Client-side
+JavaScript shows an activity indicator, real elapsed time, lookup status and
+the subsequent Plex/yt-dlp submission status. An accepted request displays
+the returned job ID, queue status and whether this album was already queued,
+then opens the downloader dashboard. Errors remain visible with a retry
+action; ambiguous matches show their candidate URLs without downloading.
+
+The signed POST supports `Accept: application/json` and returns
+`{ok, job_id, status, duplicate, downloader_url}` so the page can render
+specific acknowledgement and failure messages without an opaque redirect.
+Traditional form POST requests retain the existing HTTP 303 redirect.
+
+When a single catalog match is **exact** (including a redundant leading
+artist prefix) and has an exact artist credit, the browser automatically
+submits the signed POST after resolving it. There is **no second click**.
+For edition variants, explicit album aliases and ensemble artist credits,
+the page requires review and a button click. A plain GET does not enqueue
+anything; non-JavaScript clients can still use the manual button.
 A missing album redirects to a YouTube Music search for exactly `artist album`.
 An ambiguous match displays candidates but never submits a job.
 
