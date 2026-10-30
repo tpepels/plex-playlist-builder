@@ -34,7 +34,7 @@ def test_album_submission_returns_job_id_and_audit(monkeypatch):
     assert result == {
         "job_id": "abc123", "duplicate": False, "status": "queued",
         "visible": True, "latest_job_id": "abc123",
-        "message": "Waiting for worker",
+        "message": "Waiting for worker", "retried": False,
     }
     assert len(calls) == 2
     assert calls[1][0].get_method() == "GET"
@@ -119,15 +119,42 @@ def test_server_claim_without_verifiable_job_is_an_error(monkeypatch):
         submit.queue_album("https://music.youtube.com/playlist?list=OLAK5uy_verified")
 
 
-def test_failed_job_is_visible_but_not_reported_as_queued(monkeypatch):
+def test_failed_album_automatically_retries_native_job(monkeypatch):
+    calls = []
     def responder(request, timeout):
+        calls.append((request.get_method(), request.full_url))
+        if request.full_url.endswith("/retry"):
+            return Accepted({"ok": True, "job_id": "retry-1"})
+        if request.get_method() == "POST":
+            return Accepted({"ok": True, "job_id": "failed-job", "duplicate": True,
+                             "status": "failed", "visible": True})
+        checks = sum(url.endswith("/api/albums/failed-job") for _, url in calls)
+        if checks == 1:
+            return Accepted({"ok": True, "job_id": "failed-job",
+                             "status": "failed", "visible": True,
+                             "latest_job_id": "failed-job",
+                             "message": "yt-dlp exited with code 1"})
+        return Accepted({"ok": True, "job_id": "failed-job",
+                         "status": "queued", "visible": True,
+                         "latest_job_id": "retry-1", "message": "Retry queued"})
+    monkeypatch.setattr(submit, "urlopen", responder)
+    result = submit.queue_album("https://music.youtube.com/playlist?list=OLAK5uy_verified")
+    assert result["status"] == "queued"
+    assert result["visible"] is True
+    assert result["retried"] is True
+    assert result["latest_job_id"] == "retry-1"
+    assert calls[2][1].endswith("/api/jobs/failed-job/retry")
+
+
+def test_failed_album_retry_that_cannot_be_confirmed_never_claims_success(monkeypatch):
+    def responder(request, timeout):
+        if request.full_url.endswith("/retry"):
+            raise HTTPError(request.full_url, 503, "Retry error", {}, io.BytesIO())
         if request.get_method() == "POST":
             return Accepted({"ok": True, "job_id": "failed-job", "duplicate": True})
         return Accepted({"ok": True, "job_id": "failed-job",
                          "status": "failed", "visible": True,
-                         "latest_job_id": "failed-job", "message": "yt-dlp exited with code 1"})
+                         "latest_job_id": "failed-job", "message": "yt-dlp failed"})
     monkeypatch.setattr(submit, "urlopen", responder)
-    result = submit.queue_album("https://music.youtube.com/playlist?list=OLAK5uy_verified")
-    assert result["status"] == "failed"
-    assert result["visible"] is True
-    assert result["message"] == "yt-dlp exited with code 1"
+    with pytest.raises(submit.AlbumQueueError, match="Could not retry"):
+        submit.queue_album("https://music.youtube.com/playlist?list=OLAK5uy_verified")
