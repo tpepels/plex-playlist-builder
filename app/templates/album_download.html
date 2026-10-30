@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Album download · Plex Playlist Manager</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 570px; margin: 8vh auto; padding: 0 20px; line-height: 1.5; }
+    h1 { font-size: 1.45rem; margin-bottom: .4rem; }
+    .quiet { color: #737783; }
+    .panel { padding: 22px; border: 1px solid #8885; border-radius: 12px; }
+    .working { display: flex; align-items: center; gap: 10px; }
+    .spinner { width: 17px; height: 17px; border: 2px solid #9995;
+      border-top-color: #648fe1; border-radius: 50%; animation: turn .75s linear infinite; }
+    @keyframes turn { to { transform: rotate(360deg); } }
+    button { font: inherit; padding: 9px 16px; cursor: pointer; }
+    button:disabled { cursor: progress; opacity: .55; }
+    .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
+    #detail, #elapsed { font-size: .9rem; }
+    #detail { margin-top: 9px; }
+    #candidates { padding-left: 22px; }
+    #candidates li { margin: 7px 0; }
+    .error { color: #c64c4c; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <h1 id="heading">Opening album…</h1>
+    <p id="requested">Requested: <strong>{{ artist }} — {{ album }}</strong></p>
+    <div class="working" id="activity" role="status" aria-live="polite">
+      <span class="spinner" aria-hidden="true"></span><span id="status">Searching YouTube Music…</span>
+    </div>
+    <p id="elapsed" class="quiet">Elapsed: 0 s</p>
+    <p id="detail" class="quiet">Checking album titles and editions against the catalog.</p>
+    <p id="matched" hidden></p>
+    <ul id="candidates" hidden></ul>
+    <form id="queue-album-form" method="post" action="/queue-youtube-album">
+      <input type="hidden" name="artist" value="{{ artist }}">
+      <input type="hidden" name="album" value="{{ album }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <div class="actions">
+        <button id="queue-button" type="submit" hidden>Queue on yt-dlp</button>
+        <button id="retry-button" type="button" hidden>Try again</button>
+        <a id="search-link" href="{{ search_url }}" hidden>Search on YouTube Music</a>
+        <a id="direct-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Inspect album</a>
+      </div>
+    </form>
+    <noscript>
+      <p>JavaScript is disabled. Album matching cannot be previewed. The manual
+        download action will recheck the catalog and Plex before submitting.</p>
+      <style>#queue-button { display: inline-block !important; }</style>
+    </noscript>
+  </main>
+  <script>
+  (() => {
+    "use strict";
+    const artist = {{ artist | tojson }};
+    const album = {{ album | tojson }};
+    const form = document.getElementById("queue-album-form");
+    const status = document.getElementById("status");
+    const activity = document.getElementById("activity");
+    const detail = document.getElementById("detail");
+    const elapsed = document.getElementById("elapsed");
+    const heading = document.getElementById("heading");
+    const matched = document.getElementById("matched");
+    const candidates = document.getElementById("candidates");
+    const queueButton = document.getElementById("queue-button");
+    const retryButton = document.getElementById("retry-button");
+    const searchLink = document.getElementById("search-link");
+    const directLink = document.getElementById("direct-link");
+    let start = performance.now();
+    let busy = false;
+    let resolved = null;
+
+    function showStatus(message, description, working = true) {
+      status.textContent = message;
+      detail.textContent = description || "";
+      activity.querySelector(".spinner").hidden = !working;
+      activity.setAttribute("aria-busy", working ? "true" : "false");
+    }
+    function setError(message) {
+      heading.textContent = "Download not started";
+      status.classList.add("error");
+      showStatus(message, "You can retry without creating duplicate jobs.", false);
+      retryButton.hidden = false;
+      queueButton.disabled = false;
+      if (resolved) queueButton.hidden = false;
+      busy = false;
+    }
+    function elapsedTime() {
+      elapsed.textContent = "Elapsed: " + Math.floor((performance.now() - start) / 1000) + " s";
+    }
+    setInterval(elapsedTime, 1000);
+
+    async function fetchJson(url, options) {
+      const response = await fetch(url, options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || data.error ||
+        "Request failed (HTTP " + response.status + ").");
+      return data;
+    }
+    async function queueAlbum(event) {
+      if (event) event.preventDefault();
+      if (busy || !resolved) return;
+      busy = true;
+      queueButton.disabled = true;
+      retryButton.hidden = true;
+      heading.textContent = "Submitting album…";
+      status.classList.remove("error");
+      showStatus("Checking Plex and contacting yt-dlp…",
+        "This may take a little longer while Plex checks the library.");
+      try {
+        const response = await fetchJson(form.action, {
+          method: "POST",
+          headers: { "Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams(new FormData(form)),
+          credentials: "same-origin"
+        });
+        const result = response.duplicate ? "Already in the download queue" : "Added to the download queue";
+        heading.textContent = result;
+        showStatus("Job " + response.job_id + " · " + response.status,
+          "Opening the yt-dlp dashboard…", false);
+        elapsedTime();
+        window.location.assign(response.downloader_url);
+      } catch (error) {
+        setError(error.message || "Could not submit album.");
+      }
+    }
+    async function resolveAlbum() {
+      if (busy) return;
+      busy = true;
+      resolved = null;
+      start = performance.now();
+      elapsedTime();
+      heading.textContent = "Finding album…";
+      status.classList.remove("error");
+      matched.hidden = true;
+      candidates.replaceChildren();
+      candidates.hidden = true;
+      queueButton.hidden = true;
+      queueButton.disabled = false;
+      retryButton.hidden = true;
+      directLink.hidden = true;
+      searchLink.hidden = true;
+      showStatus("Searching YouTube Music…",
+        "Comparing catalog results using exact titles and explicit edition rules.");
+      try {
+        const data = await fetchJson("/api/youtube-album?" + new URLSearchParams({artist, album}));
+        if (data.status === "not_found") {
+          heading.textContent = "No matching album";
+          showStatus("No safe album match found.", "Opening a YouTube Music search; no download was queued.", false);
+          searchLink.hidden = false;
+          window.location.assign(searchLink.href);
+          return;
+        }
+        if (data.status === "ambiguous") {
+          heading.textContent = "Several albums match";
+          showStatus("No automatic download.", "The catalog contains equally ranked albums. Inspect them manually.", false);
+          for (const item of data.candidates || []) {
+            const li = document.createElement("li");
+            const link = document.createElement("a");
+            link.href = item.url;
+            link.textContent = item.artist + " — " + item.album;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            li.append(link);
+            candidates.append(li);
+          }
+          candidates.hidden = false;
+          return;
+        }
+        if (data.status !== "found") throw new Error("Unexpected catalog result.");
+        resolved = data;
+        matched.textContent = "Matched: " + data.artist + " — " + data.album;
+        matched.hidden = false;
+        directLink.href = data.url;
+        directLink.hidden = false;
+        queueButton.hidden = false;
+        heading.textContent = "Album found";
+        if ((data.match_type === "exact" || data.match_type === "artist_prefix") &&
+            data.artist_match_type === "exact") {
+          showStatus("Exact catalog match.",
+            "Checking Plex and submitting to yt-dlp automatically.");
+          busy = false;
+          await queueAlbum();
+        } else {
+          showStatus("Review required before download.",
+            "Match type: " + data.match_type + " · Artist credit: " + data.artist_match_type, false);
+          busy = false;
+        }
+      } catch (error) {
+        setError(error.message || "Album lookup failed.");
+      }
+    }
+    form.addEventListener("submit", queueAlbum);
+    retryButton.addEventListener("click", () => {
+      if (resolved) queueAlbum();
+      else resolveAlbum();
+    });
+    resolveAlbum();
+  })();
+  </script>
+</body>
+</html>
