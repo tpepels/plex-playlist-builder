@@ -1869,13 +1869,28 @@ def enqueue_verified_album():
                     return jsonify({"ok": False, "error": "Could not persist album identity."}), 503
 
         if claim is not None:
-            existing = jobs.get(claim["job_id"])
-            return jsonify({
-                "ok": True, "duplicate": True, "job_id": claim["job_id"],
-                "idempotency_key": key,
-                "status": claim.get("last_status", existing["status"] if existing else "previously_submitted"),
-                "latest_job_id": claim.get("latest_job_id", claim["job_id"]),
-            }), 200
+            latest_id = claim.get("latest_job_id") or claim["job_id"]
+            existing = jobs.get(latest_id) or jobs.get(claim["job_id"])
+            if existing is not None:
+                # Return the actual job state, never an older persisted status.
+                return jsonify({
+                    "ok": True, "duplicate": True, "job_id": claim["job_id"],
+                    "idempotency_key": key, "status": existing["status"],
+                    "latest_job_id": existing["id"], "visible": True,
+                    "message": existing.get("message", ""),
+                }), 200
+            if claim.get("last_status") == "succeeded":
+                # History pruning removes the card, not the completed album.
+                # Tell clients explicitly that there is no visible queue item.
+                return jsonify({
+                    "ok": True, "duplicate": True, "job_id": claim["job_id"],
+                    "idempotency_key": key, "status": "succeeded",
+                    "latest_job_id": latest_id, "visible": False,
+                    "message": "This album was downloaded previously; the job is no longer in history.",
+                }), 200
+            # A failed, interrupted, removed, or otherwise orphaned job must
+            # not permanently block a newly requested download.
+            album_submissions.pop(key, None)
 
         if download_queue.full():
             return jsonify({"ok": False, "error": "Download queue is full."}), 429
@@ -1929,6 +1944,7 @@ def enqueue_verified_album():
     return jsonify({
         "ok": True, "duplicate": False, "job_id": job_id,
         "idempotency_key": key, "status": "queued",
+        "latest_job_id": job_id, "visible": True,
     }), 201
 
 
