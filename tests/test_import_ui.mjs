@@ -396,7 +396,7 @@ test("Discover tab compares curated albums with Plex and offers exact resolver U
   assert.doesNotMatch(h.$("iscRows").innerHTML, /Paul Bley/);
   assert.match(h.$("iscRows").innerHTML,
     /\/open-youtube-album\?artist=Hiroshi%20Suzuki&amp;album=Cat/);
-  assert.match(h.$("iscRows").innerHTML, /Review and queue album/);
+  assert.match(h.$("iscRows").innerHTML, /Find \/ download album/);
   assert.match(h.$("iscRows").innerHTML,
     /https:\/\/insheepsclothinghifi.com\/album\/hiroshi-suzuki-cat\//);
   h.$("iscStatus").value = "edition";
