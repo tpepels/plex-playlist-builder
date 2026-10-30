@@ -1956,14 +1956,15 @@ def album_submission_status(job_id):
     with jobs_lock:
         job = jobs.get(job_id)
         if job and job.get("album_submission_key"):
+            key = job["album_submission_key"]
+            claim = album_submissions.get(key, {})
+            latest = jobs.get(claim.get("latest_job_id")) or job
             return jsonify({
-                "ok": True, "job_id": job_id, "status": album_submissions.get(
-                    job["album_submission_key"], {}).get("last_status", job["status"]),
-                "idempotency_key": job["album_submission_key"],
+                "ok": True, "job_id": job_id, "status": latest["status"],
+                "idempotency_key": key,
                 "match_audit": job.get("match_audit") or {},
-                "latest_job_id": album_submissions.get(
-                    job["album_submission_key"], {}).get("latest_job_id", job_id),
-                "visible": True, "message": job.get("message", ""),
+                "latest_job_id": latest["id"], "visible": True,
+                "message": latest.get("message", ""),
             })
         for key, claim in album_submissions.items():
             if claim.get("job_id") == job_id:
