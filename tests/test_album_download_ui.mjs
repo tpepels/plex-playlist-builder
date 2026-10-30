@@ -21,6 +21,7 @@ function fakeElement() {
   return {
     textContent: "", hidden: false, disabled: false, href: "", action: "",
     attributes: {}, children: [], handlers: {},
+    classList: {add() {}, remove() {}},
     setAttribute(name, value) { this.attributes[name] = value; },
     addEventListener(name, callback) { this.handlers[name] = callback; },
     querySelector() { return this.spinner || (this.spinner = fakeElement()); },
