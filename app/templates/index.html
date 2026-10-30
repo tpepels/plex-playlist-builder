@@ -1016,7 +1016,7 @@ async function resolveYoutubeAlbum(artist,album,target) {
   try {
     const d = await api("/api/youtube-album?artist="+encodeURIComponent(artist)+"&album="+encodeURIComponent(album));
     if (d.status !== "found") {
-      target.textContent = "No matching album or recognized edition found. No guessed link.";
+      target.textContent = "No matching album or title variant found. No guessed link.";
       return;
     }
     const wrap = document.createElement("div");
@@ -1025,7 +1025,7 @@ async function resolveYoutubeAlbum(artist,album,target) {
     a.href = d.url;
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-    a.textContent = `Open album: ${d.artist} — ${d.album}${d.match_type === "edition" ? " (edition match)" : ""}${d.artist_match_type === "ensemble" ? " (ensemble credit match)" : ""}`;
+    a.textContent = `Open album: ${d.artist} — ${d.album}${d.match_type === "edition" ? " (edition match)" : d.match_type === "parenthetical" ? " (parenthetical title match)" : ""}${d.artist_match_type === "ensemble" ? " (ensemble credit match)" : ""}`;
     const url = document.createElement("input");
     url.type = "text";
     url.value = d.url;
