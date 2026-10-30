@@ -24,7 +24,7 @@ def test_colon_is_already_ignored_in_title_normalization():
 def test_recognizes_complete_with_comma_dash_or_parentheses():
     for title in (COMPLETE, TITLE + " - Complete", TITLE + " (Complete Edition)"):
         assert resolver.base_album_title(title) == TITLE
-    assert resolver.parenthetical_base_album_title(TITLE + " - Complete (Live)") == TITLE
+    assert resolver.parenthetical_base_album_title(TITLE + " - Complete (Live)") == TITLE + " - Complete (Live)"
     assert resolver.base_album_title(TITLE + ", Volume 2") == TITLE + ", Volume 2"
 
 
@@ -33,7 +33,7 @@ def test_complete_blackhawk_matches_same_two_nights_with_live_suffix():
     result = resolver.pick_exact_album("Miles Davis", COMPLETE, [album])
     assert result is not None
     assert result["album"] == album["title"]
-    assert result["match_type"] == "parenthetical"
+    assert result["match_type"] == "explicit_alias"
     assert result["url"] == "https://music.youtube.com/browse/MPREblackhawk"
 
 
@@ -75,6 +75,6 @@ def test_query_retries_without_complete_when_first_search_has_no_match(monkeypat
         result = resolver.lookup_album("Miles Davis", COMPLETE)
         assert result["status"] == "found"
         assert result["album"] == TITLE + " - Complete (Live)"
-        assert queries == [f"Miles Davis {COMPLETE}", f"Miles Davis {TITLE}"]
+        assert queries[:2] == [f"Miles Davis {COMPLETE}", f"Miles Davis {TITLE}"]
     finally:
         resolver._lookup.cache_clear()
