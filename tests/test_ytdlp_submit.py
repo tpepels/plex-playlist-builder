@@ -20,6 +20,7 @@ def test_verified_album_posts_to_existing_download_form(monkeypatch, album_url):
             raise HTTPError(request.full_url, 302, "Found", {"Location": "/"}, None)
 
     monkeypatch.setenv("YTDLP_SERVER_URL", "http://yt-dlp-server:4545")
+    monkeypatch.setattr(submit, "_download_url", lambda url: url)
     monkeypatch.setattr(submit, "build_opener", lambda handler: Downloader())
     submit.queue_album(album_url)
 
@@ -76,3 +77,43 @@ def test_unreachable_downloader_does_not_report_queued(monkeypatch):
 def test_browser_redirect_uses_public_address_not_docker_hostname(monkeypatch):
     monkeypatch.setenv("YTDLP_PUBLIC_URL", "http://media-server:4545/")
     assert submit.downloader_ui_url() == "http://media-server:4545/"
+
+
+def test_browse_album_converts_to_yt_dlp_compatible_olak_playlist(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    calls = []
+    def get_album(album_id):
+        calls.append(album_id)
+        return {"audioPlaylistId": "OLAK5uy_verifiedPlaylist"}
+
+    monkeypatch.setitem(
+        sys.modules, "ytmusicapi",
+        SimpleNamespace(YTMusic=lambda: SimpleNamespace(get_album=get_album)),
+    )
+    submit._download_url.cache_clear()
+    try:
+        actual = submit._download_url("https://music.youtube.com/browse/MPREb_l3o4MNZF1rh")
+        assert actual == "https://music.youtube.com/playlist?list=OLAK5uy_verifiedPlaylist"
+        assert calls == ["MPREb_l3o4MNZF1rh"]
+    finally:
+        submit._download_url.cache_clear()
+
+
+def test_browse_album_keeps_verified_url_if_playlist_id_unavailable(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    monkeypatch.setitem(
+        sys.modules, "ytmusicapi",
+        SimpleNamespace(YTMusic=lambda: SimpleNamespace(
+            get_album=lambda album_id: {"audioPlaylistId": "invalid"}
+        )),
+    )
+    submit._download_url.cache_clear()
+    try:
+        original = "https://music.youtube.com/browse/MPREb_l3o4MNZF1rh"
+        assert submit._download_url(original) == original
+    finally:
+        submit._download_url.cache_clear()
