@@ -29,6 +29,7 @@ from .config_store import (
     version_details,
 )
 from .recent_export import export_recent_tracks
+from .album_export import export_album_names
 from .insights import analyze
 from .duplicates import find_duplicates, duplicates_tsv
 from .isc_discovery import fetch_catalog, compare_library
@@ -280,6 +281,24 @@ def export_library():
             headers={
                 "Content-Disposition": 'attachment; filename="plex-music-library.tsv"',
                 "X-Plex-Track-Count": str(len(rows)),
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/library-albums.tsv")
+def export_album_library():
+    """Download deduplicated Plex artist/album names for music discovery."""
+    try:
+        _, music = connect()
+        content, count = export_album_names(music.searchTracks())
+        return Response(
+            content=content,
+            media_type="text/tab-separated-values; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="plex-albums.tsv"',
+                "X-Plex-Album-Count": str(count),
             },
         )
     except Exception as exc:
