@@ -126,7 +126,8 @@
         if (!response.active) {
           // Failed, completed or pruned jobs are not in the active queue.
           heading.textContent = response.status === "succeeded"
-            ? "Album was downloaded previously" : "No active download job";
+            ? (response.duplicate ? "Album was downloaded previously" : "Album download completed")
+            : "No active download job";
           showStatus("Job " + response.job_id + " · " + response.status,
             response.message || (response.visible
               ? "The job is not queued or running. Inspect it in the downloader."
