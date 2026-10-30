@@ -588,6 +588,9 @@ async def queue_youtube_album(request: Request):
         "match_type": resolved["match_type"], "catalog_url": resolved["url"],
         "normalization_rules": resolved.get("normalization_rules", []),
         "queries": resolved.get("queries", []),
+        "candidate_count": resolved.get("candidate_count", 0),
+        "selection_policy": resolved.get("selection_policy", ""),
+        "considered_candidates": resolved.get("considered_candidates", []),
     }
     try:
         job = await run_in_threadpool(queue_album, resolved["url"], audit)
