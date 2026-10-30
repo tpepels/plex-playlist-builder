@@ -104,27 +104,51 @@ test("exact match transitions to download status before slow POST acknowledgemen
   assert.equal(h.calls[1].options.headers.Accept, "application/json");
   assert.equal(h.navigation.length, 0);
   slowPost.resolve(answer({
-    ok:true, job_id: "job123", status:"queued", duplicate:false,
-    downloader_url:"http://media-server:4545/",
+    ok:true, job_id: "job123", latest_job_id:"job123",
+    status:"queued", duplicate:false, active:true, visible:true,
+    downloader_url:"http://media-server:4545/?job=job123",
   }));
   await settle();
   assert.equal(h.byId("heading").textContent, "Added to the download queue");
   assert.match(h.byId("status").textContent, /Job job123 · queued/);
   assert.equal(h.navigation.length, 0);
   h.timers[0]();
-  assert.deepEqual(h.navigation, ["http://media-server:4545/"]);
+  assert.deepEqual(h.navigation, ["http://media-server:4545/?job=job123"]);
 });
 
-test("existing download has explicit acknowledgement without a second submission", async () => {
+test("completed historical job is explained without redirecting to empty queue", async () => {
   const h = harness((url, options) => Promise.resolve(answer(
     options?.method === "POST"
-      ? {ok:true, duplicate:true, job_id:"oldJob", status:"succeeded", downloader_url:"http://media-server:4545/"}
+      ? {ok:true, duplicate:true, job_id:"oldJob", latest_job_id:"oldJob",
+         status:"succeeded", visible:false, active:false,
+         message:"The album was downloaded previously.",
+         downloader_url:"http://media-server:4545/?job=oldJob"}
       : found
   )));
   await settle();
-  assert.equal(h.byId("heading").textContent, "Already in the download queue");
+  assert.equal(h.byId("heading").textContent, "Album was downloaded previously");
   assert.equal(h.calls.length, 2);
   assert.match(h.byId("status").textContent, /oldJob · succeeded/);
+  assert.equal(h.byId("downloader-link").hidden, false);
+  assert.equal(h.navigation.length, 0);
+  assert.equal(h.timers.length, 0);
+});
+
+
+test("failed job remains on progress page with its error, not a false success", async () => {
+  const h = harness((url, options) => Promise.resolve(answer(
+    options?.method === "POST"
+      ? {ok:true, duplicate:true, job_id:"failed-job", latest_job_id:"failed-job",
+         status:"failed", visible:true, active:false,
+         message:"yt-dlp exited with code 1",
+         downloader_url:"http://media-server:4545/?job=failed-job"}
+      : found
+  )));
+  await settle();
+  assert.equal(h.byId("heading").textContent, "No active download job");
+  assert.match(h.byId("detail").textContent, /yt-dlp exited with code 1/);
+  assert.equal(h.byId("downloader-link").hidden, false);
+  assert.equal(h.navigation.length, 0);
 });
 
 test("edition match waits for explicit manual button and reports errors", async () => {
