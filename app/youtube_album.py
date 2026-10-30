@@ -21,13 +21,14 @@ def norm(value):
 # subtitles, volume numbers, or arbitrary parenthesized text. Those can be
 # legitimately different albums, not editions of the same release.
 _EDITION_MARKER = re.compile(
-    r"(?i)\b(?:deluxe|remaster(?:ed|ing)?|expanded|anniversary|"
+    r"(?i)\b(?:complete|deluxe|remaster(?:ed|ing)?|expanded|anniversary|"
     r"collector(?:'s|s)?\s+edition|special\s+edition|limited\s+edition|"
     r"bonus\s+(?:track|tracks|disc|edition|version)|reissue|"
     r"original\s+recording\s+remastered)\b"
 )
 _BRACKET_SUFFIX = re.compile(r"^(?P<base>.+?)\s*[\[(](?P<tag>[^\])]{1,110})[\])]\s*$")
 _DASH_SUFFIX = re.compile(r"^(?P<base>.+?)\s+[-–—]\s+(?P<tag>[^\[\]()]{1,110})\s*$")
+_COMMA_SUFFIX = re.compile(r"^(?P<base>.+?),\s*(?P<tag>[^,\[\]()]{1,110})\s*$")
 _TRAILING_PARENS = re.compile(r"^(?P<base>.+?)\s*\((?P<tag>[^()]{1,110})\)\s*$")
 
 
@@ -39,7 +40,9 @@ def base_album_title(title):
     """
     text = str(title or "").strip()
     for _ in range(5):
-        match = _BRACKET_SUFFIX.fullmatch(text) or _DASH_SUFFIX.fullmatch(text)
+        match = (_BRACKET_SUFFIX.fullmatch(text)
+                 or _DASH_SUFFIX.fullmatch(text)
+                 or _COMMA_SUFFIX.fullmatch(text))
         if not match or not _EDITION_MARKER.search(match.group("tag")):
             break
         candidate = match.group("base").strip()
@@ -62,6 +65,29 @@ def parenthetical_base_album_title(title):
             break
         text = base_album_title(match.group("base").strip())
     return text
+
+
+def _requests_complete_release(title):
+    """A complete reissue must not resolve to an abridged original release."""
+    text = str(title or "").strip()
+    # Recognize edition markers anywhere in a trailing sequence, including
+    # ', Complete', '- Complete (Live)', and '(Complete Edition)'.
+    for _ in range(5):
+        parens = _TRAILING_PARENS.fullmatch(text)
+        if parens:
+            if re.search(r"(?i)\bcomplete\b", parens.group("tag")):
+                return True
+            text = parens.group("base").strip()
+            continue
+        suffix = (_BRACKET_SUFFIX.fullmatch(text)
+                  or _DASH_SUFFIX.fullmatch(text)
+                  or _COMMA_SUFFIX.fullmatch(text))
+        if not suffix:
+            return False
+        if re.search(r"(?i)\bcomplete\b", suffix.group("tag")):
+            return True
+        text = suffix.group("base").strip()
+    return False
 
 
 def _artist_names(item):
@@ -141,6 +167,7 @@ def pick_exact_album(artist, album, results):
     want_artist, want_exact = norm(artist), norm(album)
     want_base = norm(base_album_title(album))
     want_parenthetical_base = norm(parenthetical_base_album_title(album))
+    requires_complete = _requests_complete_release(album)
     if not want_artist or not want_parenthetical_base:
         return None
 
@@ -156,6 +183,8 @@ def pick_exact_album(artist, album, results):
         if not url:
             continue
         found_title = str(item.get("title") or "").strip()
+        if requires_complete and not _requests_complete_release(found_title):
+            continue
         found_exact = norm(found_title)
         if found_exact == want_exact:
             match_type = "exact"
