@@ -135,7 +135,8 @@
           busy = false;
           return;
         }
-        const result = response.duplicate ? "Existing active download found" : "Added to the download queue";
+        const result = response.retried ? "Previous download failed — retry queued"
+          : response.duplicate ? "Existing active download found" : "Added to the download queue";
         heading.textContent = result;
         showStatus("Job " + response.latest_job_id + " · " + response.status,
           "Confirmed in yt-dlp. Opening this job in the downloader…", false);
