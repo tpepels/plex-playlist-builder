@@ -150,9 +150,26 @@ VERSIONS = {
 def persist_jobs_locked():
     """Persist the complete UI/job state atomically. Caller must hold jobs_lock."""
     for claim in album_submissions.values():
-        current = jobs.get(claim.get("job_id"))
-        if current:
+        root_id = claim.get("job_id")
+        related = []
+        for job in jobs.values():
+            ancestor = job
+            seen = set()
+            while ancestor and ancestor.get("id") not in seen:
+                if ancestor.get("id") == root_id:
+                    related.append(job)
+                    break
+                seen.add(ancestor.get("id"))
+                parent_id = ancestor.get("retry_of")
+                ancestor = jobs.get(parent_id) if parent_id else None
+            # A pruned original still has its ID on a direct retry.
+            if job.get("retry_of") == root_id and job not in related:
+                related.append(job)
+        if related:
+            current = max(related, key=lambda item: (
+                item.get("attempt", 1), item.get("created_at", 0)))
             claim["last_status"] = current["status"]
+            claim["latest_job_id"] = current["id"]
     payload = {
         "version": 1,
         "saved_at": time.time(),
@@ -1856,7 +1873,8 @@ def enqueue_verified_album():
             return jsonify({
                 "ok": True, "duplicate": True, "job_id": claim["job_id"],
                 "idempotency_key": key,
-                "status": existing["status"] if existing else claim.get("last_status", "previously_submitted"),
+                "status": claim.get("last_status", existing["status"] if existing else "previously_submitted"),
+                "latest_job_id": claim.get("latest_job_id", claim["job_id"]),
             }), 200
 
         if download_queue.full():
@@ -1923,6 +1941,8 @@ def album_submission_status(job_id):
                 "ok": True, "job_id": job_id, "status": job["status"],
                 "idempotency_key": job["album_submission_key"],
                 "match_audit": job.get("match_audit") or {},
+                "latest_job_id": album_submissions.get(
+                    job["album_submission_key"], {}).get("latest_job_id", job_id),
             })
         for key, claim in album_submissions.items():
             if claim.get("job_id") == job_id:
@@ -1930,6 +1950,7 @@ def album_submission_status(job_id):
                     "ok": True, "job_id": job_id, "status": claim.get("last_status", "previously_submitted"),
                     "idempotency_key": key, "historical": True,
                     "match_audit": claim.get("match_audit") or {},
+                    "latest_job_id": claim.get("latest_job_id", job_id),
                 })
         return jsonify({"ok": False, "error": "Unknown album job."}), 404
 
