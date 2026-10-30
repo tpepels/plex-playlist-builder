@@ -570,14 +570,15 @@ async def queue_youtube_album(request: Request):
     active = job["visible"] and job["status"] in {
         "queued", "running", "finalizing", "needs_metadata",
     }
-    target_url = downloader_ui_url() + "?job=" + urlencode({
-        "id": job["latest_job_id"]
-    }).split("=", 1)[1]
+    target_url = downloader_ui_url() + "?" + urlencode({
+        "job": job["latest_job_id"]
+    })
     if "application/json" in request.headers.get("accept", ""):
         return JSONResponse({
             "ok": True, "job_id": job["job_id"],
             "latest_job_id": job["latest_job_id"],
             "status": job["status"], "duplicate": job["duplicate"],
+            "retried": job.get("retried", False),
             "visible": job["visible"], "active": active,
             "message": job["message"], "downloader_url": target_url,
         }, headers={"Cache-Control": "no-store"})
