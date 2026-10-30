@@ -22,12 +22,23 @@ def test_album_submission_returns_job_id_and_audit(monkeypatch):
     calls = []
     def fake_open(request, timeout):
         calls.append((request, timeout))
+        if request.get_method() == "GET":
+            return Accepted({"ok": True, "job_id": "abc123", "status": "queued",
+                             "visible": True, "latest_job_id": "abc123",
+                             "message": "Waiting for worker"})
         return Accepted({"ok": True, "duplicate": False, "job_id": "abc123", "status": "queued"})
     monkeypatch.setattr(submit, "urlopen", fake_open)
     monkeypatch.setenv("YTDLP_SERVER_URL", "http://yt-dlp-server:4545")
     url = "https://music.youtube.com/playlist?list=OLAK5uy_verified"
     result = submit.queue_album(url, {"match_type": "exact"})
-    assert result == {"job_id": "abc123", "duplicate": False, "status": "queued"}
+    assert result == {
+        "job_id": "abc123", "duplicate": False, "status": "queued",
+        "visible": True, "latest_job_id": "abc123",
+        "message": "Waiting for worker",
+    }
+    assert len(calls) == 2
+    assert calls[1][0].get_method() == "GET"
+    assert calls[1][0].full_url == "http://yt-dlp-server:4545/api/albums/abc123"
     request, timeout = calls[0]
     assert request.get_method() == "POST"
     assert request.full_url == "http://yt-dlp-server:4545/api/albums"
@@ -36,11 +47,19 @@ def test_album_submission_returns_job_id_and_audit(monkeypatch):
     }
 
 
-def test_repeated_album_returns_original_job_id(monkeypatch):
-    monkeypatch.setattr(submit, "urlopen", lambda *args, **kwargs: Accepted(
-        {"ok": True, "duplicate": True, "job_id": "original", "status": "succeeded"}))
+def test_completed_historical_album_is_not_mistaken_for_visible_queue(monkeypatch):
+    def responder(request, timeout):
+        if request.get_method() == "POST":
+            return Accepted({"ok": True, "duplicate": True, "job_id": "original", "status": "succeeded"})
+        return Accepted({"ok": True, "job_id": "original", "status": "succeeded",
+                         "visible": False, "historical": True, "latest_job_id": "original",
+                         "message": "Previously completed; not in download history."})
+    monkeypatch.setattr(submit, "urlopen", responder)
     result = submit.queue_album("https://music.youtube.com/playlist?list=OLAK5uy_verified")
-    assert result == {"job_id": "original", "duplicate": True, "status": "succeeded"}
+    assert result["job_id"] == "original"
+    assert result["status"] == "succeeded"
+    assert result["visible"] is False
+    assert result["message"].startswith("Previously completed")
 
 
 @pytest.mark.parametrize("url", [
@@ -88,3 +107,27 @@ def test_album_browse_id_enriches_to_audio_playlist(monkeypatch):
 def test_public_url_never_uses_docker_dns(monkeypatch):
     monkeypatch.setenv("YTDLP_PUBLIC_URL", "http://media-server:4545/")
     assert submit.downloader_ui_url() == "http://media-server:4545/"
+
+
+def test_server_claim_without_verifiable_job_is_an_error(monkeypatch):
+    def responder(request, timeout):
+        if request.get_method() == "POST":
+            return Accepted({"ok": True, "job_id": "ghost", "duplicate": False, "status": "queued"})
+        raise HTTPError(request.full_url, 404, "Missing", {}, io.BytesIO())
+    monkeypatch.setattr(submit, "urlopen", responder)
+    with pytest.raises(submit.AlbumQueueError, match="could not be verified"):
+        submit.queue_album("https://music.youtube.com/playlist?list=OLAK5uy_verified")
+
+
+def test_failed_job_is_visible_but_not_reported_as_queued(monkeypatch):
+    def responder(request, timeout):
+        if request.get_method() == "POST":
+            return Accepted({"ok": True, "job_id": "failed-job", "duplicate": True})
+        return Accepted({"ok": True, "job_id": "failed-job",
+                         "status": "failed", "visible": True,
+                         "latest_job_id": "failed-job", "message": "yt-dlp exited with code 1"})
+    monkeypatch.setattr(submit, "urlopen", responder)
+    result = submit.queue_album("https://music.youtube.com/playlist?list=OLAK5uy_verified")
+    assert result["status"] == "failed"
+    assert result["visible"] is True
+    assert result["message"] == "yt-dlp exited with code 1"
