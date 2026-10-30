@@ -408,7 +408,7 @@ def test_youtube_lookup_retries_without_parenthetical_suffix(monkeypatch):
     queries = []
     def search(query, filter, limit):
         queries.append(query)
-        if query == "Stan Getz Getz At The Gate":
+        if query == "Stan Getz Getz at the Gate":
             return [{"resultType": "album", "title": "Getz At The Gate",
                      "artist": "Stan Getz", "browseId": "MPREb_l3o4MNZF1rh"}]
         return []
