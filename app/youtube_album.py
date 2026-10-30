@@ -1,8 +1,8 @@
-"""Resolve genuine YouTube Music album URLs, allowing common edition suffixes.
+"""Resolve genuine YouTube Music album URLs, allowing edition and title variants.
 
-A match must have the requested artist and the same album title once ONLY
-recognizable release/edition qualifiers have been removed. Tracks, videos,
-unrelated titles and unvalidated URLs are never accepted.
+Exact artist/album matches win; recognized edition suffixes rank next, then
+arbitrary trailing parenthetical qualifiers. Unrelated titles, invalid URLs,
+tracks, and videos never match.
 """
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ _EDITION_MARKER = re.compile(
 )
 _BRACKET_SUFFIX = re.compile(r"^(?P<base>.+?)\s*[\[(](?P<tag>[^\])]{1,110})[\])]\s*$")
 _DASH_SUFFIX = re.compile(r"^(?P<base>.+?)\s+[-–—]\s+(?P<tag>[^\[\]()]{1,110})\s*$")
+_TRAILING_PARENS = re.compile(r"^(?P<base>.+?)\s*\((?P<tag>[^()]{1,110})\)\s*$")
 
 
 def base_album_title(title):
@@ -45,6 +46,21 @@ def base_album_title(title):
         if not candidate:
             break
         text = candidate
+    return text
+
+
+def parenthetical_base_album_title(title):
+    """Strip any trailing (...) qualifiers, plus recognized edition suffixes.
+
+    Other album words and non-trailing parentheses remain significant.
+    This is a fallback match only: an exact title or known edition wins.
+    """
+    text = base_album_title(title)
+    for _ in range(5):
+        match = _TRAILING_PARENS.fullmatch(text)
+        if not match:
+            break
+        text = base_album_title(match.group("base").strip())
     return text
 
 
@@ -124,7 +140,8 @@ def pick_exact_album(artist, album, results):
     """
     want_artist, want_exact = norm(artist), norm(album)
     want_base = norm(base_album_title(album))
-    if not want_artist or not want_base:
+    want_parenthetical_base = norm(parenthetical_base_album_title(album))
+    if not want_artist or not want_parenthetical_base:
         return None
 
     candidates = []
@@ -151,6 +168,10 @@ def pick_exact_album(artist, album, results):
             found_tag = norm(found_title.removeprefix(base_album_title(found_title)).strip())
             same_qualifier = bool(want_tag and found_tag and want_tag == found_tag)
             score = (1, artist_rank, 0 if same_qualifier else 1, len(found_title), index)
+        elif (want_parenthetical_base and
+              norm(parenthetical_base_album_title(found_title)) == want_parenthetical_base):
+            match_type = "parenthetical"
+            score = (2, artist_rank, 0, len(found_title), index)
         else:
             continue
         candidates.append((score, {
@@ -172,10 +193,13 @@ def _lookup(artist, album):
 
     catalog = YTMusic()
     base = base_album_title(album)
+    parenthetical_base = parenthetical_base_album_title(album)
     queries = [f"{artist} {album}"]
     if norm(base) != norm(album):
         queries.append(f"{artist} {base}")
-    else:
+    if norm(parenthetical_base) != norm(base):
+        queries.append(f"{artist} {parenthetical_base}")
+    if len(queries) == 1:
         # Occasionally the first album search is dominated by recordings,
         # compilations or similarly named releases. These targeted queries
         # let YouTube Music expose the deluxe/remastered catalog entry.
@@ -185,7 +209,7 @@ def _lookup(artist, album):
     # their name (e.g. Isao Suzuki Trio/Quartet, rather than Isao Suzuki).
     # These bounded follow-up queries are used only when normal searches fail.
     if not norm(artist).endswith(tuple(" " + norm(n) for n in _ENSEMBLE_NAMES)):
-        queries.extend(f"{artist} {ensemble} {base}" for ensemble in ("Trio", "Quartet", "Quintet"))
+        queries.extend(f"{artist} {ensemble} {parenthetical_base}" for ensemble in ("Trio", "Quartet", "Quintet"))
 
     for query in dict.fromkeys(queries):
         results = catalog.search(query, filter="albums", limit=20)
@@ -195,7 +219,7 @@ def _lookup(artist, album):
 
     return {
         "status": "not_found",
-        "message": "No matching album or recognized edition in the YouTube Music catalog.",
+        "message": "No matching album or title variant in the YouTube Music catalog.",
     }
 
 
