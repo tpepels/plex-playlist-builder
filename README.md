@@ -58,6 +58,8 @@ http://media-server:5051
       PLEX_URL: https://host.docker.internal:32400\n      PLEX_VERIFY_SSL: "false"
       PLEX_LIBRARY: Music
       PLAYLISTS_FILE: /data/playlists.yml
+      YTDLP_SERVER_URL: http://yt-dlp-server:4545
+      YTDLP_PUBLIC_URL: http://media-server:4545
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -140,10 +142,14 @@ genre/tag metadata**, not claims about the source's own playlist categories.
 Albums without evidence for these moods remain visible under All styles.
 
 Each record links to its originating ISC album page. Missing and
-edition-different records also have **Open on YouTube Music**, using the
-existing strict /open-youtube-album resolver. It checks the YouTube Music
-album catalog on click; an unmatched album opens a YouTube Music search for
-exactly `artist album`. Entries are not downloaded or added automatically.
+edition-different records also have **Queue on yt-dlp**, using the
+`/open-youtube-album` resolver. Clicking this is a download action: when
+YouTube Music confirms an album match, the manager submits the verified album
+URL directly to the yt-dlp server's existing `POST /download` endpoint with
+playlist mode enabled, then opens the downloader's jobs page. An unmatched
+album opens YouTube Music search for exactly `artist album`; no download
+is queued. Only explicitly clicked links queue downloads. Discovery itself
+does not alter playlist definitions.
 
 The catalog is cached for 24 hours in /data/isc-discovery.json so normal
 dashboard visits do not repeatedly scrape the site; **Refresh source**
@@ -244,18 +250,36 @@ URL is required. This looser fallback can conflate different versions such
 as `(Live)`, `(Demo)`, and `(Vol. 2)`; check the displayed catalog title
 when that distinction matters. If a matching album cannot be found,
 the one-click redirect opens YouTube Music search for exactly `artist album`.
-A network error is still reported explicitly, and YouTube Music may impose
-regional playback restrictions.
+If the album matches, clicking a recommendation link immediately queues it
+on the yt-dlp service and opens that service's jobs page instead of YouTube
+Music. The **Find album** screen retains the verified direct album URL and
+offers a separate **Queue on yt-dlp** link. A network error is reported
+explicitly; YouTube Music may also impose regional playback restrictions.
 
 API routes: `GET /api/insights?recent_days=30`,
 `PUT /api/playlist-policy/{name}`, `POST /api/curate-tracks`,
 `GET /api/youtube-album?artist=...&album=...`.
 
 For one-click links to share from music discovery recommendations, use
-`GET /open-youtube-album?artist=...&album=...`: it redirects only for a
-verified catalog match, or falls back to a YouTube Music search for exactly
-`artist album` if no matching release is found. Invalid input and catalog
-service errors are still reported, rather than redirected.
+`GET /open-youtube-album?artist=...&album=...`. A verified match sends a
+form-encoded `url=<verified-album-url>&playlist=on` request directly to the
+existing downloader service and redirects the browser to its queue page.
+A downloader failure returns HTTP 502 (and never claims the job was queued).
+An unmatched album opens YouTube Music search for exactly `artist album`
+without submitting a download. Invalid input and catalog errors are reported.
+
+Configure `YTDLP_SERVER_URL` (default `http://yt-dlp-server:4545`) as the
+internal address reachable from the playlist manager container; both services
+must share a Docker network. `YTDLP_PUBLIC_URL` (default
+`http://media-server:4545`) is the browser-reachable URL after submission.
+The yt-dlp service itself does not require a change. If the services use
+separate Docker networks, supply a reachable internal address instead.
+The downloader may still leave a job in **Needs metadata** before publication,
+and a queue acknowledgement does not guarantee the download will succeed.
+
+**Important:** Every visit to a successfully resolved shared link submits a
+download job. Reloading or reopening the link may enqueue it again; do not
+treat this route as a read-only album preview.
 
 ## Playlist versions and sync status
 
