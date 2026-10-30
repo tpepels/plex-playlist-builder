@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
 
 import staging as library_staging
+from album_submission import clean_match_audit, submission_key
 
 app = Flask(__name__)
 
@@ -50,6 +51,8 @@ for directory in (IMPORT_ROOT, STATE_DIR, TEMP_DIR):
 OUTPUT_TEMPLATE = library_staging.staged_ytdlp_output_template()
 
 jobs = {}
+# Stable album-ID claims survive restarts and job-history pruning.
+album_submissions = {}
 jobs_lock = threading.Lock()
 probe_cache = {}
 probe_cache_lock = threading.Lock()
@@ -150,6 +153,7 @@ def persist_jobs_locked():
         "version": 1,
         "saved_at": time.time(),
         "jobs": list(jobs.values()),
+        "album_submissions": album_submissions,
     }
     tmp_path = JOBS_STATE_FILE.with_suffix(".json.tmp")
     try:
@@ -158,11 +162,13 @@ def persist_jobs_locked():
             encoding="utf-8",
         )
         os.replace(tmp_path, JOBS_STATE_FILE)
+        return True
     except OSError:
         try:
             tmp_path.unlink()
         except OSError:
             pass
+        return False
 
 
 def persist_jobs():
@@ -314,6 +320,8 @@ def normalize_persisted_job(raw):
         "staged_files": int(raw.get("staged_files") or 0),
         "final_dir": raw.get("final_dir"),
         "finalize_target_id": raw.get("finalize_target_id"),
+        "album_submission_key": raw.get("album_submission_key"),
+        "match_audit": clean_match_audit(raw.get("match_audit")),
     }
 
     if source == "yt-dlp":
@@ -392,6 +400,12 @@ def load_persisted_jobs():
 
     with jobs_lock:
         jobs.clear()
+        album_submissions.clear()
+        if isinstance(raw, dict) and isinstance(raw.get("album_submissions"), dict):
+            for key, claim in raw["album_submissions"].items():
+                if (isinstance(key, str) and len(key) == 64 and
+                        isinstance(claim, dict) and isinstance(claim.get("job_id"), str)):
+                    album_submissions[key] = claim
         for job in restored:
             jobs[job["id"]] = job
         persist_jobs_locked()
@@ -1600,6 +1614,8 @@ def public_job_from_group_locked(root_id, members):
         "metadata_album": first_value("metadata_album"),
         "staged_files": representative.get("staged_files", 0),
         "final_dir": first_value("final_dir"),
+        "album_submission_key": first_value("album_submission_key"),
+        "match_audit": first_value("match_audit") or {},
     }
 
 
@@ -1765,6 +1781,102 @@ def download():
         ), 429
 
     return redirect(url_for("index"))
+
+
+@app.post("/api/albums")
+def enqueue_verified_album():
+    """Idempotent album queue API; returns the existing job on repeated POSTs.
+
+    The identity is calculated by the server from the validated YouTube Music
+    album ID, not from an arbitrary client-supplied idempotency token. Claims
+    are persisted with jobs, including after ordinary history pruning.
+    """
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "Expected a JSON album submission."}), 400
+    url, error = validate_url(payload.get("url"))
+    if error:
+        return jsonify({"ok": False, "error": error}), 400
+    key = submission_key(url)
+    if key is None:
+        return jsonify({"ok": False, "error": "Use a verified YouTube Music album URL."}), 400
+
+    audit = clean_match_audit(payload.get("match_audit"))
+    with jobs_lock:
+        claim = album_submissions.get(key)
+        if claim is None:
+            # Also recognize albums submitted manually before this API existed.
+            prior = next((item for item in jobs.values()
+                          if submission_key(item.get("url", "")) == key), None)
+            if prior is not None:
+                claim = {"job_id": prior["id"], "created_at": prior["created_at"]}
+                album_submissions[key] = claim
+                if not persist_jobs_locked():
+                    album_submissions.pop(key, None)
+                    return jsonify({"ok": False, "error": "Could not persist album identity."}), 503
+
+        if claim is not None:
+            existing = jobs.get(claim["job_id"])
+            return jsonify({
+                "ok": True, "duplicate": True, "job_id": claim["job_id"],
+                "idempotency_key": key,
+                "status": existing["status"] if existing else "previously_submitted",
+            }), 200
+
+        if download_queue.full():
+            return jsonify({"ok": False, "error": "Download queue is full."}), 429
+
+        job_id = uuid.uuid4().hex[:10]
+        job = {
+            "id": job_id, "url": url, "playlist": True,
+            "collection_mode": True, "album_mode": True, "compilation": False,
+            "force": False, "status": "queued", "message": "Waiting for worker",
+            "progress": "", "current_item": 0, "total_items": 0,
+            "completed_items": 0, "files": [], "log": [],
+            "created_at": time.time(), "started_at": None, "finished_at": None,
+            "returncode": None, "http_403": False, "retry_of": None, "attempt": 1,
+            "source": "yt-dlp", "retry_base_completed": 0, "failed_items": 0,
+            "unidentified_failed_items": 0, "missing_tracks": [],
+            "resolution_of": None, "spotify_track_url": None,
+            "manual_source_url": None, "download_query": None,
+            "staging_owner_id": job_id,
+            "source_title": audit.get("matched_album"),
+            "source_album_artist": None, "source_thumbnail": None,
+            "metadata_artist": None, "metadata_album": None,
+            "staged_files": 0, "final_dir": None, "finalize_target_id": None,
+            "album_submission_key": key, "match_audit": audit,
+        }
+        jobs[job_id] = job
+        album_submissions[key] = {"job_id": job_id, "created_at": job["created_at"]}
+        if not persist_jobs_locked():
+            jobs.pop(job_id, None)
+            album_submissions.pop(key, None)
+            return jsonify({"ok": False, "error": "Could not persist the queued job."}), 503
+        try:
+            download_queue.put_nowait(job_id)
+        except queue.Full:
+            jobs.pop(job_id, None)
+            album_submissions.pop(key, None)
+            persist_jobs_locked()
+            return jsonify({"ok": False, "error": "Download queue is full."}), 429
+        # Never prune the admitted job before it can be inspected.
+    return jsonify({
+        "ok": True, "duplicate": False, "job_id": job_id,
+        "idempotency_key": key, "status": "queued",
+    }), 201
+
+
+@app.get("/api/albums/<job_id>")
+def album_submission_status(job_id):
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is None or not job.get("album_submission_key"):
+            return jsonify({"ok": False, "error": "Unknown album job."}), 404
+        return jsonify({
+            "ok": True, "job_id": job_id, "status": job["status"],
+            "idempotency_key": job["album_submission_key"],
+            "match_audit": job.get("match_audit") or {},
+        })
 
 
 @app.delete("/api/jobs/<job_id>")
