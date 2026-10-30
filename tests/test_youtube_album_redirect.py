@@ -1,4 +1,5 @@
 """One-click links must be read-only; signed POST is the only download action."""
+import asyncio
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -61,8 +62,7 @@ def _request(body):
                     "headers": []}, receive)
 
 
-@pytest.mark.asyncio
-async def test_signed_post_queues_once_and_returns_job_identity(monkeypatch):
+def test_signed_post_queues_once_and_returns_job_identity(monkeypatch):
     monkeypatch.setattr(main, "youtube_album", lambda a, b: {
         "status": "found", "url": "https://music.youtube.com/browse/MPREgood",
         "artist": "Stan Getz", "album": "Getz at the Gate (Live)",
@@ -77,24 +77,22 @@ async def test_signed_post_queues_once_and_returns_job_identity(monkeypatch):
     monkeypatch.setattr(main, "queue_album", queue)
     monkeypatch.setattr(main, "downloader_ui_url", lambda: "http://media-server:4545/")
     token = main._album_action_token("Stan Getz", "Getz at the Gate", int(main.time.time() // 3600))
-    response = await main.queue_youtube_album(
-        _request(f"artist=Stan+Getz&album=Getz+at+the+Gate&token={token}"))
+    response = asyncio.run(main.queue_youtube_album(
+        _request(f"artist=Stan+Getz&album=Getz+at+the+Gate&token={token}")))
     assert response.status_code == 303
     assert response.headers["x-album-job-id"] == "job123"
     assert sent[0][1]["match_type"] == "explicit_alias"
 
 
-@pytest.mark.asyncio
-async def test_bad_post_token_is_rejected(monkeypatch):
+def test_bad_post_token_is_rejected(monkeypatch):
     monkeypatch.setattr(main, "queue_album", lambda *args: pytest.fail("invalid token queued"))
     with pytest.raises(HTTPException) as ex:
-        await main.queue_youtube_album(
-            _request("artist=Stan+Getz&album=Getz+at+the+Gate&token=bogus"))
+        asyncio.run(main.queue_youtube_album(
+            _request("artist=Stan+Getz&album=Getz+at+the+Gate&token=bogus")))
     assert ex.value.status_code == 403
 
 
-@pytest.mark.asyncio
-async def test_owned_album_blocks_automatic_download(monkeypatch):
+def test_owned_album_blocks_automatic_download(monkeypatch):
     monkeypatch.setattr(main, "youtube_album", lambda a, b: {
         "status": "found", "url": "https://music.youtube.com/browse/MPREgood",
         "artist": a, "album": b, "match_type": "exact",
@@ -103,7 +101,7 @@ async def test_owned_album_blocks_automatic_download(monkeypatch):
     monkeypatch.setattr(main, "queue_album", lambda *args: pytest.fail("owned album queued"))
     token = main._album_action_token("A", "B", int(main.time.time() // 3600))
     with pytest.raises(HTTPException) as ex:
-        await main.queue_youtube_album(_request(f"artist=A&album=B&token={token}"))
+        asyncio.run(main.queue_youtube_album(_request(f"artist=A&album=B&token={token}")))
     assert ex.value.status_code == 409
 
 
