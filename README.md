@@ -264,6 +264,10 @@ For one-click links to share from music discovery recommendations, use
 `GET /open-youtube-album?artist=...&album=...`. A verified match sends a
 form-encoded `url=<verified-album-url>&playlist=on` request directly to the
 existing downloader service and redirects the browser to its queue page.
+The service prefers an album's `OLAK5uy_` audio playlist URL when YouTube
+Music initially returns a `browse/MPRE...` album URL, because yt-dlp can fail
+to interpret some browse links. If the extra catalog lookup fails, the
+original verified album URL is passed through.
 A downloader failure returns HTTP 502 (and never claims the job was queued).
 An unmatched album opens YouTube Music search for exactly `artist album`
 without submitting a download. Invalid input and catalog errors are reported.
