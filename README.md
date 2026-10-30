@@ -277,7 +277,15 @@ album identity check when its playlist option is enabled.
 
 Claims are persisted with `jobs.json` and survive restarts and visible-history
 pruning. The last-known job status and bounded match audit are retained when
-the old job itself has been pruned. Query
+the old job itself has been pruned. A repeat POST for a **visible job**
+includes `visible: true` and its actual state. A completed job pruned from
+history returns `visible: false`; it is never represented as a queued job.
+An orphaned interrupted/failed/removed claim allows a new request to be
+queued instead of permanently blocking downloads. The album status endpoint
+returns current visibility, job status and the latest retry ID. The browser
+dashboard supports `?job=<id>`: it highlights the corresponding card or
+reports clearly when the requested job is absent on that server. This helps
+detect an incorrect `YTDLP_PUBLIC_URL` pointing to a different instance. Query
 `GET /api/albums/<job_id>` for status, source match rules and candidate
 rankings when available; `GET /api/jobs` still lists visible UI jobs.
 
