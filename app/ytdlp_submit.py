@@ -88,8 +88,44 @@ def queue_album(url: str, audit: dict | None = None) -> dict:
     if not isinstance(actual, dict) or not actual.get("ok") or actual.get("job_id") != result["job_id"]:
         raise AlbumQueueError("The downloader returned an inconsistent album job ID.")
 
+    retried = False
+    if actual.get("visible") and actual.get("status") in {"failed", "partial"}:
+        # Clicking the same album again is an explicit request to retry its
+        # failed attempt; yt-dlp's native retry keeps staged files and archive.
+        last_id = actual.get("latest_job_id") or result["job_id"]
+        retry_request = Request(
+            _server_url() + "/api/jobs/" + last_id + "/retry",
+            data=b"", headers={"Accept": "application/json"}, method="POST",
+        )
+        try:
+            with urlopen(retry_request, timeout=10) as retry_response:
+                retry_result = json.loads(retry_response.read().decode("utf-8"))
+            if not isinstance(retry_result, dict) or not retry_result.get("ok"):
+                raise AlbumQueueError("Downloader did not acknowledge the retry.")
+            retried = True
+        except HTTPError as exc:
+            if exc.code != 409:
+                raise AlbumQueueError(
+                    f"Could not retry the failed album job (HTTP {exc.code})."
+                ) from exc
+            # Another simultaneous request may have retried it first.
+        except (URLError, TimeoutError, OSError, ValueError) as exc:
+            raise AlbumQueueError(
+                "Downloader retry was not confirmed; check its current job state."
+            ) from exc
+
+        # A successful retry creates a new attempt ID under the original job.
+        try:
+            with urlopen(verify_request, timeout=10) as verification:
+                actual = json.loads(verification.read().decode("utf-8"))
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+            raise AlbumQueueError("Retry was submitted but its job could not be verified.") from exc
+        if not actual.get("visible") or actual.get("status") in {"failed", "partial"}:
+            raise AlbumQueueError("The failed download did not enter the retry queue.")
+
     return {
-        "job_id": result["job_id"], "duplicate": bool(result.get("duplicate")),
+        "job_id": result["job_id"], "duplicate": bool(result.get("duplicate")) and not retried,
+        "retried": retried,
         "status": actual.get("status", result.get("status", "unknown")),
         "visible": actual.get("visible", not actual.get("historical", False)),
         "latest_job_id": actual.get("latest_job_id", result.get("latest_job_id", result["job_id"])),
