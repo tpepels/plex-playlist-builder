@@ -156,7 +156,7 @@ def persist_jobs_locked():
             ancestor = job
             seen = set()
             while ancestor and ancestor.get("id") not in seen:
-                if ancestor.get("id") == root_id:
+                if ancestor.get("id") == root_id or ancestor.get("retry_of") == root_id:
                     related.append(job)
                     break
                 seen.add(ancestor.get("id"))
