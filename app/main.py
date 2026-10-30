@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import time
+from urllib.parse import urlencode
 from pathlib import Path
 from typing import Literal
 
@@ -465,10 +466,12 @@ def curate_tracks(body: CurateBody):
 
 @app.get("/open-youtube-album")
 def open_youtube_album(artist: str, album: str):
-    """One-click redirect only when a real matching YouTube album was found."""
+    """Open a verified album, or fall back to an artist + album search."""
     resolved = youtube_album(artist, album)
     if resolved["status"] != "found":
-        raise HTTPException(status_code=404, detail=resolved["message"])
+        query = f"{artist.strip()} {album.strip()}"
+        search_url = "https://music.youtube.com/search?" + urlencode({"q": query})
+        return RedirectResponse(search_url, status_code=302)
     return RedirectResponse(resolved["url"], status_code=302)
 
 
