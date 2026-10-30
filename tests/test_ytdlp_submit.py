@@ -59,6 +59,7 @@ def test_downloader_rejection_does_not_report_queued(monkeypatch, code, location
             raise HTTPError(request.full_url, code, "Rejected",
                             {"Location": location} if location else {}, None)
     monkeypatch.setattr(submit, "build_opener", lambda handler: Downloader())
+    monkeypatch.setattr(submit, "_download_url", lambda url: url)
 
     with pytest.raises(submit.AlbumQueueError, match=detail):
         submit.queue_album("https://music.youtube.com/browse/MPREvalid")
@@ -69,6 +70,7 @@ def test_unreachable_downloader_does_not_report_queued(monkeypatch):
         def open(self, request, timeout):
             raise URLError("connection refused")
     monkeypatch.setattr(submit, "build_opener", lambda handler: Downloader())
+    monkeypatch.setattr(submit, "_download_url", lambda url: url)
 
     with pytest.raises(submit.AlbumQueueError, match="could not be reached"):
         submit.queue_album("https://music.youtube.com/browse/MPREvalid")
