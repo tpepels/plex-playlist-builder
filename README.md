@@ -186,7 +186,7 @@ A failed probe is advisory: the actual download remains available because some e
 
 YouTube increasingly requires Proof-of-Origin (PO) tokens for some media requests. Without the required token, a video or track can resolve normally and still fail when yt-dlp fetches the actual media with `HTTP Error 403: Forbidden`.
 
-This image bundles `bgutil-ytdlp-pot-provider` **2.0.0** plus its matching BgUtils server scripts. For YouTube URLs only, the app:
+This image bundles `bgutil-ytdlp-pot-provider` **2.0.2** plus its matching BgUtils server scripts. For YouTube URLs only, the app:
 
 - uses the yt-dlp `mweb` player client;
 - asks the BgUtils script provider to generate per-video PO tokens automatically;
@@ -359,7 +359,7 @@ to the service environment. Treat the cookie file as a secret.
 
 ## Updating yt-dlp and spotDL
 
-yt-dlp changes often because upstream sites change. The image intentionally installs the current PyPI yt-dlp release at build time rather than pinning an old extractor release. spotDL is pinned to the tested 4.5.2 release so its CLI and progress behavior remain stable for this app.
+yt-dlp changes often because upstream sites change. The image intentionally installs the current PyPI yt-dlp release at build time rather than pinning an old extractor release. spotDL is pinned to the stable 4.6.0 release; this update also excludes broken `ytmusicapi` 1.12.2 and 1.12.3 releases. The app's CLI/progress integration still requires runtime smoke verification after rebuilding.
 
 Rebuild when downloads start failing:
 
