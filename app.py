@@ -1676,6 +1676,7 @@ def download():
 
     source = "spotify" if is_spotify_url(url) else "yt-dlp"
     playlist_requested = request.form.get("playlist") == "on" if source == "yt-dlp" else False
+    album_key = submission_key(url) if source == "yt-dlp" and playlist_requested else None
     probe_result = get_cached_probe_result(url)
     if probe_result is None:
         try:
@@ -1760,6 +1761,24 @@ def download():
     }
 
     with jobs_lock:
+        if album_key:
+            if album_key in album_submissions:
+                return redirect(url_for("index"))
+            # API and legacy HTML submissions deduplicate against one another.
+            previous = next((item for item in jobs.values()
+                             if submission_key(item.get("url", "")) == album_key), None)
+            if previous is not None:
+                album_submissions[album_key] = {
+                    "job_id": previous["id"], "created_at": previous["created_at"],
+                    "last_status": previous["status"],
+                }
+                persist_jobs_locked()
+                return redirect(url_for("index"))
+            job["album_submission_key"] = album_key
+            job["match_audit"] = {}
+            album_submissions[album_key] = {
+                "job_id": job_id, "created_at": job["created_at"], "last_status": "queued",
+            }
         jobs[job_id] = job
         if len(jobs) > MAX_HISTORY:
             removable = sorted(
@@ -1768,6 +1787,19 @@ def download():
             )
             while len(jobs) > MAX_HISTORY and removable:
                 jobs.pop(removable.pop(0)["id"], None)
+        if album_key:
+            if not persist_jobs_locked():
+                jobs.pop(job_id, None)
+                album_submissions.pop(album_key, None)
+                return jsonify({"ok": False, "error": "Could not persist the album job."}), 503
+            try:
+                download_queue.put_nowait(job_id)
+            except queue.Full:
+                jobs.pop(job_id, None)
+                album_submissions.pop(album_key, None)
+                persist_jobs_locked()
+                return jsonify({"ok": False, "error": "Download queue is full."}), 429
+            return redirect(url_for("index"))
         persist_jobs_locked()
 
     try:
