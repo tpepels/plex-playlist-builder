@@ -127,8 +127,8 @@ Albums without evidence for these moods remain visible under All styles.
 Each record links to its originating ISC album page. Missing and
 edition-different records also have **Open on YouTube Music**, using the
 existing strict /open-youtube-album resolver. It checks the YouTube Music
-album catalog on click; an unmatched album returns 404 rather than a made-up
-search link. Entries are not downloaded or added automatically.
+album catalog on click; an unmatched album opens a YouTube Music search for
+exactly `artist album`. Entries are not downloaded or added automatically.
 
 The catalog is cached for 24 hours in /data/isc-discovery.json so normal
 dashboard visits do not repeatedly scrape the site; **Refresh source**
@@ -235,7 +235,9 @@ API routes: `GET /api/insights?recent_days=30`,
 
 For one-click links to share from music discovery recommendations, use
 `GET /open-youtube-album?artist=...&album=...`: it redirects only for a
-verified catalog match and returns a 404 if no exact album was found.
+verified catalog match, or falls back to a YouTube Music search for exactly
+`artist album` if no matching release is found. Invalid input and catalog
+service errors are still reported, rather than redirected.
 
 ## Playlist versions and sync status
 
