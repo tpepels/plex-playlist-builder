@@ -1016,8 +1016,20 @@ async function resolveYoutubeAlbum(artist,album,target) {
   target.textContent = "Checking YouTube Music…";
   try {
     const d = await api("/api/youtube-album?artist="+encodeURIComponent(artist)+"&album="+encodeURIComponent(album));
+    if (d.status === "ambiguous") {
+      target.textContent = "Multiple equally ranked albums; no automatic download. ";
+      for (const candidate of d.candidates || []) {
+        const link = document.createElement("a");
+        link.href = candidate.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = candidate.artist + " — " + candidate.album;
+        target.append(document.createElement("div"), link);
+      }
+      return;
+    }
     if (d.status !== "found") {
-      target.textContent = "No matching album or title variant found. No guessed link.";
+      target.textContent = "No album satisfies the deterministic matching rules.";
       return;
     }
     const wrap = document.createElement("div");
