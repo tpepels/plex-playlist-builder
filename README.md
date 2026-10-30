@@ -238,7 +238,16 @@ Music album ID.
 
 The resolver recognizes common *release editions*. For example, `Hats`,
 `Hats (Deluxe Edition)` and `Hats (2002 Remaster)` may all resolve to the
-same album. It also accepts **arbitrary trailing parenthetical qualifiers**
+same album. Comma/dash/bracket suffixes indicating a **Complete** release are
+also recognized. For example, `In Person Friday And Saturday Nights At The
+Blackhawk, Complete` may match the same album labeled `- Complete (Live)`;
+punctuation such as colons is already ignored. If **Complete** was requested,
+the candidate must also identify itself as complete, so a short edition cannot
+silently replace the requested complete edition. Different source recordings,
+such as Friday-only versus both Friday and Saturday performances, remain
+distinct albums.
+
+The resolver also accepts **arbitrary trailing parenthetical qualifiers**
 as a lower-priority title variant: `Getz at the Gate` can match
 `Getz At The Gate (Live)`, and the reverse direction also works. An exact
 title is preferred, then a recognized edition, then a parenthetical variant.
