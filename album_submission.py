@@ -43,4 +43,20 @@ def clean_match_audit(payload):
         value = payload.get(key)
         if isinstance(value, list):
             result[key] = [part[:200] for part in value[:15] if isinstance(part, str)]
+    if isinstance(payload.get("candidate_count"), int):
+        result["candidate_count"] = max(0, min(1000, payload["candidate_count"]))
+    if isinstance(payload.get("selection_policy"), str):
+        result["selection_policy"] = payload["selection_policy"][:100]
+    candidates = payload.get("considered_candidates")
+    if isinstance(candidates, list):
+        result["considered_candidates"] = [
+            {"url": str(item.get("url", ""))[:300],
+             "album": str(item.get("album", ""))[:300],
+             "match_type": str(item.get("match_type", ""))[:80],
+             "title_rank": int(item.get("title_rank", 99)),
+             "artist_rank": int(item.get("artist_rank", 99))}
+            for item in candidates[:20] if isinstance(item, dict)
+            and isinstance(item.get("title_rank"), int)
+            and isinstance(item.get("artist_rank"), int)
+        ]
     return result
