@@ -7,7 +7,7 @@ import pytest
 
 from app.insights import analyze
 from app.playlist_policies import read_policies, set_policy
-from app.youtube_album import base_album_title, pick_exact_album, lookup_album
+from app.youtube_album import base_album_title, parenthetical_base_album_title, pick_exact_album, lookup_album
 
 
 NOW = datetime(2026, 10, 26, 8, 0, tzinfo=timezone.utc)
@@ -191,8 +191,10 @@ def test_youtube_resolver_preserves_album_identity_and_safe_urls():
         {"resultType": "album", "title": "Hats [2011 Remaster]",
          "artist": "The Blue Nile", "playlistId": "https://evil.example"},
     ]
-    assert pick_exact_album("The Blue Nile", "Hats", records) is None
-    assert pick_exact_album("The Blue Nile", "Hats (Live)", records)["album"] == "Hats (Live)"
+    variant = pick_exact_album("The Blue Nile", "Hats", records)
+    assert variant["album"] == "Hats (Live)"
+    assert variant["match_type"] == "parenthetical"
+    assert pick_exact_album("The Blue Nile", "Hats (Live)", records)["match_type"] == "exact"
 
 
 def test_youtube_resolver_supports_artist_list_from_catalog():
@@ -342,6 +344,88 @@ def test_youtube_lookup_searches_alternative_ensemble_credits(monkeypatch):
             "Isao Suzuki Blow Up", "Isao Suzuki Blow Up deluxe",
             "Isao Suzuki Blow Up remastered",
             "Isao Suzuki Trio Blow Up", "Isao Suzuki Quartet Blow Up",
+        ]
+    finally:
+        service._lookup.cache_clear()
+
+
+@pytest.mark.parametrize("title,expected", [
+    ("Getz At The Gate (Live)", "Getz At The Gate"),
+    ("Getz At The Gate (Recorded 1961)", "Getz At The Gate"),
+    ("Getz At The Gate (Live) (2020 Remaster)", "Getz At The Gate"),
+    ("Getz At The Gate (Vol. 2)", "Getz At The Gate"),
+    ("Getz (Live) At The Gate", "Getz (Live) At The Gate"),
+    ("Getz At The Gate", "Getz At The Gate"),
+])
+def test_parenthetical_base_album_title(title, expected):
+    assert parenthetical_base_album_title(title) == expected
+
+
+def test_youtube_resolver_matches_getz_at_the_gate_live_album():
+    catalog = [
+        {"resultType": "album", "title": "Getz At The Gate (Live)",
+         "artist": "Stan Getz", "browseId": "MPREb_l3o4MNZF1rh"},
+    ]
+    result = pick_exact_album("Stan Getz", "Getz at the Gate", catalog)
+    assert result["status"] == "found"
+    assert result["match_type"] == "parenthetical"
+    assert result["url"] == "https://music.youtube.com/browse/MPREb_l3o4MNZF1rh"
+    reverse = pick_exact_album("Stan Getz", "Getz at the Gate (Live)", [
+        {"resultType": "album", "title": "Getz at the Gate",
+         "artist": "Stan Getz", "browseId": "MPREbase"},
+    ])
+    assert reverse["match_type"] == "parenthetical"
+    assert reverse["url"].endswith("MPREbase")
+
+
+def test_youtube_parenthetical_matches_rank_below_exact_and_known_editions():
+    catalog = [
+        {"resultType": "album", "title": "Hats (Live)",
+         "artist": "The Blue Nile", "browseId": "MPRElive"},
+        {"resultType": "album", "title": "Hats (Remastered)",
+         "artist": "The Blue Nile", "browseId": "MPREedition"},
+        {"resultType": "album", "title": "Hats",
+         "artist": "The Blue Nile", "browseId": "MPREexact"},
+    ]
+    assert pick_exact_album("The Blue Nile", "Hats", catalog)["album"] == "Hats"
+    assert pick_exact_album("The Blue Nile", "Hats", catalog[:-1])["album"] == "Hats (Remastered)"
+
+
+def test_parenthetical_fallback_still_rejects_nontrailing_or_unrelated_titles():
+    catalog = [
+        {"resultType": "album", "title": "Getz (Live) At The Gate",
+         "artist": "Stan Getz", "browseId": "MPREembedded"},
+        {"resultType": "album", "title": "Getz at the Gate (Live)",
+         "artist": "Someone Else", "browseId": "MPREother"},
+        {"resultType": "album", "title": "Getz at the Gate: New Sessions",
+         "artist": "Stan Getz", "browseId": "MPREunrelated"},
+    ]
+    assert pick_exact_album("Stan Getz", "Getz at the Gate", catalog) is None
+
+
+def test_youtube_lookup_retries_without_parenthetical_suffix(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from app import youtube_album as service
+
+    queries = []
+    def search(query, filter, limit):
+        queries.append(query)
+        if query == "Stan Getz Getz At The Gate":
+            return [{"resultType": "album", "title": "Getz At The Gate",
+                     "artist": "Stan Getz", "browseId": "MPREb_l3o4MNZF1rh"}]
+        return []
+
+    monkeypatch.setitem(sys.modules, "ytmusicapi",
+                        SimpleNamespace(YTMusic=lambda: SimpleNamespace(search=search)))
+    service._lookup.cache_clear()
+    try:
+        found = service.lookup_album("Stan Getz", "Getz At The Gate (Live)")
+        assert found["status"] == "found"
+        assert found["match_type"] == "parenthetical"
+        assert queries == [
+            "Stan Getz Getz At The Gate (Live)",
+            "Stan Getz Getz At The Gate",
         ]
     finally:
         service._lookup.cache_clear()
