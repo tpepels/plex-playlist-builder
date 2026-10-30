@@ -1960,6 +1960,7 @@ def album_submission_status(job_id):
                 "match_audit": job.get("match_audit") or {},
                 "latest_job_id": album_submissions.get(
                     job["album_submission_key"], {}).get("latest_job_id", job_id),
+                "visible": True, "message": job.get("message", ""),
             })
         for key, claim in album_submissions.items():
             if claim.get("job_id") == job_id:
@@ -1968,6 +1969,8 @@ def album_submission_status(job_id):
                     "idempotency_key": key, "historical": True,
                     "match_audit": claim.get("match_audit") or {},
                     "latest_job_id": claim.get("latest_job_id", job_id),
+                    "visible": False,
+                    "message": "This album is no longer present in the visible download history.",
                 })
         return jsonify({"ok": False, "error": "Unknown album job."}), 404
 
