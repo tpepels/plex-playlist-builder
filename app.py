@@ -1864,7 +1864,9 @@ def enqueue_verified_album():
             if prior is not None:
                 claim = {"job_id": prior["id"], "created_at": prior["created_at"]}
                 album_submissions[key] = claim
+                prior["album_submission_key"] = key
                 if not persist_jobs_locked():
+                    prior.pop("album_submission_key", None)
                     album_submissions.pop(key, None)
                     return jsonify({"ok": False, "error": "Could not persist album identity."}), 503
 
@@ -1964,13 +1966,18 @@ def album_submission_status(job_id):
             })
         for key, claim in album_submissions.items():
             if claim.get("job_id") == job_id:
+                latest_id = claim.get("latest_job_id") or job_id
+                visible_job = jobs.get(latest_id) or jobs.get(job_id)
                 return jsonify({
-                    "ok": True, "job_id": job_id, "status": claim.get("last_status", "previously_submitted"),
-                    "idempotency_key": key, "historical": True,
+                    "ok": True, "job_id": job_id,
+                    "status": visible_job["status"] if visible_job
+                              else claim.get("last_status", "previously_submitted"),
+                    "idempotency_key": key, "historical": visible_job is None,
                     "match_audit": claim.get("match_audit") or {},
-                    "latest_job_id": claim.get("latest_job_id", job_id),
-                    "visible": False,
-                    "message": "This album is no longer present in the visible download history.",
+                    "latest_job_id": visible_job["id"] if visible_job else latest_id,
+                    "visible": visible_job is not None,
+                    "message": visible_job.get("message", "") if visible_job
+                               else "This album is no longer present in the visible download history.",
                 })
         return jsonify({"ok": False, "error": "Unknown album job."}), 404
 
