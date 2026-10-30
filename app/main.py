@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import hmac
+import html
 import io
+import os
+import secrets
 import time
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 from pathlib import Path
 from typing import Literal
 
@@ -13,6 +18,7 @@ import yaml
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
@@ -35,7 +41,7 @@ from .duplicates import find_duplicates, duplicates_tsv
 from .isc_discovery import fetch_catalog, compare_library
 from .playlist_covers import import_cover_zip, MAX_ZIP_BYTES
 from .playlist_policies import read_policies, set_policy
-from .youtube_album import lookup_album
+from .youtube_album import lookup_album, norm
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
@@ -484,20 +490,112 @@ def curate_tracks(body: CurateBody):
     return {"added": len(added), "status": "needs_sync", "playlist": body.playlist}
 
 
+# A signed, short-lived form token ensures that merely visiting a recommendation
+# link (or a link preview fetching it) cannot create a download. For multiworker
+# deployments configure the same ALBUM_ACTION_SECRET on every worker.
+_ALBUM_ACTION_KEY = (os.getenv("ALBUM_ACTION_SECRET") or "").encode() or secrets.token_bytes(32)
+
+
+def _album_action_token(artist: str, album: str, hour: int) -> str:
+    message = f"{artist}\0{album}\0{hour}".encode("utf-8")
+    return hmac.new(_ALBUM_ACTION_KEY, message, hashlib.sha256).hexdigest()
+
+
+def _valid_album_action(artist: str, album: str, token: str) -> bool:
+    now = int(time.time() // 3600)
+    return any(hmac.compare_digest(token, _album_action_token(artist, album, hour))
+               for hour in (now, now - 1))
+
+
+def _owned_album(artist: str, album: str) -> bool:
+    """Conservative, exact artist/title equivalence; no inference across editions."""
+    _, music = connect()
+    target = (norm(artist), norm(album))
+    return any(
+        (norm(getattr(track, "grandparentTitle", "")),
+         norm(getattr(track, "parentTitle", ""))) == target
+        for track in music.searchTracks()
+    )
+
+
 @app.get("/open-youtube-album")
 def open_youtube_album(artist: str, album: str):
-    """Send verified albums straight to yt-dlp; search YouTube Music otherwise."""
+    """Read-only album preview; only an explicit POST may queue a download."""
     resolved = youtube_album(artist, album)
-    if resolved["status"] != "found":
+    if resolved["status"] == "not_found":
         query = f"{artist.strip()} {album.strip()}"
         search_url = "https://music.youtube.com/search?" + urlencode({"q": query})
         return RedirectResponse(search_url, status_code=302)
+    if resolved["status"] == "ambiguous":
+        items = "".join(
+            f"<li>{html.escape(item['artist'])} — {html.escape(item['album'])}</li>"
+            for item in resolved.get("candidates", [])
+        )
+        return HTMLResponse(
+            "<h2>Multiple equally ranked albums</h2><p>No download queued.</p>"
+            f"<ul>{items}</ul>", status_code=409,
+            headers={"Cache-Control": "no-store"},
+        )
+    if resolved["status"] != "found":
+        raise HTTPException(status_code=502, detail="Unsupported resolver response.")
+    token = _album_action_token(artist, album, int(time.time() // 3600))
+    escaped = {k: html.escape(v, quote=True) for k, v in {
+        "artist": artist, "album": album, "matched_artist": resolved["artist"],
+        "matched_album": resolved["album"], "url": resolved["url"], "token": token,
+    }.items()}
+    return HTMLResponse(f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Confirm album download</title></head>
+<body style="font:16px system-ui;max-width:540px;margin:8vh auto;padding:16px">
+<h2>Queue album download?</h2>
+<p>Requested: {escaped['artist']} — {escaped['album']}</p>
+<p>Matched: <strong>{escaped['matched_artist']} — {escaped['matched_album']}</strong></p>
+<p>Rule: {html.escape(resolved['match_type'])}</p>
+<form method="post" action="/queue-youtube-album">
+<input type="hidden" name="artist" value="{escaped['artist']}">
+<input type="hidden" name="album" value="{escaped['album']}">
+<input type="hidden" name="token" value="{escaped['token']}">
+<button type="submit">Queue on yt-dlp</button>
+</form>
+<p><a href="{escaped['url']}">Open album on YouTube Music instead</a></p>
+</body></html>""", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/queue-youtube-album")
+async def queue_youtube_album(request: Request):
+    raw = await request.body()
+    if len(raw) > 4096:
+        raise HTTPException(status_code=413, detail="Album submission too large.")
+    body = parse_qs(raw.decode("utf-8"), keep_blank_values=True)
+    if any(len(body.get(key, [])) != 1 for key in ("artist", "album", "token")):
+        raise HTTPException(status_code=400, detail="Incomplete album submission.")
+    artist, album, token = (body[key][0] for key in ("artist", "album", "token"))
+    if not _valid_album_action(artist, album, token):
+        raise HTTPException(status_code=403, detail="Expired or invalid album action token.")
+    resolved = await run_in_threadpool(youtube_album, artist, album)
+    if resolved["status"] != "found":
+        raise HTTPException(status_code=409, detail="Album is no longer unambiguous.")
     try:
-        queue_album(resolved["url"])
+        owned = await run_in_threadpool(_owned_album, artist, album)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Could not verify Plex library ownership.") from exc
+    if owned:
+        raise HTTPException(status_code=409, detail="This exact album is already in Plex.")
+    audit = {
+        "requested_artist": artist, "requested_album": album,
+        "matched_artist": resolved["artist"], "matched_album": resolved["album"],
+        "match_type": resolved["match_type"], "catalog_url": resolved["url"],
+        "normalization_rules": resolved.get("normalization_rules", []),
+        "queries": resolved.get("queries", []),
+    }
+    try:
+        job = await run_in_threadpool(queue_album, resolved["url"], audit)
     except AlbumQueueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return RedirectResponse(
-        downloader_ui_url(), status_code=303, headers={"Cache-Control": "no-store"}
+        downloader_ui_url(), status_code=303,
+        headers={"Cache-Control": "no-store", "X-Album-Job-Id": job["job_id"]},
     )
 
 
