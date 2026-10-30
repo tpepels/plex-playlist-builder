@@ -84,8 +84,8 @@ def test_ajax_post_reports_queued_job_id_and_status(monkeypatch):
     payload = json.loads(response.body)
     assert payload == {
         "ok": True, "job_id": "job123", "latest_job_id": "job123",
-        "status": "queued", "duplicate": False, "visible": True,
-        "active": True, "message": "Waiting for worker",
+        "status": "queued", "duplicate": False, "retried": False,
+        "visible": True, "active": True, "message": "Waiting for worker",
         "downloader_url": "http://media-server:4545/?job=job123",
     }
     assert queued[0][1]["normalization_rules"] == ["redundant_artist_prefix"]
