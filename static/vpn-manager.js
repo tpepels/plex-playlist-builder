@@ -151,7 +151,10 @@
     try {
       const data = await api(path, {method: "POST", body: "{}",
         headers: {"Content-Type": "application/json"}});
-      if (path === "/rotate" || path.startsWith("/activate/")) {
+      if (path === "/rotate" && data.changed_ip === false) {
+        message("The profile switched, but the public IP did not change. " +
+          "This is not a verified rotation.", true);
+      } else if (path === "/rotate" || path.startsWith("/activate/")) {
         message("Verified VPN exit: " + (data.ip || "?") +
           " · " + (data.country || "Unknown") + ".");
       } else {
