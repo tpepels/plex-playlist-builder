@@ -1051,8 +1051,13 @@
       }
 
       const links = historyNode("div", "history-links");
-      // The full job is not rendered in a second card: this result row is
-      // the single visible representation of completed/failed attempts.
+      // Open one full diagnostic card on demand, replacing this result row
+      // instead of showing two copies of the same job.
+      if (!item.removed_from_queue) {
+        const detail = historyNode("a", "", "Details");
+        detail.href = "/?job=" + encodeURIComponent(item.job_id);
+        links.append(detail);
+      }
       if (item.url) {
         const source = historyNode("a", "", "Open source");
         source.href = item.url;
