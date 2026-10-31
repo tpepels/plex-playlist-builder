@@ -205,6 +205,38 @@ The `/health` endpoint reports whether the provider directory is available and w
 
 A PO token improves compatibility with current YouTube enforcement but cannot guarantee that every YouTube media request will succeed. If YouTube still returns a 403, the job now reports that it failed despite PO-token support instead of showing only a generic yt-dlp exit code.
 
+## Retry all failed albums
+
+The single **Downloads** section has **Retry all failed** beside the history
+filter. Clicking it fetches a server-side preview and asks for confirmation.
+It queues **one latest failed/partial attempt per original source**, not one
+job per historical failure. Successful, already published, running, queued,
+metadata-waiting, manually removed and forced attempts are excluded.
+Only sources still present as retryable jobs qualify; the server never tries
+to infer an unknown orphan staging folder's source.
+
+Eligible albums are ordered by number of previously downloaded tracks
+(descending). Every retry continues its original staging owner, retains the
+original files and download archive, and disables forced overwrites.
+
+The action respects the available download-queue capacity. It reports
+the number queued and the number not queued. Clicking it again while the
+retries are active is idempotent: those sources are excluded automatically.
+Newly failed retries can be queued in another batch once the first
+attempt has finished.
+
+Endpoints:
+- `GET /api/jobs/retry-failed/preview` — dry-run eligible/available counts
+  and exclusion breakdown; no modifications.
+- `POST /api/jobs/retry-failed` — enqueue up to available capacity, and
+  return individual retry IDs and counts; no background scheduling beyond
+  the existing single download worker.
+
+This does **not** guarantee YouTube will accept the media requests.
+Automatic HTTP 403 recovery and pacing apply to every retried YouTube job.
+An earlier successful download, even if it later disappeared from Plex,
+must be examined with the disk-to-Plex audit rather than requeued blindly.
+
 ## Automatic HTTP 403 recovery and request pacing
 
 YouTube album downloads use the currently recommended `mweb` client with
