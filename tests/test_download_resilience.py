@@ -24,7 +24,7 @@ def test_bounded_policy_and_recovery_client_selection():
     assert retry_delay(2, policy) == 90
     assert player_client_for_attempt("mweb", 0, policy) == "mweb"
     assert player_client_for_attempt("mweb", 1, policy) == "mweb"
-    assert player_client_for_attempt("mweb", 2, policy) == "web_safari"
+    assert player_client_for_attempt("mweb", 2, policy) == "default"
     assert "--sleep-requests" in track_pacing_args(policy)
     assert "--sleep-interval" in track_pacing_args(policy)
 
@@ -107,7 +107,7 @@ def test_one_http403_restarts_fresh_process_and_can_recover(
     policy = recovery_policy({
         "YOUTUBE_403_RESTARTS": "1",
         "YOUTUBE_403_BACKOFF_SECONDS": "5",
-        "YOUTUBE_403_FALLBACK_CLIENT": "web_safari",
+        "YOUTUBE_403_FALLBACK_CLIENT": "default",
     })
     monkeypatch.setattr(server, "recovery_policy", lambda: policy)
     sleep_calls, cmd_calls = [], []
@@ -122,7 +122,7 @@ def test_one_http403_restarts_fresh_process_and_can_recover(
     assert len(cmd_calls) == 2
     assert sleep_calls == [5]
     assert "youtube:player_client=mweb" in cmd_calls[0]
-    assert "youtube:player_client=web_safari" in cmd_calls[1]
+    assert "youtube:player_client=default" in cmd_calls[1]
     assert isolated_job["automatic_403_restarts"] == 1
     assert isolated_job["recovered_http_403"] is True
     assert isolated_job["http_403"] is False
