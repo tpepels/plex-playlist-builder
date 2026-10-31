@@ -49,22 +49,23 @@ sudo docker compose ps
 
 If the tag fails again, check the currently published tags at https://github.com/NeptuneHub/AudioMuse-AI/pkgs/container/audiomuse-ai and use an existing version (or `latest` for the released rolling version). The PostgreSQL `Interrupted` message is a consequence of the failed Docker Compose pull, not evidence of a PostgreSQL problem.
 
-## Read-only mapping check
+## Read-only ID mapping check (after the first analysis batch)
 
-From a working copy of the playlist-manager repository, download `plex-music-library.tsv` from the existing app, then:
+From the playlist-manager repository on media-server:
 
 ```bash
-python3 scripts/audiomuse_probe.py \
-  --url http://media-server:8098 \
-  --plex-tsv /path/to/plex-music-library.tsv \
-  --all
+cd ~/media-stack/plex-playlist-manager
+git pull --ff-only
+python3 scripts/audiomuse_probe.py --url http://127.0.0.1:8098 --all
 ```
 
-The probe only reads the AudioMuse `/api/sync?fields=index` manifest and the local TSV; it never modifies playlists. When AudioMuse authentication is enabled, configure a separate API token under **Administration → Setup Wizard → AudioMuse Authentication** (the `API_TOKEN` setting). Supply it to the probe through an **unexported shell variable/environment on your own server**, never in Git or chat. The script reads `AUDIOMUSE_API_TOKEN` and sends it in `Authorization: Bearer ...`; `AUDIOMUSE_COOKIE` is an optional fallback for existing setups.
+The probe automatically downloads the **current** full Plex library TSV from the existing playlist manager on `http://127.0.0.1:5051/api/library-export.tsv`. It fetches the AudioMuse read-only `/api/sync?fields=index` manifest and compares exact provider IDs with Plex `rating_key` values. Nothing is modified in either system.
 
-The authenticated scan can also be run directly with `AUDIOMUSE_API_TOKEN` already in your shell environment. Be aware that environment variables are exposed to your own processes and potentially privileged users; keep credentials out of command output and history.
+If AudioMuse authentication is enabled (default), configure an API token in **Administration → Setup Wizard → AudioMuse Authentication** (`API_TOKEN`). Pass it to the probe via `AUDIOMUSE_API_TOKEN` on the server. Do not paste it into chat, commit it or include it in screenshots. You can also use an existing local browser cookie through `AUDIOMUSE_COOKIE` if needed. The API token takes precedence.
 
-**Inspect `exact_plex_rating_key_matches`** before assuming AudioMuse's returned IDs equal Plex's rating keys. A low number means we need a verified identifier mapping, not a heuristic replacement.
+For an explicit TSV export, replace automatic retrieval with `--plex-tsv /path/to/plex-music-library.tsv`. For a remote playlist manager use `--plex-url http://media-server:5051`. If audio analysis is still running, matching covers **only the analyzed tracks**. Do not assume the entire library is mismapped because the scanned count is low.
+
+Important results: `provider_type` should be `plex`, `exact_plex_rating_key_matches` should normally equal `manifest_tracks_fetched` for a single Plex server, and `unmatched_sample` should be empty. A small or zero match requires checking the server configuration and mapping before proceeding.
 
 ## Scope and resources
 
