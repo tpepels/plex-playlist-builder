@@ -343,9 +343,13 @@ failures and their last error log). If a job card is explicitly removed from
 the active list, its record moves to `archived_jobs` inside that state file.
 Neither a successful nor a failed attempt disappears from
 `GET /api/download-history`, which supports `q`, `status`,
-`offset`, and `limit` filters. The dashboard includes a collapsible
-**Complete download history** panel, initially filtered to failed/partial
-attempts. An HTTP 403 error is recorded immediately and remains searchable.
+`offset`, and `limit` filters. The dashboard displays the **complete download history by default, above
+the live job cards**. All available attempts load automatically (including
+multiple result pages); failed and partial attempts appear first, each with
+the album/artist where known, timestamp, error reason, original source and
+job ID. The search box and status filter are optional, and Ctrl+F works on
+the rendered list. A retained, failed job with no subsequent retry offers
+a Retry button. An HTTP 403 error is recorded immediately and remains visible.
 `MAX_HISTORY` is deprecated and ignored; it cannot silently delete failures.
 
 `GET /api/disk-inventory` scans **all of `MUSIC_ROOT`**, independently of
