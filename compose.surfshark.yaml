@@ -36,6 +36,7 @@ services:
     environment:
       SURFSHARK_CONTROL_API_KEY: ${SURFSHARK_CONTROL_API_KEY:?Configure a private VPN control API key}
       SURFSHARK_VPN_ENABLED: "1"
+      SURFSHARK_ROTATE_ON_403: ${SURFSHARK_ROTATE_ON_403:-0}
     depends_on:
       surfshark-vpn:
         condition: service_healthy
