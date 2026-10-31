@@ -11,6 +11,10 @@
   const keyInput = $("vpn-private-key");
   let busy = false;
   let timer = null;
+  let testStarting = false;
+  let testing = false;
+  let pendingProfile = null;
+  let lastProfileResult = null;
 
   function message(text, problem = false) {
     feedback.textContent = text;
@@ -55,6 +59,19 @@
     $("vpn-upload-input").disabled = value;
     keyInput.disabled = value;
     panel.classList.toggle("vpn-working", value);
+  }
+
+  function showProfileResult(row, result) {
+    if (!result) return;
+    const status = element("div", result.message,
+      result.error ? "vpn-profile-result vpn-error" : "vpn-profile-result");
+    status.setAttribute("role", "status");
+    row.append(status);
+    if (result.diagnostics) {
+      const diagnosticRow = element("div", undefined, "vpn-profile-diagnostics");
+      showHandshakeDiagnostics(diagnosticRow, result.diagnostics);
+      row.append(diagnosticRow);
+    }
   }
 
   function showHandshakeDiagnostics(parent, diagnostics) {
@@ -135,7 +152,12 @@
         : "No rotation test in progress.";
       if (timer) window.clearInterval(timer);
       timer = null;
-      if (busy) setBusy(false);
+      // A normal status refresh must never release a pending Connect,
+      // Remove or Upload request. Only a completed test may clear its lock.
+      if (testing && !testStarting) {
+        testing = false;
+        setBusy(false);
+      }
     }
   }
 
@@ -162,6 +184,7 @@
     list.replaceChildren();
     for (const item of profiles) {
       const row = element("div", undefined, "vpn-profile");
+      row.dataset.profileId = item.id;
       const description = element("div", undefined, "vpn-profile-description");
       description.append(element("strong", item.country));
       description.append(element("small", item.filename));
@@ -169,22 +192,29 @@
       if (data.active === item.id) row.append(element("span", "CONNECTED", "vpn-active-tag"));
       const actions = element("div", undefined, "vpn-row-actions");
       if (item.id !== data.active) {
-        const connect = element("button", "Connect", "vpn-secondary");
+        const connecting = pendingProfile === item.id;
+        const connect = element("button", connecting ? "Connecting…" : "Connect",
+          connecting ? "vpn-secondary vpn-connecting" : "vpn-secondary");
         connect.type = "button";
-        connect.disabled = busy;
+        connect.disabled = busy || Boolean(data.test?.running);
         connect.addEventListener("click", () => act("/activate/" + item.id,
-          "Verifying " + item.country + "…"));
+          "Verifying " + item.country + "…", item.id));
         actions.append(connect);
         const remove = element("button", "Remove", "vpn-danger");
         remove.type = "button";
-        remove.disabled = busy;
+        remove.disabled = busy || Boolean(data.test?.running);
         remove.addEventListener("click", async () => {
           if (!window.confirm("Remove WireGuard profile " + item.filename + "?")) return;
-          await act("/delete/" + item.id, "Removing profile…");
+          await act("/delete/" + item.id, "Removing profile…", item.id);
         });
         actions.append(remove);
       }
       row.append(actions);
+      if (pendingProfile === item.id) {
+        showProfileResult(row, {message: "Contacting Surfshark and checking the handshake…"});
+      } else if (lastProfileResult?.id === item.id) {
+        showProfileResult(row, lastProfileResult);
+      }
       list.append(row);
     }
     if (!profiles.length) {
@@ -192,8 +222,8 @@
         "No WireGuard profiles uploaded. Add at least two countries to test rotation.",
         "vpn-muted"));
     }
-    $("vpn-test-button").disabled = busy || profiles.length < 1;
-    $("vpn-next-button").disabled = busy || profiles.length < 2;
+    $("vpn-test-button").disabled = busy || Boolean(data.test?.running) || profiles.length < 1;
+    $("vpn-next-button").disabled = busy || Boolean(data.test?.running) || profiles.length < 2;
   }
 
   async function refresh() {
@@ -204,39 +234,66 @@
       if (timer) {
         window.clearInterval(timer);
         timer = null;
-        setBusy(false);
+        if (testing && !testStarting) {
+          testing = false;
+          setBusy(false);
+        }
       }
       message(err.message, true);
     }
   }
 
-  async function act(path, description) {
+  async function act(path, description, profileId = null) {
     if (busy) return;
+    pendingProfile = profileId;
+    lastProfileResult = null;
     setBusy(true);
+    // Display feedback on the clicked row immediately. The message above
+    // the profile list may be scrolled out of view.
+    if (profileId) {
+      const row = [...list.querySelectorAll(".vpn-profile")].find(
+        node => node.dataset.profileId === profileId);
+      if (row) {
+        const connect = row.querySelector("button.vpn-secondary");
+        if (connect) connect.textContent =
+          path.startsWith("/activate/") ? "Connecting…" : "Working…";
+        showProfileResult(row, {message: "Contacting Surfshark and checking the handshake…"});
+      }
+    }
     message(description);
     let failedDiagnostics = null;
     try {
       const data = await api(path, {method: "POST", body: "{}",
         headers: {"Content-Type": "application/json"}});
+      let text = "Profile updated.";
+      let error = false;
       if (path === "/rotate" && data.changed_ip === false) {
-        message("The profile switched, but the public IP did not change. " +
-          "This is not a verified rotation.", true);
+        text = "The VPN profile switched, but its public IP did not change.";
+        error = true;
       } else if (path === "/rotate" || path.startsWith("/activate/")) {
-        message("Verified VPN exit: " + (data.ip || "?") +
-          " · " + (data.country || "Unknown") + ".");
-      } else {
-        message("Profile updated.");
+        text = "Verified VPN exit: " + (data.ip || "?") +
+          " · " + (data.country || "Unknown") + ".";
       }
-      await refresh();
+      lastProfileResult = profileId
+        ? {id: profileId, message: text, error}
+        : null;
+      message(text, error);
     } catch (err) {
-      message(err.message, true);
+      lastProfileResult = profileId
+        ? {id: profileId, message: err.message, error: true,
+          diagnostics: err.diagnostics}
+        : null;
       failedDiagnostics = err.diagnostics;
+      message(err.message, true);
     } finally {
+      pendingProfile = null;
       setBusy(false);
-      await refresh();
-      if (failedDiagnostics) {
-        // Refresh replaces historical test results; keep the latest manual
-        // failure's evidence visible at the top, not erased by polling.
+      try {
+        await refresh();
+      } catch (_err) {
+        // The per-profile result should remain visible if refresh fails.
+      }
+      if (failedDiagnostics && !profileId) {
         const item = element("div", undefined, "vpn-test-row");
         showHandshakeDiagnostics(item, failedDiagnostics);
         testResults.prepend(item);
@@ -329,14 +386,19 @@
   $("vpn-test-button").addEventListener("click", async () => {
     if (busy) return;
     if (!window.confirm("Temporarily switch through each VPN country to verify exit IPs? Downloads will be blocked during the test, and the original connection will be restored.")) return;
+    testStarting = true;
     setBusy(true);
     message("Beginning VPN rotation test…");
     try {
       const result = await api("/test", {method: "POST", body: "{}",
         headers: {"Content-Type": "application/json"}});
       if (!result.started) throw Error("Gateway did not start the test.");
+      testing = true;
+      testStarting = false;
       await refresh();
     } catch (err) {
+      testStarting = false;
+      testing = false;
       setBusy(false);
       message(err.message, true);
     }
