@@ -232,3 +232,109 @@ def test_gateway_explains_missing_private_key_instead_of_generic_error():
     template = PROFILE.replace(KEY_A, "<insert_your_private_key_here>")
     with pytest.raises(ValueError, match="template"):
         gateway.parse_profile(template)
+
+
+def test_startup_failure_reports_phase_without_command_stderr_or_keys():
+    import vpn_gateway as g
+    sample = "wg-quick: command failed; PrivateKey = SIMULATED-SECRET-KEY"
+    failure = g.setup_error(sample)
+    assert failure.phase == "tunnel_setup"
+    assert "SIMULATED-SECRET-KEY" not in str(failure)
+    assert g.setup_error("RTNETLINK answers: Operation not permitted").phase == "permissions"
+    assert g.setup_error("RTNETLINK answers: Operation not supported").phase == "kernel"
+    assert g.setup_error("RTNETLINK answers: File exists").phase == "routing"
+
+
+def test_handshake_timeout_reports_peer_stage_without_dns_or_http(monkeypatch):
+    import vpn_gateway as g
+    import socket
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(g, "has_handshake", lambda: False)
+    monkeypatch.setattr(g.socket, "create_connection",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(
+                            socket.timeout("dummy")))
+    now = iter((0, 0, 1, 9))
+    monkeypatch.setattr(g.time, "monotonic", lambda: next(now))
+    monkeypatch.setattr(g.time, "sleep", lambda _: None)
+    with pytest.raises(g.VPNConnectionError, match="handshake") as exc:
+        g.wait_for_handshake(seconds=3)
+    assert exc.value.phase == "handshake"
+
+
+def test_dns_failure_has_own_stage(monkeypatch):
+    import vpn_gateway as g
+    import socket
+    monkeypatch.setattr(g.socket, "getaddrinfo",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(
+                            socket.gaierror(-3, "temporary failure")))
+    with pytest.raises(g.VPNConnectionError) as exc:
+        g.check_dns()
+    assert exc.value.phase == "dns"
+
+
+def test_failed_activation_preserves_specific_phase_and_blocks_direct_egress(
+    monkeypatch, tmp_path
+):
+    import vpn_gateway as g
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(g, "ROOT", tmp_path)
+    monkeypatch.setattr(g, "ACTIVE_FILE", tmp_path / "wg0.conf")
+    monkeypatch.setattr(g, "META_FILE", tmp_path / "profiles.json")
+    monkeypatch.setattr(g, "FIREWALL_ENABLED", False)
+    g.save_metadata({"profiles": [{"id": "a", "filename": "us-nyc.conf",
+                                   "country": "us-nyc"}], "active": None})
+    (tmp_path / "a.conf").write_text(PROFILE)
+    monkeypatch.setattr(g, "parse_profile", lambda content: {
+        "endpoint": "203.0.113.11", "port": 51820, "text": content})
+    monkeypatch.setattr(g, "firewall",
+                        lambda: monkeypatch.setattr(g, "FIREWALL_ENABLED", True))
+    monkeypatch.setattr(g, "stop_tunnel", lambda: None)
+    monkeypatch.setattr(g, "allow_endpoint", lambda *a: None)
+    monkeypatch.setattr(g, "run", lambda *args, **kwargs:
+                        SimpleNamespace(returncode=0, stderr="", stdout=""))
+    monkeypatch.setattr(g, "wait_for_handshake",
+                        lambda *args, **kwargs: (_ for _ in ()).throw(
+                            g.VPNConnectionError("handshake", "No WireGuard peer response")))
+    with pytest.raises(g.VPNConnectionError) as exc:
+        g._activate("a")
+    assert exc.value.phase == "handshake"
+    assert g.metadata()["active"] is None
+    monkeypatch.setattr(g, "has_handshake", lambda: False)
+    state = g.list_profiles()
+    assert state["kill_switch"] is True
+    assert state["tunnel_ready"] is False
+
+
+def test_exit_ip_backup_api(monkeypatch):
+    import io
+    import vpn_gateway as g
+
+    class Response:
+        headers = {"Content-Length": "0"}
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self, limit): return (
+            b'{"ip":"198.51.100.7","country_name":"Portugal","country_code":"PT"}'
+        )
+
+    calls = []
+    def fetch(req, **kwargs):
+        calls.append(req.full_url)
+        if len(calls) == 1:
+            raise OSError("primary is unavailable")
+        return Response()
+    monkeypatch.setattr(g, "urlopen", fetch)
+    result = g.probe()
+    assert result["country_code"] == "PT"
+    assert result["ip"] == "198.51.100.7"
+    assert len(calls) == 2
+
+
+def test_ui_distinguishes_killswitch_from_direct_connection():
+    from pathlib import Path
+    js = (Path(__file__).parents[1] / "static/vpn-manager.js").read_text()
+    assert "VPN NOT CONNECTED · DOWNLOADS BLOCKED" in js
+    assert 'data.kill_switch && !ready' in js
+    assert "entry.phase" in js
