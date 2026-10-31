@@ -1795,22 +1795,36 @@ def download():
 
     with jobs_lock:
         if album_key:
-            if album_key in album_submissions:
-                return redirect(url_for("index"))
+            claim = album_submissions.get(album_key)
+            if claim is not None:
+                live_id = claim.get("latest_job_id") or claim["job_id"]
+                live = jobs.get(live_id) or jobs.get(claim["job_id"])
+                if live is not None:
+                    claim["duplicate_requests"] = int(claim.get("duplicate_requests") or 0) + 1
+                    persist_jobs_locked()
+                    return redirect(url_for("index", job=live["id"], result="duplicate"))
+                if claim.get("last_status") == "succeeded":
+                    claim["duplicate_requests"] = int(claim.get("duplicate_requests") or 0) + 1
+                    persist_jobs_locked()
+                    return redirect(url_for("index", job=claim["job_id"], result="completed"))
+                # Deleted/failed claim with no surviving attempt: admit again.
+                album_submissions.pop(album_key, None)
             # API and legacy HTML submissions deduplicate against one another.
             previous = next((item for item in jobs.values()
                              if submission_key(item.get("url", "")) == album_key), None)
             if previous is not None:
+                previous["album_submission_key"] = album_key
                 album_submissions[album_key] = {
                     "job_id": previous["id"], "created_at": previous["created_at"],
-                    "last_status": previous["status"],
+                    "last_status": previous["status"], "duplicate_requests": 1,
                 }
                 persist_jobs_locked()
-                return redirect(url_for("index"))
+                return redirect(url_for("index", job=previous["id"], result="duplicate"))
             job["album_submission_key"] = album_key
             job["match_audit"] = {}
             album_submissions[album_key] = {
-                "job_id": job_id, "created_at": job["created_at"], "last_status": "queued",
+                "job_id": job_id, "created_at": job["created_at"],
+                "last_status": "queued", "duplicate_requests": 0,
             }
         jobs[job_id] = job
         if len(jobs) > MAX_HISTORY:
@@ -1832,7 +1846,7 @@ def download():
                 album_submissions.pop(album_key, None)
                 persist_jobs_locked()
                 return jsonify({"ok": False, "error": "Download queue is full."}), 429
-            return redirect(url_for("index"))
+            return redirect(url_for("index", job=job_id))
         persist_jobs_locked()
 
     try:
