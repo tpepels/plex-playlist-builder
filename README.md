@@ -46,7 +46,7 @@ Downloads are **not** written directly to that tree. They first live under:
 
 For YouTube/YouTube Music the server writes yt-dlp info JSON sidecars into staging, then evaluates the whole collection together. For playlists, one collection-level album name is selected (normally the playlist/album title), and arbitrary uploaders such as the person who happened to upload one video are never treated as album artists.
 
-If both artist/album-artist and album are trustworthy, the server retags the staged audio and publishes the complete collection. If either is unresolved, the job becomes **Needs metadata** and remains outside Plex until the user confirms the fields.
+If both artist/album-artist and album are trustworthy, the server retags staged audio and publishes the complete collection. **Album imports also require a successful download, a known expected track count, no unresolved failures, and exactly that many staged audio files.** Otherwise the files remain in staging, outside Plex, even if the source or user has marked a missing track ignored. If metadata is unresolved, a complete album becomes **Needs metadata** until the user confirms it. A matching count cannot establish exact track identity; independent track-level verification is still advisable.
 
 ## Add it to the existing media-server compose
 
@@ -136,7 +136,7 @@ When metadata cannot be resolved, the job shows **Needs metadata** with pre-fill
 
 ## Spotify / spotDL
 
-Spotify URLs are routed through **spotDL 4.5.2** automatically. No separate page or service is required.
+Spotify URLs are routed through **spotDL** automatically. No separate page or service is required.
 
 For public Spotify track, album, playlist and artist URLs, spotDL retrieves the Spotify metadata, searches YouTube Music first, then YouTube, Bandcamp and SoundCloud as fallbacks, downloads audio only, and embeds the Spotify metadata and cover art. spotDL does **not** download the audio stream from Spotify itself.
 
@@ -160,7 +160,7 @@ The downloader uses:
 
 The normal **Ignore archive and overwrite existing file** option also applies to Spotify. When unchecked, completed Spotify tracks are recorded in the spotDL archive. A failed partial job can therefore use **Retry automatic search** and only the missing tracks are attempted again.
 
-When every automatic provider fails for a specific Spotify track, the failed job exposes that track separately. Paste a direct YouTube watch URL, Bandcamp track URL or SoundCloud track URL into **Resolve track**. The server sends spotDL its supported manual mapping form, `SOURCE_URL|SPOTIFY_TRACK_URL`, so the chosen source supplies the audio while the original Spotify track still supplies the metadata and cover art. A successful manual resolution is added to the spotDL archive and upgrades the original partial album job to completed once all missing tracks are resolved.
+When every automatic provider fails for a specific Spotify track, the failed job exposes that track separately. Paste a direct YouTube watch URL, Bandcamp track URL or SoundCloud track URL into **Resolve track**. The server sends spotDL its supported manual mapping form, `SOURCE_URL|SPOTIFY_TRACK_URL`, so the chosen source supplies the audio while the original Spotify track still supplies the metadata and cover art. A successful manual resolution is added to the spotDL archive. The original partial album is only published after **all** missing tracks have been resolved and its staged file count matches the expected album size.
 
 spotDL's own processed counter includes failed tracks, so the web UI does not call that value "saved." Saved-track progress is counted separately from successful downloads/existing files, while spotDL's counter is only used to establish the collection size and processing position.
 
@@ -204,6 +204,15 @@ The provider path and player client can be overridden if needed:
 The `/health` endpoint reports whether the provider directory is available and which YouTube client is configured.
 
 A PO token improves compatibility with current YouTube enforcement but cannot guarantee that every YouTube media request will succeed. If YouTube still returns a 403, the job now reports that it failed despite PO-token support instead of showing only a generic yt-dlp exit code.
+
+## Per-version retry history
+
+Every download job records an immutable short software fingerprint based on
+the deployed downloader code and tool versions. Retry lineage retains its
+overall attempt number. The separate **try N on software X** counter starts at
+1 when that fingerprint changes, then increments for retries on the same
+software. Historical jobs without a recorded fingerprint are labeled
+`legacy`. Automatic HTTP 403 process restarts are counted separately.
 
 ## Retry all failed albums
 
@@ -290,7 +299,7 @@ The job card offers **Ignore permanently**. Ignored YouTube video IDs are stored
 
     /data/state/ignored-tracks.json
 
-Ignoring does not fabricate or count a file as downloaded. A 13/14 playlist therefore remains 13/14 tracks saved, but the job is closed successfully with `1 ignored`. Future runs of the same playlist may still make yt-dlp encounter the unavailable entry, but the server recognizes that all remaining errors are explicitly ignored and does not leave the job failed again.
+Ignoring does not fabricate or count a file as downloaded. For an ordinary playlist a 13/14 result may be closed with `1 ignored`, but **an album remains incomplete and unpublished** until all 14 tracks are actually present. Future runs may still encounter the unavailable entry; ignoring it does not override the album-completeness gate.
 
 Retry remains available until the missing track is ignored, so temporary availability failures can still be retried instead.
 
