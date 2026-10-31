@@ -151,7 +151,17 @@ label{font-size:13px;color:#bbc2ca}
       results.append(div("metadata", "Geen downloadjobs gevonden voor deze zoekterm. " +
         "Mogelijk is de job uit de yt-dlp-geschiedenis verwijderd."));
     }
-    limits.textContent = data.limitations;
+    limits.textContent = data.limitations +
+      (data.plex_music_locations?.length
+        ? " Plex Music-bibliotheeklocaties: " + data.plex_music_locations.join(" ; ")
+        : " Plex Music-bibliotheeklocaties konden niet worden uitgelezen.");
+    if (data.plex_import_files_indexed === 0 &&
+        data.items.some(item => item.final_dir && item.files_on_disk > 0)) {
+      const warning = div("metadata", "Plex indexeert momenteel geen enkel bestand onder YT-DLP Imports. " +
+        "Controleer of deze directory werkelijk binnen de Plex Music-bibliotheek valt en " +
+        "of beide containers dezelfde muziekbestanden zien.");
+      metrics.append(warning);
+    }
     notice.textContent = "Controle gereed: " + data.jobs_considered +
       " jobs gecontroleerd tegen de huidige Plex-index.";
   }
