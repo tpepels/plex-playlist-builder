@@ -183,17 +183,25 @@
     @media(max-width:620px) { .vpn-auth,.vpn-fields { grid-template-columns:1fr; }
       .vpn-panel > summary { padding:14px; } .vpn-body { padding:14px; } }
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='signal-console.css') }}">
 </head>
 <body>
-<main>
-  <div class="page-head">
-    <div class="page-title">
-      <h1>yt-dlp music server</h1>
+<main class="signal-shell">
+  <header class="page-head signal-header signal-transition">
+    <div class="signal-brand">
+      <img class="signal-mark" src="{{ url_for('static', filename='signal-mark.svg') }}" alt="" width="61" height="61" aria-hidden="true">
+      <div class="page-title">
+        <div class="signal-kicker">SIGNAL CONSOLE / AUDIO OPERATIONS</div>
+        <h1 class="signal-wordmark">DOWNLOAD <span>/ CONTROL</span></h1>
+        <p class="signal-tagline">Source → staging → verified album → Plex</p>
+      </div>
     </div>
-    <a class="extension-download" href="{{ url_for('download_chrome_extension') }}" download>
-      Chrome extension
-    </a>
-  </div>
+    <div class="signal-tools">
+      <span class="signal-badge">MEDIA SYSTEM</span>
+      <button id="signal-theme-toggle" type="button" class="signal-theme-button" aria-pressed="true" title="Switch theme">CYBER: ON</button>
+      <a class="extension-download" href="{{ url_for('download_chrome_extension') }}" download>Chrome extension</a>
+    </div>
+  </header>
   <section class="panel">
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form id="download-form" action="/download" method="post">
@@ -300,6 +308,7 @@
     <p id="history-status" class="job-meta" role="status" aria-live="polite">Loading results…</p>
     <div id="history-results" class="history-list" aria-live="polite"></div>
   </section>
+  <footer class="signal-footer">SIGNAL CONSOLE / DOWNLOADER · AUDIO IMPORT CONTROL</footer>
 </main>
 <script>
   const initialJobs = {{ jobs | tojson }};
@@ -1348,6 +1357,7 @@
   }, 30000);
 
 </script>
+<script src="{{ url_for('static', filename='signal-console.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vpn-manager.js') }}" defer></script>
 </body>
 </html>
