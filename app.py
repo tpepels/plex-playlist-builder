@@ -2065,6 +2065,13 @@ def remove_job(job_id):
         for member_id in member_ids:
             jobs.pop(member_id, None)
 
+        # A deliberate removal releases the album identity claim. Retaining
+        # it would hide a future request behind an invisible deleted job.
+        for album_key, claim in list(album_submissions.items()):
+            if (claim.get("job_id") in member_ids
+                    or claim.get("latest_job_id") in member_ids):
+                album_submissions.pop(album_key, None)
+
         remaining_owner_ids = {
             library_staging.staging_owner_id(item)
             for item in jobs.values()
