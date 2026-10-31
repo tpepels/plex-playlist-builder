@@ -89,7 +89,21 @@ def rotate(key, *, timeout=50, interval=2):
 
 def rotate_if_enabled():
     """Optional one-shot 403 fallback. Never rotates on ordinary downloads."""
-    if os.getenv("SURFSHARK_VPN_ENABLED") != "1" or os.getenv("SURFSHARK_ROTATE_ON_403") != "1":
+    if os.getenv("SURFSHARK_ROTATE_ON_403") != "1":
+        return None
+    if os.getenv("VPN_GATEWAY_ENABLED") == "1":
+        key = os.getenv("SURFSHARK_CONTROL_API_KEY", "")
+        req = Request("http://127.0.0.1:8787/rotate",
+                      data=b"{}", method="POST",
+                      headers={"X-VPN-Key": key, "Content-Type": "application/json"})
+        try:
+            with urlopen(req, timeout=38) as response:
+                obj = json.load(response)
+            return {"changed": bool(obj.get("changed_profile")),
+                    "new_ip": obj.get("ip", ""), "country": obj.get("country", "")}
+        except (RuntimeError, URLError, HTTPError, TimeoutError, ValueError, OSError):
+            return {"changed": False, "error": "VPN profile rotation failed."}
+    if os.getenv("SURFSHARK_VPN_ENABLED") != "1":
         return None
     try:
         return rotate(os.getenv("SURFSHARK_CONTROL_API_KEY"), timeout=45)
