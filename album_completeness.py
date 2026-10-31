@@ -26,7 +26,16 @@ def album_hold_reason(job, staged_count):
         return "unresolved tracks remain (including ignored YouTube tracks)"
     if job.get("status") not in {"succeeded", "needs_metadata"}:
         return "download has not completed successfully"
-    if job.get("returncode") is None or int(job["returncode"]) != 0:
+    # A manually resolved Spotify album retains the parent job's original
+    # non-zero exit code. Its missing-track records provide a separate,
+    # explicit completion signal once every track has been resolved.
+    missing = job.get("missing_tracks") or []
+    manually_recovered = (
+        job.get("source") == "spotify"
+        and bool(missing)
+        and all(item.get("resolved") for item in missing)
+    )
+    if (job.get("returncode") is None or int(job["returncode"]) != 0) and not manually_recovered:
         return "the downloader did not report a clean completion"
     expected = int(job.get("total_items") or 0)
     if expected <= 0:
