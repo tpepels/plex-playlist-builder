@@ -159,6 +159,39 @@ inventing releases. A temporary network problem without a cache returns 503.
 
 API: GET /api/discover/isc?refresh=false.
 
+## Find downloaded albums missing from Plex
+
+The toolbar's **Downloadcontrole** link opens `/downloads-audit?q=Beethoven`.
+The read-only `GET /api/download-audit?q=...` compares all retained yt-dlp
+jobs with both `GET /api/import-audit` (actual presence of published and
+staged files on the downloader's disk) and a fresh Plex Music index
+(`music.searchTracks()`, bypassing the normal insights cache).
+
+The comparison uses the complete path relative to `YT-DLP Imports`.
+The two services may mount the same music files under different roots. Artist
+and album tags are **not** used to claim a match, so a Beethoven recording
+indexed under a particular pianist or orchestra is still found and the
+actual Plex artist/album labels are shown. Outcomes distinguish:
+
+- **All published files indexed**, with Plex's artist and album labels.
+- **Some or no published files indexed** (possibly missing Plex scan, missing
+  library folder or storage mount; these cannot be distinguished by labels).
+- **Some or all published files now missing on disk**, verified inside the
+  downloader container.
+- **Waiting for metadata** in yt-dlp staging rather than published to Plex.
+- **Still downloading**, **failed**, or **no confirmed publication**.
+
+The page also displays Plex Music library locations when available. Use its
+**Plex-bibliotheek scannen** button to explicitly request a new Plex scan
+(`POST /api/download-audit/scan`). The response acknowledges the scan
+request, **not** completed indexing. Click **Controleren** again after the
+scan to re-run the actual file comparison.
+
+Both containers must be updated because the page relies on the downloader's
+new `/api/import-audit` endpoint. The audit only covers jobs still present
+in yt-dlp's retained history; jobs deleted or pruned before the update are
+not reconstructed. It never modifies files or metadata automatically.
+
 ## Duplicate album and directory review
 
 The **Duplicates** tab compares **complete album releases**, not individual
