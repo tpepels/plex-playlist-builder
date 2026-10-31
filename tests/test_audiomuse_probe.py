@@ -40,3 +40,14 @@ def test_compare_no_tracks():
     report = module.compare(manifest, {"10"})
     assert report["match_percentage_of_fetched"] is None
     assert not report["mapping_validated"]
+
+
+def test_bearer_auth_header_preferred_over_browser_cookie():
+    assert module.auth_headers(token="secret", cookie="session=old") == {
+        "Accept": "application/json",
+        "Authorization": "Bearer secret",
+    }
+
+
+def test_browser_cookie_fallback():
+    assert module.auth_headers(cookie="session=xyz")["Cookie"] == "session=xyz"
