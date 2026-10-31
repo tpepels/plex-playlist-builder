@@ -1,5 +1,20 @@
 FROM python:3.13-alpine
 RUN apk add --no-cache iptables iproute2 wireguard-tools ca-certificates
+# wg-quick attempts to write src_valid_mark during full-tunnel setup. Docker
+# may mount /proc/sys read-only even after Compose has preconfigured it.
+# Skip the redundant write when the value is already 1. Fail the image build
+# if the required wg-quick binary is missing; never patch unknown shell code.
+RUN python - <<'PY'
+from pathlib import Path
+path = Path("/usr/bin/wg-quick")
+if not path.is_file():
+    raise SystemExit("wg-quick is missing from the VPN image")
+contents = path.read_text()
+old = "[[ $proto == -4 ]] && cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1"
+new = "[[ $proto == -4 && $(sysctl -n net.ipv4.conf.all.src_valid_mark) != 1 ]] && cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1"
+if old in contents:
+    path.write_text(contents.replace(old, new))
+PY
 WORKDIR /gateway
 COPY vpn_gateway.py ./
 EXPOSE 4545
