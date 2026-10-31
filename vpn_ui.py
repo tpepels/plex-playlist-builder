@@ -61,8 +61,6 @@ def idle(jobs, jobs_lock):
 
 
 def register(app, jobs, jobs_lock):
-    app.register_blueprint(bp)
-
     @app.before_request
     def guard_downloads_during_test():
         if not configured() or request.method != "POST":
@@ -157,3 +155,5 @@ def register(app, jobs, jobs_lock):
             with TEST_LOCK:
                 test_active = False
         return data, code
+
+    app.register_blueprint(bp)
