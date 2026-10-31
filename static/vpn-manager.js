@@ -64,9 +64,9 @@
     for (const entry of test.results || []) {
       const row = element("div", undefined, "vpn-test-row");
       row.append(element("span", entry.ok ? "PASS" : "FAIL", entry.ok ? "vpn-pass" : "vpn-fail"));
-      const desc = entry.country + " · " +
-        (entry.ip || "No verified IP") + " · " +
-        (entry.country_code || entry.message || "");
+      const desc = entry.country + " → observed " +
+        (entry.country_code || "unknown") + " · " +
+        (entry.ip || "No verified IP") + " · " + (entry.message || "");
       row.append(element("span", desc));
       testResults.append(row);
     }
