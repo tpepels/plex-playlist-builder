@@ -183,3 +183,28 @@ pre {border:1px solid var(--signal-line);background:#0a141c!important}
   *,*::before,*::after {scroll-behavior:auto!important;animation-duration:.01ms!important;
     animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+/* Downloader activity: motion only while a transfer is actually running. */
+#download-form {padding:3px 1px 0}
+#url-input {border-color:#35586a!important;background:#0b1923!important;font-size:15px}
+#url-input:focus {border-color:var(--signal-cyan)!important;box-shadow:0 0 0 3px rgba(96,215,229,.11)}
+#download-button {min-width:128px;min-height:46px}
+.job.running,.job.finalizing {border-color:rgba(108,217,237,.5)!important;background:linear-gradient(128deg,#122631,#112028)!important}
+.job.running .track-progress-fill,.job.finalizing .track-progress-fill {
+ background:linear-gradient(100deg,#3f9cb8 0%,#79f6c7 48%,#3f9cb8 100%)!important;
+ background-size:200% 100%!important;
+ animation:signalProgress 2.5s linear infinite;
+}
+.job.running .status::before,.job.finalizing .status::before {
+ content:"";display:inline-block;width:6px;height:6px;margin-right:7px;
+ border-radius:50%;background:var(--signal-cyan);
+ box-shadow:0 0 8px var(--signal-cyan);animation:signalBlink 2s ease-in-out infinite;
+}
+.history-entry {transition:border-color .15s ease}
+.history-entry:hover {border-color:#4e6975!important}
+#job-overview {font:500 12px/1.65 ui-monospace,Consolas,monospace;letter-spacing:.015em}
+#history-filter,#history-query {border-color:var(--signal-line)}
+#history-query:focus {border-color:var(--signal-cyan)!important}
+#retry-all-failed {background:#21423b;color:#9de4c3;border:1px solid #3f6c61}
+@keyframes signalProgress {to {background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.job.running .track-progress-fill,.job.finalizing .track-progress-fill{animation:none}}
