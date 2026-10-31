@@ -207,3 +207,19 @@ def test_html_completed_album_is_not_queued_again_after_history_pruning(server, 
     assert response.status_code == 302
     assert "result=completed" in response.headers["Location"]
     assert server.download_queue.qsize() == prior_queue_size
+
+
+def test_deleting_finished_job_releases_duplicate_claim(server):
+    client = server.app.test_client()
+    original = client.post("/api/albums", json={"url": URL}).get_json()["job_id"]
+    with server.jobs_lock:
+        server.jobs[original]["status"] = "succeeded"
+        server.jobs[original]["final_dir"] = "/music/Artist/Album"
+        assert server.persist_jobs_locked()
+    removed = client.delete(f"/api/jobs/{original}")
+    assert removed.status_code == 200
+    assert submission_key(URL) not in server.album_submissions
+    fresh = client.post("/api/albums", json={"url": URL})
+    assert fresh.status_code == 201
+    assert fresh.get_json()["job_id"] != original
+    assert fresh.get_json()["duplicate"] is False
