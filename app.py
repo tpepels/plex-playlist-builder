@@ -165,8 +165,9 @@ def current_software_version():
     digest = hashlib.sha256()
     for name in ("app.py", "staging.py", "album_completeness.py",
                  "retry_queue.py", "download_resilience.py",
-                 "album_submission.py", "job_diagnostics.py"):
-        path = Path(__file__).with_name(name)
+                 "album_submission.py", "job_diagnostics.py",
+                 "templates/index.html"):
+        path = Path(__file__).resolve().parent / name
         digest.update(name.encode())
         digest.update(path.read_bytes())
     for name, version in sorted(VERSIONS.items()):
