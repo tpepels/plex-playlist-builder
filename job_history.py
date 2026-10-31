@@ -73,6 +73,8 @@ def history_records(current, archived, *, query="", status="all", offset=0, limi
             "match_type": match.get("match_type") or "",
             "source": str(job.get("source") or "yt-dlp"),
             "attempt": int(job.get("attempt") or 1),
+            "software_version": str(job.get("software_version") or "legacy"),
+            "version_attempt": int(job.get("version_attempt") or 1),
             "title_known": bool(title),
             "has_retried": str(job.get("id")) in retried_ids,
             "automatic_403_restarts": int(job.get("automatic_403_restarts") or 0),
