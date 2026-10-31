@@ -46,6 +46,10 @@ COUNTRY_CODES = {
 }
 MAX_PROFILES = 20
 MAX_BYTES = 8192
+# Reuse wg-quick's fwmark to exempt the HTTP listener's reply packets from
+# its default-route policy without granting general direct Internet access.
+WG_FWMARK = 51820
+WEB_PORT = 4545
 
 
 class VPNConnectionError(RuntimeError):
@@ -306,6 +310,7 @@ def parse_profile(content):
     lines = [
         "[Interface]",
         "PrivateKey = " + private,
+        "FwMark = " + str(WG_FWMARK),
         "Address = " + str(address),
         "",
         "[Peer]",
@@ -346,6 +351,20 @@ def save_metadata(value):
 
 def firewall():
     global FIREWALL_ENABLED
+    # wg-quick installs "not fwmark WG_FWMARK -> wg0" before any existing
+    # lower-priority source-port rule. Mark only TCP RESPONSE packets from
+    # port 4545, so they bypass that wg0 route and use Docker's underlay.
+    # Adding a low-priority ip rule cannot work reliably: wg-quick inserts
+    # its own routing rules before it, as demonstrated by 48/49 before 50.
+    mark_rule = (
+        "iptables", "-t", "mangle", "OUTPUT", "-p", "tcp", "--sport",
+        str(WEB_PORT), "-j", "MARK", "--set-mark", str(WG_FWMARK)
+    )
+    present = run(mark_rule[0], mark_rule[1], "-C", *mark_rule[2:],
+                  check=False)
+    if present.returncode:
+        run(mark_rule[0], mark_rule[1], "-I", "OUTPUT", "1",
+            *mark_rule[4:])
     # Once any profile is selected, stay fail-closed until a verified tunnel
     # connects. Fresh installations without profiles retain direct networking.
     run("iptables", "-P", "OUTPUT", "DROP")
@@ -375,15 +394,11 @@ def firewall():
     # Do not black-hole those response packets.
     run("ip6tables", "-A", "OUTPUT", "-p", "tcp", "--sport", "4545",
         "-j", "ACCEPT")
-    # The web interface must be reachable outside private RFC1918 subnets,
-    # including reverse proxies, Tailscale and routed clients, even while
-    # wg-quick's policy rules route downloader traffic through wg0.
-    # Source-port and protocol match only the downloader HTTP listener.
-    run("ip", "-4", "rule", "add", "priority", "50", "ipproto", "tcp",
-        "sport", "4545", "lookup", "main")
-    for subnet in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"):
-        run("ip", "-4", "rule", "add", "priority", "100", "to", subnet,
-            "lookup", "main", check=False)
+    # No custom web "ip rule" is needed. Because our marked TCP packets
+    # do not match wg-quick's "not fwmark" VPN rule, the normal Docker
+    # main-table default route is used even when wg0 is up.
+    # Replies to IPv6 clients stay on the normal IPv6 route; IPv6
+    # downloader egress remains denied by ip6tables OUTPUT DROP.
     FIREWALL_ENABLED = True
 
 
@@ -766,6 +781,9 @@ def main():
         try:
             # Permit the persisted endpoint and restore the VPN on restart.
             active = parse_profile(ACTIVE_FILE.read_text())
+            # Normalize old stored profiles that predate explicit fwmark
+            # so startup and manual connection use identical routing.
+            write_private(ACTIVE_FILE, active["text"])
             allow_endpoint(active["endpoint"], active["port"])
             run("wg-quick", "up", str(ACTIVE_FILE))
         except Exception:
