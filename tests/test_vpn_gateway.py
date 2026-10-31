@@ -507,8 +507,12 @@ def test_web_dashboard_survives_fail_closed_firewall(monkeypatch):
     """
     import vpn_gateway as g
 
+    from types import SimpleNamespace
     calls = []
-    monkeypatch.setattr(g, "run", lambda *args, **kwargs: calls.append(args))
+    def fake_run(*args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(g, "run", fake_run)
     monkeypatch.setattr(g, "FIREWALL_ENABLED", False)
     g.firewall()
 
