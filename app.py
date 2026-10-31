@@ -15,6 +15,7 @@ from flask import Flask, jsonify, redirect, render_template, request, send_file,
 
 import staging as library_staging
 from disk_inventory import inventory_music, inventory_staging
+from job_history import history_records
 from album_submission import clean_match_audit, submission_key
 from job_diagnostics import explain_job
 
@@ -2514,6 +2515,40 @@ def api_probe():
 @app.get("/api/jobs")
 def api_jobs():
     return jsonify(public_jobs())
+
+
+@app.get("/api/disk-inventory")
+def api_disk_inventory():
+    """Complete disk-first snapshot; independent of download job history.
+
+    Any truncated scan is explicitly marked incomplete, never treated as an
+    exhaustive inventory. Hidden publication-in-progress directories are
+    excluded; staging is inventoried separately.
+    """
+    result = inventory_music(MUSIC_ROOT, IMPORT_SUBDIR)
+    result["staging"] = inventory_staging(TEMP_DIR)
+    result["scanned_at"] = time.time()
+    return jsonify(result)
+
+
+@app.get("/api/download-history")
+def api_download_history():
+    query = str(request.args.get("q", ""))[:200]
+    status = request.args.get("status", "all")
+    try:
+        offset = max(0, int(request.args.get("offset", "0")))
+        limit = min(200, max(1, int(request.args.get("limit", "100"))))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid history pagination."}), 400
+    with jobs_lock:
+        try:
+            response = history_records(
+                jobs, archived_jobs, query=query, status=status,
+                offset=offset, limit=limit,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+    return jsonify(response)
 
 
 @app.get("/api/import-audit")
