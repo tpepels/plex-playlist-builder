@@ -16,6 +16,7 @@ from flask import Flask, jsonify, redirect, render_template, request, send_file,
 import staging as library_staging
 from disk_inventory import inventory_music, inventory_staging
 from job_history import history_records
+from retry_queue import failed_candidates, build_retry
 from download_resilience import (
     recovery_policy, retry_delay, player_client_for_attempt,
     track_pacing_args, should_restart,
@@ -2174,6 +2175,32 @@ def remove_job(job_id):
     }), 200
 
 
+def queue_retry_locked(previous):
+    """Add one retry atomically while holding jobs_lock.
+
+    Never enqueue a non-persisted job or overwrite the original staging data.
+    Returns the new job ID or None if the queue/persistence is unavailable.
+    """
+    if download_queue.full():
+        return None, "queue_full"
+    retry_id = uuid.uuid4().hex[:10]
+    retry = build_retry(previous, retry_id)
+    jobs[retry_id] = retry
+    if not persist_jobs_locked():
+        jobs.pop(retry_id, None)
+        return None, "persistence_failed"
+    try:
+        # Holding the job lock keeps concurrent bulk/single HTTP submissions
+        # from claiming the same source twice. The worker may dequeue the ID
+        # but cannot start it until this lock is released.
+        download_queue.put_nowait(retry_id)
+    except queue.Full:
+        jobs.pop(retry_id, None)
+        persist_jobs_locked()
+        return None, "queue_full"
+    return retry_id, None
+
+
 @app.post("/api/jobs/<job_id>/retry")
 def retry_job(job_id):
     with jobs_lock:
@@ -2187,103 +2214,75 @@ def retry_job(job_id):
                 "ok": False,
                 "error": "This attempt has already been retried. Retry the latest attempt instead.",
             }), 409
-
-        retry_id = uuid.uuid4().hex[:10]
-        completed = (
-            min(previous["completed_items"], previous["total_items"])
-            if previous["total_items"]
-            else previous["completed_items"]
-        )
-        source = previous.get("source", "yt-dlp")
-        unresolved_urls = [
-            item.get("spotify_url")
-            for item in previous.get("missing_tracks", [])
-            if item.get("spotify_url") and not item.get("resolved")
-        ]
-        download_query = (
-            list(dict.fromkeys(unresolved_urls))
-            if (
-                source == "spotify"
-                and unresolved_urls
-                and not previous.get("unidentified_failed_items")
-            )
-            else None
-        )
-        retry_count = len(download_query or [])
-
-        retry = {
-            "id": retry_id,
-            "url": previous["url"],
-            "playlist": previous["playlist"],
-            "collection_mode": previous.get("collection_mode", previous["playlist"]),
-            "album_mode": previous["album_mode"],
-            "compilation": previous["compilation"],
-            # A retry is a continuation: never overwrite files that already succeeded.
-            "force": False,
-            "status": "queued",
-            "message": (
-                f"Retrying {retry_count} failed Spotify track(s)"
-                if retry_count
-                else (
-                    f"Continuing after {completed}/{previous['total_items']} tracks"
-                    if previous["total_items"]
-                    else "Retry queued"
-                )
-            ),
-            "progress": "",
-            "current_item": completed,
-            "total_items": previous["total_items"],
-            "completed_items": completed,
-            "files": list(previous["files"]),
-            "log": [
-                (
-                    f"Retrying {retry_count} unresolved Spotify track(s) from job {job_id}."
-                    if retry_count
-                    else f"Retrying job {job_id}; existing files and archive entries will be skipped."
-                )
-            ],
-            "created_at": time.time(),
-            "started_at": None,
-            "finished_at": None,
-            "returncode": None,
-            "http_403": False,
-            "retry_of": job_id,
-            "attempt": previous.get("attempt", 1) + 1,
-            "source": source,
-            "retry_base_completed": completed,
-            "failed_items": 0,
-            "unidentified_failed_items": 0,
-            "missing_tracks": [],
-            "resolution_of": None,
-            "spotify_track_url": None,
-            "manual_source_url": None,
-            "download_query": download_query,
-            "staging_owner_id": previous.get("staging_owner_id") or retry_id,
-            "source_title": previous.get("source_title"),
-            "source_album_artist": previous.get("source_album_artist"),
-            "source_thumbnail": previous.get("source_thumbnail"),
-            "metadata_artist": previous.get("metadata_artist"),
-            "metadata_album": previous.get("metadata_album"),
-            "staged_files": 0,
-            "final_dir": previous.get("final_dir"),
-            "finalize_target_id": None,
-        }
-        jobs[retry_id] = retry
-        persist_jobs_locked()
-
-    try:
-        download_queue.put_nowait(retry_id)
-    except queue.Full:
-        with jobs_lock:
-            jobs.pop(retry_id, None)
-            persist_jobs_locked()
-        return jsonify({"ok": False, "error": "Download queue is full."}), 429
-
+        retry_id, error = queue_retry_locked(previous)
+        if error:
+            response_code = 429 if error == "queue_full" else 503
+            message = "Download queue is full." if error == "queue_full" else "Could not persist the queued retry."
+            return jsonify({"ok": False, "error": message}), response_code
+        retry_tracks = len(jobs[retry_id].get("download_query") or [])
     return jsonify({
-        "ok": True,
-        "job_id": retry_id,
-        "retry_tracks": retry_count,
+        "ok": True, "job_id": retry_id, "retry_tracks": retry_tracks,
     }), 202
+
+
+@app.get("/api/jobs/retry-failed/preview")
+def retry_failed_preview():
+    """Preview distinct recoverable sources, excluding successful/active ones."""
+    with jobs_lock:
+        candidates, excluded = failed_candidates(jobs, archived_jobs)
+        capacity = (max(0, download_queue.maxsize - download_queue.qsize())
+                    if download_queue.maxsize > 0 else 50)
+        return jsonify({
+            "ok": True, "eligible": len(candidates),
+            "available_slots": capacity,
+            "will_queue": min(len(candidates), capacity),
+            "skipped_capacity": max(0, len(candidates) - capacity),
+            "excluded_source_groups": excluded,
+            "examples": [{
+                "id": job["id"],
+                "album": job.get("metadata_album") or job.get("source_title") or "",
+                "artist": job.get("metadata_artist") or job.get("source_album_artist") or "",
+                "completed_items": int(job.get("completed_items") or 0),
+                "total_items": int(job.get("total_items") or 0),
+            } for job in candidates[:10]],
+        })
+
+
+@app.post("/api/jobs/retry-failed")
+def retry_failed_all():
+    """One click, one action per distinct source, preserving each stage.
+
+    A second click is idempotent: newly queued retries mark their sources
+    active and cannot be duplicated. Never retries recovered/published albums.
+    """
+    with jobs_lock:
+        candidates, excluded = failed_candidates(jobs, archived_jobs)
+        capacity = (max(0, download_queue.maxsize - download_queue.qsize())
+                    if download_queue.maxsize > 0 else 50)
+        queued = []
+        failure = None
+        for previous in candidates[:capacity]:
+            retry_id, error = queue_retry_locked(previous)
+            if error:
+                failure = error
+                break
+            queued.append({
+                "job_id": retry_id,
+                "retry_of": previous["id"],
+                "album": previous.get("metadata_album") or previous.get("source_title") or "",
+                "artist": previous.get("metadata_artist") or previous.get("source_album_artist") or "",
+            })
+        return jsonify({
+            "ok": True, "eligible": len(candidates),
+            "queued_count": len(queued), "queued": queued,
+            "skipped_capacity": max(0, len(candidates) - len(queued)),
+            "excluded_source_groups": excluded,
+            "error": failure,
+            "message": (
+                f"Queued {len(queued)} distinct failed source(s). "
+                f"{len(candidates) - len(queued)} eligible source(s) not queued."
+            ),
+        }), 202 if queued else 200
 
 
 @app.post("/api/jobs/<job_id>/ignore")
