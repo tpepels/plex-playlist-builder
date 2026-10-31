@@ -83,7 +83,13 @@ def parse_profile(content):
         raise ValueError("Unsupported or potentially unsafe [Interface] directive")
     if not set(peer) <= {"PublicKey", "PresharedKey", "Endpoint", "AllowedIPs", "PersistentKeepalive"}:
         raise ValueError("Unsupported [Peer] directive")
-    private = key(interface.get("PrivateKey", ""))
+    provided_private = interface.get("PrivateKey", "").strip()
+    if provided_private == "<insert_your_private_key_here>":
+        raise ValueError(
+            "Surfshark profile is a template. Obtain your registered WireGuard "
+            "client private key from Surfshark and enter it once in the uploader."
+        )
+    private = key(provided_private)
     public = key(peer.get("PublicKey", ""))
     preshared = key(peer["PresharedKey"]) if peer.get("PresharedKey") else None
     try:
