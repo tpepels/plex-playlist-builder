@@ -62,6 +62,7 @@
     for (const entry of test.results || []) {
       const row = element("div", undefined, "vpn-test-row");
       row.append(element("span", entry.ok ? "PASS" : "FAIL", entry.ok ? "vpn-pass" : "vpn-fail"));
+      if (!entry.ok && entry.phase) row.append(element("span", entry.phase.toUpperCase(), "vpn-fail"));
       const desc = entry.country + " → observed " +
         (entry.country_code || "unknown") + " · " +
         (entry.ip || "No verified IP") + " · " + (entry.message || "");
@@ -87,10 +88,21 @@
     showTest(data);
     const profiles = data.profiles || [];
     $("vpn-count").textContent = profiles.length + " locations";
-    $("vpn-connection").textContent = data.active
-      ? "ACTIVE · " + (profiles.find((p) => p.id === data.active)?.country || "Unknown")
-      : "DIRECT CONNECTION · VPN OFF";
-    $("vpn-connection").classList.toggle("vpn-disconnected", !data.active);
+    const activeName = profiles.find((p) => p.id === data.active)?.country || "Unknown";
+    const ready = Boolean(data.active && data.tunnel_ready);
+    const blocked = Boolean(data.kill_switch && !ready);
+    $("vpn-connection").textContent = ready
+      ? "WIREGUARD CONNECTED · " + activeName
+      : blocked ? "VPN NOT CONNECTED · DOWNLOADS BLOCKED"
+        : "DIRECT CONNECTION · VPN OFF";
+    $("vpn-connection").classList.toggle("vpn-disconnected", !ready);
+    $("vpn-connection").title = blocked
+      ? "The VPN kill switch prevents direct outbound downloads until a VPN profile successfully connects."
+      : "";
+    if (blocked && !data.test?.running && !feedback.classList.contains("vpn-error")) {
+      message("No VPN handshake is active. Downloads are blocked by the kill switch. " +
+        "Retry a profile and inspect the specific failure shown below.", true);
+    }
     list.replaceChildren();
     for (const item of profiles) {
       const row = element("div", undefined, "vpn-profile");
