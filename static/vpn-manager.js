@@ -34,6 +34,7 @@
     if (!response.ok) {
       const problem = Error(data.error || "VPN operation failed.");
       problem.needsPrivateKey = Boolean(data.needs_private_key);
+      problem.diagnostics = data.diagnostics || null;
       throw problem;
     }
     return data;
@@ -56,6 +57,38 @@
     panel.classList.toggle("vpn-working", value);
   }
 
+  function showHandshakeDiagnostics(parent, diagnostics) {
+    if (!diagnostics || !diagnostics.client_public_key &&
+        diagnostics.udp_packets_allowed == null) return;
+    const details = element("details", undefined, "vpn-diagnostics");
+    const summary = element("summary", "Connection diagnostics (no private keys)");
+    details.append(summary);
+
+    const udp = diagnostics.udp_packets_allowed;
+    const info = udp == null
+      ? "Outbound UDP counter unavailable; local packet transmission could not be verified."
+      : udp === 0
+        ? "0 UDP packets passed the local endpoint firewall rule. Check local WireGuard routing."
+        : udp + " UDP packets passed the container firewall. A reply or valid handshake was not observed; check the registered Surfshark key and upstream UDP connectivity.";
+    details.append(element("p", info, "vpn-muted"));
+
+    if (diagnostics.client_public_key) {
+      details.append(element("p",
+        "Your derived WireGuard CLIENT PUBLIC KEY (safe to compare with Surfshark's registered key):",
+        "vpn-muted"));
+      details.append(element("code", diagnostics.client_public_key, "vpn-public-key"));
+      details.append(element("p",
+        "In Surfshark → VPN → Manual setup → WireGuard, check that the key pair registered in your account matches this public key. Do not share your private key.",
+        "vpn-muted"));
+    }
+    if (diagnostics.endpoint && diagnostics.port) {
+      details.append(element("p",
+        "Surfshark endpoint: " + diagnostics.endpoint + ":" + diagnostics.port,
+        "vpn-muted"));
+    }
+    parent.append(details);
+  }
+
   function showTest(data) {
     const test = data.test || {};
     testResults.replaceChildren();
@@ -67,6 +100,7 @@
         (entry.country_code || "unknown") + " · " +
         (entry.ip || "No verified IP") + " · " + (entry.message || "");
       row.append(element("span", desc));
+      if (!entry.ok) showHandshakeDiagnostics(row, entry.diagnostics);
       testResults.append(row);
     }
     if (test.running) {
@@ -173,6 +207,11 @@
       await refresh();
     } catch (err) {
       message(err.message, true);
+      if (err.diagnostics) {
+        const item = element("div", undefined, "vpn-test-row");
+        showHandshakeDiagnostics(item, err.diagnostics);
+        testResults.replaceChildren(item);
+      }
     } finally {
       setBusy(false);
       await refresh();
