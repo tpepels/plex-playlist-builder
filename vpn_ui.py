@@ -5,10 +5,10 @@ Only the isolated gateway can modify the VPN network namespace.
 """
 from __future__ import annotations
 
-import hmac
 import json
 import os
 import threading
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -23,11 +23,17 @@ def configured():
     return os.getenv("VPN_GATEWAY_ENABLED") == "1"
 
 
-def permitted():
-    token = os.getenv("SURFSHARK_CONTROL_API_KEY", "")
-    supplied = request.headers.get("X-VPN-Admin-Token", "")
-    return bool(token and len(token) >= 24 and
-                hmac.compare_digest(supplied, token))
+def control_token():
+    # Read from the existing state volume. The gateway generates this
+    # credential on its own; it is NEVER exposed to the browser.
+    path = Path(os.getenv("VPN_CONTROL_TOKEN_FILE", "/data/state/.vpn-control-token"))
+    try:
+        token = path.read_text().strip()
+        if len(token) < 32:
+            raise ValueError("invalid token")
+        return token
+    except (OSError, ValueError):
+        raise RuntimeError("VPN service is starting or unavailable. Rebuild the downloader once, then refresh.")
 
 
 def gateway_call(path, payload=None):
@@ -35,9 +41,13 @@ def gateway_call(path, payload=None):
         path.startswith("/activate/") or path.startswith("/delete/")
     ):
         raise ValueError("Unsupported VPN gateway operation")
+    try:
+        token = control_token()
+    except RuntimeError as exc:
+        return {"error": str(exc)}, 503
     data = json.dumps(payload).encode() if payload is not None else None
     req = Request(GATEWAY + path, data=data,
-                  headers={"X-VPN-Key": os.getenv("SURFSHARK_CONTROL_API_KEY", ""),
+                  headers={"X-VPN-Key": token,
                            "Content-Type": "application/json"},
                   method="POST" if data is not None else "GET")
     try:
@@ -86,12 +96,18 @@ def register(app, jobs, jobs_lock):
             return jsonify(error="VPN rotation test in progress; downloads are temporarily blocked"), 409
 
     @bp.before_request
-    def auth():
+    def safety():
         if not configured():
             return jsonify(enabled=False,
-                           error="Managed WireGuard mode is disabled; configure compose.wireguard.yaml"), 503
-        if not permitted():
-            return jsonify(error="VPN administrator token required"), 403
+                           error="VPN service unavailable in this deployment. Update and rebuild the downloader once."), 503
+        if request.method == "POST":
+            # A required custom header blocks cross-origin HTML form submits.
+            # No admin secret is requested from the user or sent to the browser.
+            if request.headers.get("X-Requested-With") != "XMLHttpRequest":
+                return jsonify(error="VPN action must originate from this dashboard"), 403
+            origin = request.headers.get("Origin", "").rstrip("/")
+            if origin and origin != request.host_url.rstrip("/"):
+                return jsonify(error="Cross-origin VPN actions are prohibited"), 403
 
     @bp.get("/api/vpn/profiles")
     def profiles():
@@ -102,7 +118,7 @@ def register(app, jobs, jobs_lock):
         if not idle(jobs, jobs_lock):
             return jsonify(error="Cannot change VPN profiles with active or queued downloads"), 409
         files = request.files.getlist("configs")
-        country = request.form.get("country", "").strip()
+        country = ""  # country inferred from each Surfshark config filename
         if not files or len(files) > 20:
             return jsonify(error="Select between 1 and 20 WireGuard .conf files"), 400
         results = []
@@ -114,16 +130,26 @@ def register(app, jobs, jobs_lock):
                 content = payload.decode("utf-8")
             except UnicodeDecodeError:
                 return jsonify(error=f"{f.filename}: configuration must be UTF-8 text"), 400
-            # If multiple countries are uploaded, infer label from filename,
-            # unless explicitly supplied for a single file.
-            label = country if len(files) == 1 and country else f.filename.removesuffix(".conf")
+            label = f.filename.removesuffix(".conf")
             item, status = gateway_call("/profiles", {
                 "filename": f.filename, "country": label, "content": content})
             if status != 200:
                 return jsonify(error=item.get("error", "Upload failed"),
                                uploaded=results), status
             results.append({key: item[key] for key in ("id", "filename", "country")})
-        return jsonify(ok=True, uploaded=results)
+        connected = None
+        warning = None
+        if results:
+            data, status = gateway_call("/profiles")
+            if status == 200 and not data.get("active"):
+                # Upload-and-go: connect the first profile automatically.
+                connected, connect_code = gateway_call(
+                    "/activate/" + results[0]["id"], {})
+                if connect_code != 200:
+                    warning = connected.get("error", "Could not verify VPN connection")
+                    connected = None
+        return jsonify(ok=True, uploaded=results,
+                       connected=connected, warning=warning)
 
     @bp.post("/api/vpn/activate/<profile_id>")
     def activate(profile_id):
