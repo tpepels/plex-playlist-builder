@@ -593,3 +593,70 @@ def test_sanitized_profile_uses_fixed_route_mark_on_every_parse():
         g.parse_profile(PROFILE.replace(
             "Address = 10.14.0.2/16",
             "Address = 10.14.0.2/16\nFwMark = 123"))
+
+
+def test_existing_profiles_expose_only_derived_client_public_keys(monkeypatch, tmp_path):
+    import uuid
+    import vpn_gateway as g
+
+    profile_id = uuid.uuid4().hex
+    monkeypatch.setattr(g, "ROOT", tmp_path)
+    monkeypatch.setattr(g, "META_FILE", tmp_path / "profiles.json")
+    monkeypatch.setattr(g, "PROFILE_PUBLIC_CACHE", {})
+    g.save_metadata({"profiles": [
+        {"id": profile_id, "filename": "nl-ams.conf", "country": "nl-ams"}
+    ], "active": None})
+    (tmp_path / (profile_id + ".conf")).write_text(PROFILE)
+    calls = []
+
+    def derive(text):
+        calls.append(text)
+        return "A" * 43 + "="
+    monkeypatch.setattr(g, "client_public_key", derive)
+    monkeypatch.setattr(g, "FIREWALL_ENABLED", False)
+
+    first = g.list_profiles()["profiles"]
+    second = g.list_profiles()["profiles"]
+    assert first[0]["client_public_key"] == "A" * 43 + "="
+    assert second[0]["client_public_key"] == first[0]["client_public_key"]
+    assert len(calls) == 1  # cache only PUBLIC derived key
+    assert KEY_A not in str(g.list_profiles())
+    assert "PrivateKey" not in str(first)
+    assert "PublicKey = " + KEY_B not in str(first)
+
+
+def test_profile_client_public_key_missing_and_cache_invalidation(monkeypatch, tmp_path):
+    import uuid
+    import vpn_gateway as g
+
+    profile_id = uuid.uuid4().hex
+    monkeypatch.setattr(g, "ROOT", tmp_path)
+    monkeypatch.setattr(g, "PROFILE_PUBLIC_CACHE", {})
+    assert g.stored_client_public_key(profile_id) is None
+    file = tmp_path / (profile_id + ".conf")
+    file.write_text(PROFILE)
+    calls = []
+    monkeypatch.setattr(g, "client_public_key",
+                        lambda text: calls.append(text) or "B" * 43 + "=")
+    assert g.stored_client_public_key(profile_id) == "B" * 43 + "="
+    assert g.stored_client_public_key(profile_id) == "B" * 43 + "="
+    assert len(calls) == 1
+    file.write_text(PROFILE + "# changed stored profile\n")
+    assert g.stored_client_public_key(profile_id) == "B" * 43 + "="
+    assert len(calls) == 2
+    file.unlink()
+    assert g.stored_client_public_key(profile_id) is None
+    assert g.stored_client_public_key("../unsafe") is None
+
+
+def test_vpn_dashboard_has_public_key_view_without_private_key_controls():
+    from pathlib import Path
+    root = Path(__file__).parents[1]
+    html = (root / "templates/index.html").read_text()
+    js = (root / "static/vpn-manager.js").read_text()
+    assert 'id="vpn-public-keys"' in html
+    assert "showPublicKeys(profiles)" in js
+    assert "Client public key" in js
+    assert "item.client_public_key" in js
+    assert "different client keys" in js.lower()
+    assert "PrivateKey =" not in js
