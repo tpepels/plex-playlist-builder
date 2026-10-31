@@ -28,7 +28,9 @@ def _path_key(path):
     tail = parts[positions[-1] + 1:]
     if len(tail) < 3 or any(p in {"", ".", ".."} for p in tail):
         return None
-    return "/".join(part.casefold() for part in tail)
+    # Preserve case on the Linux volume: casefolding the actual relative
+    # filename would conflate two distinct media files.
+    return "/".join(tail)
 
 
 def _track_parts(track):
