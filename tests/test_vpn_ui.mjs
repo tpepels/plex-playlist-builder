@@ -65,14 +65,15 @@ function harness() {
   };
   const panel = get("vpn-panel");
   for (const id of [
-    "vpn-feedback", "vpn-profiles", "vpn-test-results", "vpn-test-progress",
+    "vpn-feedback", "vpn-public-keys", "vpn-profiles", "vpn-test-results", "vpn-test-progress",
     "vpn-key-setup", "vpn-private-key", "vpn-count", "vpn-connection",
     "vpn-upload-input", "vpn-test-button", "vpn-next-button",
     "vpn-refresh", "vpn-upload",
   ]) panel.append(get(id));
   get("vpn-key-setup").hidden = true;
   let status = {
-    profiles: [{id: "a".repeat(32), filename: "us-nyc.conf", country: "us-nyc"}],
+    profiles: [{id: "a".repeat(32), filename: "us-nyc.conf", country: "us-nyc",
+      client_public_key: "A".repeat(43) + "="}],
     active: null, kill_switch: true, tunnel_ready: false,
     test: {running: false, done: true, results: [], message: "Idle"},
   };
@@ -158,4 +159,18 @@ test("A successful Connect visibly reports the verified exit and remains in the 
   assert.ok(ui.profile().children.some(c =>
     c.className.includes("vpn-profile-result") &&
     c.textContent.includes("Verified VPN exit")));
+});
+
+
+test("The registered client public key appears in the normal VPN profile view", async () => {
+  const ui = harness();
+  await flush();
+  const publicKeys = ui.get("vpn-public-keys");
+  assert.ok(publicKeys.children.some(item =>
+    item.textContent?.includes("All 1 countries use this same client key")));
+  const field = publicKeys.children.find(item =>
+    item.className === "vpn-public-key-input");
+  assert.equal(field?.value, "A".repeat(43) + "=");
+  assert.ok(ui.profile().children.some(item =>
+    item.className === "vpn-profile-key"));
 });
