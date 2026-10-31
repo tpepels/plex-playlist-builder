@@ -197,6 +197,7 @@
       <input id="history-query" type="search" placeholder="Filter by album, artist or error (optional)"
         aria-label="Filter finished and failed downloads">
       <button id="history-search" type="button">Refresh</button>
+      <button id="retry-all-failed" type="button" title="Queue one retry per distinct failed album, preserving staged tracks">Retry all failed</button>
     </div>
     <p id="history-status" class="job-meta" role="status" aria-live="polite">Loading results…</p>
     <div id="history-results" class="history-list" aria-live="polite"></div>
@@ -1156,6 +1157,58 @@
   }
 
   document.getElementById("history-search").addEventListener("click", refreshHistory);
+  document.getElementById("retry-all-failed").addEventListener("click", async () => {
+    const button = document.getElementById("retry-all-failed");
+    const status = document.getElementById("history-status");
+    button.disabled = true;
+    try {
+      const previewResponse = await fetch("/api/jobs/retry-failed/preview", {cache:"no-store"});
+      const preview = await previewResponse.json();
+      if (!previewResponse.ok || !preview.ok) {
+        throw new Error(preview.error || "Cannot inspect failed downloads.");
+      }
+      if (!preview.eligible) {
+        status.textContent = "No failed albums need retrying. Already successful and active downloads are skipped.";
+        return;
+      }
+      if (!preview.will_queue) {
+        status.textContent = "Queue is full. No retries were added; try again after the active jobs finish.";
+        return;
+      }
+      const capacityNotice = preview.skipped_capacity
+        ? " The queue has space for only " + preview.will_queue +
+          "; " + preview.skipped_capacity + " will remain unqueued."
+        : "";
+      if (!window.confirm(
+        "Queue " + preview.will_queue + " distinct failed album(s) for retry?" +
+        " Completed and active albums are excluded. Existing staged audio is kept." +
+        capacityNotice + " Downloads will run sequentially and may take hours."
+      )) return;
+      const response = await fetch("/api/jobs/retry-failed", {method:"POST",
+        headers:{"Accept":"application/json"}});
+      const result = await response.json();
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "Could not enqueue failed albums.");
+      }
+      status.textContent = "Queued " + result.queued_count +
+        " distinct failed album(s). " + result.skipped_capacity +
+        " eligible album(s) not queued due to capacity or an error." +
+        (result.error ? " Reason: " + result.error : "");
+      await refreshJobs(true);
+      await refreshHistory();
+      // The history render updates the status text. Retain the actual outcome
+      // in the visible overview for this bulk operation.
+      document.getElementById("job-notice").hidden = false;
+      document.getElementById("job-notice").className = "job-notice";
+      document.getElementById("job-notice").textContent =
+        "Retry all failed: " + result.queued_count + " queued, " +
+        result.skipped_capacity + " not queued. Download archive and staging are preserved.";
+    } catch (error) {
+      status.textContent = "Retry all failed: " + error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
   document.getElementById("history-query").addEventListener("input", renderHistory);
   document.getElementById("history-filter").addEventListener("change", renderHistory);
   refreshHistory();
