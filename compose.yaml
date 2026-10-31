@@ -9,6 +9,10 @@ services:
     container_name: yt-dlp-wireguard-gateway
     cap_add:
       - NET_ADMIN
+    # wg-quick full-tunnel policy routing requires this in Docker's network
+    # namespace, before the interface is brought up.
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: "1"
     devices:
       - /dev/net/tun:/dev/net/tun
     ports:
