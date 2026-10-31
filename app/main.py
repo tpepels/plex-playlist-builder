@@ -42,7 +42,9 @@ from .isc_discovery import fetch_catalog, compare_library
 from .playlist_covers import import_cover_zip, MAX_ZIP_BYTES
 from .playlist_policies import read_policies, set_policy
 from .youtube_album import lookup_album, norm, same_owned_release
-from .download_audit import read_downloader_jobs, read_disk_audit, reconcile
+from .download_audit import (read_downloader_jobs, read_disk_audit,
+                             read_music_inventory, read_download_history, reconcile)
+from .disk_reconciliation import reconcile_inventory
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
@@ -297,11 +299,50 @@ def export_library():
 
 @app.get("/downloads-audit")
 def download_audit_page():
-    """Read-only diagnostic dashboard for imported music."""
-    page = templates.env.get_template("download_audit.html").render(
+    """Disk-first music and download history diagnostics."""
+    page = templates.env.get_template("disk_audit.html").render(
         downloader_url=downloader_ui_url()
     )
     return HTMLResponse(page, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/disk-reconciliation")
+def api_disk_reconciliation(
+    q: str = Query(default="", max_length=150),
+    status: Literal["all", "missing", "partial", "indexed", "ambiguous"] = "all",
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+):
+    """Check ALL disk album folders, even if no download job survived."""
+    try:
+        inventory = read_music_inventory()
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        _, music = connect()
+        tracks = music.searchTracks()  # fresh, no 5-minute insight cache
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Could not read Plex Music files.") from exc
+    result = reconcile_inventory(
+        inventory, tracks, query=q, status=status, offset=offset, limit=limit)
+    result["plex_music_locations"] = [
+        str(path) for path in (getattr(music, "locations", None) or []) if path
+    ]
+    return result
+
+
+@app.get("/api/download-history")
+def api_download_history(
+    q: str = Query(default="", max_length=150),
+    status: Literal["all", "failed", "incomplete", "published"] = "all",
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+):
+    try:
+        return read_download_history(query=q, status=status,
+                                     offset=offset, limit=limit)
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/download-audit")
