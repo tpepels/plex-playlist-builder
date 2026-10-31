@@ -110,7 +110,7 @@ test("all pages load automatically for Ctrl+F across historical jobs", async () 
   await flush();
   assert.equal(ui.calls.length, 2);
   assert.equal(ui.get("history-results").children.length, 217);
-  assert.match(ui.get("history-status").textContent, /215 of 215 saved results shown/);
+  assert.match(ui.get("history-status").textContent, /215 results shown from 215 saved attempts/);
 });
 
 test("active download is not repeated in finished history", async () => {
@@ -131,4 +131,34 @@ test("active download is not repeated in finished history", async () => {
   assert.equal(ui.get("jobs").children[0].dataset.jobId, "queued-job");
   assert.equal(ui.get("history-results").children.length, 2); // failed group + one failed result
   assert.match(rowText(ui.get("history-results").children[1]), /Album 1/);
+});
+
+test("retry lineage displays only the latest attempt, with earlier attempts expandable", async () => {
+  const original = {...attempt(1, "failed"), job_id:"root", attempt:1};
+  const retry = {...attempt(2, "succeeded"), job_id:"retry", retry_of:"root", attempt:2};
+  const ui = runUI([original, retry]);
+  await flush();
+  assert.equal(ui.get("history-results").children.length, 2);
+  const row = ui.get("history-results").children[1];
+  assert.match(rowText(row), /Album 2/);
+  assert.match(rowText(row), /2 total attempts/);
+  assert.match(rowText(row), /Earlier attempts/);
+});
+
+test("an active retry suppresses the old failed result to avoid duplicate album rows", async () => {
+  const active = {
+    id:"root", request_member_ids:["root","retry"], status:"running", source:"yt-dlp",
+    url:"https://music.youtube.com/playlist?list=OLAK5uy_active",
+    source_title:"Beethoven", total_items:0, completed_items:0,
+    files:[], log:[], missing_tracks:[], progress:"",
+    diagnosis:{heading:"Downloading",explanation:"Audio",next_action:"Wait",
+      tone:"neutral",duplicate_requests:0,archived_items:0}
+  };
+  const old = {...attempt(1,"failed"), job_id:"root", attempt:1};
+  const newer = {...attempt(2,"running"), job_id:"retry", retry_of:"root", attempt:2};
+  const ui = runUI([old,newer], [active]);
+  await flush();
+  assert.equal(ui.get("jobs").children.length, 1);
+  assert.equal(ui.get("history-results").children.length, 1);
+  assert.match(rowText(ui.get("history-results").children[0]), /No attempts match/);
 });
