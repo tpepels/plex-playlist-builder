@@ -66,7 +66,8 @@ def register(app, jobs, jobs_lock):
         if not configured() or request.method != "POST":
             return None
         path = request.path
-        is_job_change = (path == "/download" or path == "/api/albums"
+        is_job_change = (path in {"/download", "/api/albums",
+                                  "/api/probe", "/api/fallback-track"}
                          or path == "/api/jobs/retry-failed"
                          or (path.startswith("/api/jobs/") and
                              (path.endswith("/retry") or path.endswith("/resolve"))))
