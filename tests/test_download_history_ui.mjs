@@ -84,7 +84,7 @@ test("39 failed album titles are visible without searching", async () => {
   const ui = runUI(attempts);
   await flush();
   assert.equal(ui.get("history-results").children.length, 52);
-  assert.match(ui.get("history-summary").textContent, /39 failed\/partial · 11 succeeded/);
+  assert.match(ui.get("history-summary").textContent, /39 failed attempts · 11 succeeded attempts/);
   assert.match(ui.get("history-results").children[0].textContent, /Failed and partial downloads/);
   assert.match(rowText(ui.get("history-results").children[1]), /Album 38/);
   assert.equal(ui.calls.length, 1);
