@@ -269,8 +269,12 @@ def parse_profile(content):
     interface = dict(cfg["Interface"])
     peer = dict(cfg["Peer"])
     # No PreUp/PostUp/SaveConfig/Include or other executable directives.
-    if not set(interface) <= {"PrivateKey", "Address", "DNS", "MTU"}:
+    if not set(interface) <= {"PrivateKey", "Address", "DNS", "MTU", "FwMark"}:
         raise ValueError("Unsupported or potentially unsafe [Interface] directive")
+    # This fixed mark is used by both wg-quick policy routing and the narrow
+    # web-response mangle rule. Never accept a caller-selected alternate mark.
+    if interface.get("FwMark") not in (None, str(WG_FWMARK)):
+        raise ValueError("Unsupported WireGuard FwMark value")
     if not set(peer) <= {"PublicKey", "PresharedKey", "Endpoint", "AllowedIPs", "PersistentKeepalive"}:
         raise ValueError("Unsupported [Peer] directive")
     provided_private = interface.get("PrivateKey", "").strip()
