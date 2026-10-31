@@ -79,10 +79,10 @@
         "vpn-muted"));
       details.append(element("p",
         tx === 0
-          ? "WireGuard has not transmitted a handshake or other tunnel traffic. Check local routing."
+          ? "No data-transfer bytes were counted. Handshake-initiation packets may not be counted here; use the UDP firewall counter and endpoint route as separate evidence."
           : rx === 0
-            ? "WireGuard sent traffic but received no authenticated peer data. This cannot distinguish a wrong Surfshark key from a blocked or unreachable UDP response."
-            : "WireGuard recorded incoming peer bytes, but no completed handshake. Check key registration and remote connectivity.",
+            ? "WireGuard counted outgoing tunnel data but no incoming data. This cannot distinguish key rejection from an upstream UDP problem."
+            : "WireGuard recorded incoming data, but the handshake check failed. Inspect the registered key and network state.",
         "vpn-muted"));
     }
     if (diagnostics.endpoint_route) {
