@@ -159,6 +159,41 @@ inventing releases. A temporary network problem without a cache returns 503.
 
 API: GET /api/discover/isc?refresh=false.
 
+## All-album disk-first reconciliation and failed download history
+
+Open `/downloads-audit` from **Downloadcontrole**. This page no longer
+depends on yt-dlp jobs existing: `GET /api/disk-reconciliation` reads all
+actual audio album folders from the downloader's `MUSIC_ROOT` using
+`GET /api/disk-inventory` and compares complete disk-relative file paths
+to a fresh Plex Music index. It includes the entire music root, not just
+YT-DLP Imports, and it pages the album folder results. Files may match even
+when the two containers mount music under different root paths, provided
+the complete album-relative path suffix agrees. Ambiguous paths are reported
+instead of guessed.
+
+Outcomes are **On disk / missing from Plex**, **Partially indexed**,
+**Indexed**, and **Ambiguous path**. Scans explicitly report whether they
+were complete. Plex labels are shown for matches, even when a Beethoven
+recording is indexed under a pianist rather than the composer. The separate
+staging count identifies files not yet published. Pressing **Plex-scan
+aanvragen** requests, but does not guarantee completion of, a Plex scan.
+
+The **Downloadgeschiedenis en fouten** tab uses the downloader's permanent
+`/api/download-history` endpoint, independent of disk content. Search by
+album/title/job ID or by HTTP 403 errors; filters include failed/partial,
+incomplete, and published jobs. There is also a history panel within the
+yt-dlp web app. Future failures remain visible after manual removal of their
+cards, and the server no longer prunes old jobs after 50 records. Old failures
+already pruned before this update are not recoverable from the job database.
+
+A failed download need not have any files on disk, so **both** disk inventory
+and attempt history are required. A published file missing from Plex still
+requires examination of the Plex library's configured roots, folder scanning,
+permissions, and file support. Neither scan silently edits audio tags, files,
+or metadata.
+
+Both containers must be updated for the new endpoints.
+
 ## Find downloaded albums missing from Plex
 
 The toolbar's **Downloadcontrole** link opens `/downloads-audit?q=Beethoven`.
