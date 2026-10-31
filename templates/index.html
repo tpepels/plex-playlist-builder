@@ -245,28 +245,18 @@
     </details>
   </section>
   <details class="panel vpn-panel" id="vpn-panel">
-    <summary><span>WireGuard VPN · country rotation</span><span class="vpn-count" id="vpn-count">Manage profiles</span></summary>
+    <summary><span>Surfshark VPN</span><span class="vpn-count" id="vpn-count">Checking…</span></summary>
     <div class="vpn-body">
-      <p class="vpn-intro">Upload Surfshark WireGuard .conf profiles from different countries, connect to one, or run a one-cycle test to check each public exit IP. Downloads pause during testing; private keys are never displayed.</p>
-      <div class="vpn-auth">
-        <label>VPN administrator token
-          <input id="vpn-admin-key" type="password" autocomplete="off" placeholder="From .env.surfshark">
-        </label>
-        <button id="vpn-refresh" class="vpn-secondary" type="button">Connect to manager</button>
-      </div>
+      <p class="vpn-intro">Select your Surfshark WireGuard .conf files and upload them. The first location connects automatically. To check that switching works, press <strong>Test all countries once</strong>.</p>
       <div class="vpn-statusbar">
-        <span id="vpn-connection" class="vpn-status-pill vpn-disconnected">NOT CONNECTED TO MANAGER</span>
-        <span class="vpn-muted">Private config storage · authenticated local control</span>
+        <span id="vpn-connection" class="vpn-status-pill vpn-disconnected">Checking VPN…</span>
+        <button id="vpn-refresh" type="button" class="vpn-secondary">Refresh status</button>
       </div>
       <div class="vpn-fields">
-        <input id="vpn-upload-input" type="file" accept=".conf" multiple aria-label="Select WireGuard configuration files">
-        <button id="vpn-upload" type="button">Upload profiles</button>
+        <input id="vpn-upload-input" type="file" accept=".conf" multiple aria-label="Select Surfshark WireGuard configuration files">
+        <button id="vpn-upload" type="button">Upload .conf files</button>
       </div>
-      <div class="vpn-fields" style="margin-top:8px">
-        <input id="vpn-country" type="text" maxlength="60" placeholder="Country label (optional when uploading one file)" aria-label="Country label">
-        <span class="vpn-muted">For bulk uploads, countries use the file names.</span>
-      </div>
-      <div id="vpn-feedback" class="vpn-feedback" role="status" aria-live="polite">Enter the administrator token to inspect configured countries.</div>
+      <div id="vpn-feedback" class="vpn-feedback" role="status" aria-live="polite">Choose one or more country configuration files. No credentials or Docker settings are needed here.</div>
       <div id="vpn-profiles" class="vpn-profiles"></div>
       <div class="vpn-actions">
         <button id="vpn-next-button" class="vpn-secondary" type="button" disabled>Next country</button>
