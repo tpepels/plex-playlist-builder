@@ -88,6 +88,7 @@ def read_disk_audit():
 def _title_fields(job):
     audit = job.get("match_audit") or {}
     return [
+        str(job.get("id") or ""),
         str(job.get("source_title") or ""),
         str(job.get("source_album_artist") or ""),
         str(job.get("metadata_album") or ""),
