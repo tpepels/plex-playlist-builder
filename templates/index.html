@@ -58,6 +58,16 @@
     .status { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
     .status.succeeded { color:var(--good); } .status.partial { color:var(--wait); } .status.failed { color:var(--bad); } .status.queued { color:var(--wait); } .status.running, .status.finalizing { color:#8ab4f8; } .status.needs_metadata { color:var(--wait); }
     .job-meta { min-width:0; max-width:100%; color:var(--muted); margin-top:7px; font-size:13px; overflow-wrap:anywhere; }
+    .job-explanation { margin-top:12px; padding:11px 13px; border-radius:9px; border:1px solid #3e4b55; background:#172027; }
+    .job-explanation.success { background:#16251c; border-color:#366448; }
+    .job-explanation.warning { background:#292417; border-color:#695b34; }
+    .job-explanation.error { background:#301d20; border-color:#7c383b; }
+    .job-explanation h3 { margin:0 0 4px; font-size:14px; }
+    .job-explanation p { margin:3px 0; font-size:13px; overflow-wrap:anywhere; }
+    .job-explanation .next-action { color:var(--muted); }
+    .dup-note { margin-top:9px; font-size:12px; color:#d8c791; }
+    .match-origin { margin-top:8px; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+    .last-activity { margin-top:5px; font-size:12px; color:var(--muted); }
     .track-progress { min-width:0; max-width:100%; margin-top:10px; }
     .track-progress-head { min-width:0; display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 12px; margin-bottom:5px; color:var(--muted); font-size:12px; }
     .track-progress-head span { min-width:0; overflow-wrap:anywhere; }
@@ -264,6 +274,59 @@
       if (job.final_dir) bits.push(job.final_dir);
       meta.textContent = bits.filter(Boolean).join(" · ");
       card.appendChild(meta);
+
+      // The job's own evidence-based explanation takes precedence over raw
+      // subprocess labels such as "Starting yt-dlp" or "running".
+      if (job.diagnosis) {
+        const diagnosis = job.diagnosis;
+        const explanation = document.createElement("section");
+        explanation.className = "job-explanation " + (diagnosis.tone || "neutral");
+        explanation.setAttribute("aria-label", "Download outcome and next action");
+        const label = document.createElement("h3");
+        label.textContent = diagnosis.heading;
+        const why = document.createElement("p");
+        why.textContent = diagnosis.explanation;
+        const next = document.createElement("p");
+        next.className = "next-action";
+        next.textContent = "Next: " + diagnosis.next_action;
+        explanation.append(label, why, next);
+        card.appendChild(explanation);
+
+        if (diagnosis.duplicate_requests > 0) {
+          const duplicate = document.createElement("div");
+          duplicate.className = "dup-note";
+          duplicate.textContent = diagnosis.duplicate_requests + " repeated album request(s) prevented. " +
+            "The same YouTube album ID reused this existing job; no additional queue entry was made.";
+          card.appendChild(duplicate);
+        }
+        if (diagnosis.archived_items > 0) {
+          const skipped = document.createElement("div");
+          skipped.className = "dup-note";
+          skipped.textContent = diagnosis.archived_items +
+            " track(s) explicitly skipped because yt-dlp already recorded them in its archive.";
+          card.appendChild(skipped);
+        }
+      }
+      if (job.match_audit?.requested_artist && job.match_audit?.requested_album) {
+        const origin = document.createElement("div");
+        origin.className = "match-origin";
+        const wanted = job.match_audit.requested_artist + " — " + job.match_audit.requested_album;
+        const matched = (job.match_audit.matched_artist || "") + " — " +
+          (job.match_audit.matched_album || "");
+        origin.textContent = "Requested: " + wanted + " | Matched: " + matched +
+          " | Rule: " + (job.match_audit.match_type || "not recorded");
+        card.appendChild(origin);
+      }
+      if (job.status === "running" && job.last_activity_at) {
+        const idle = Math.max(0, Math.floor(Date.now() / 1000 - job.last_activity_at));
+        if (idle > 30) {
+          const last = document.createElement("div");
+          last.className = "last-activity";
+          last.textContent = "No new downloader output for " + idle +
+            " seconds. This does not by itself mean the job failed.";
+          card.appendChild(last);
+        }
+      }
 
       if (job.total_items > 0) {
         const completed = Math.min(job.completed_items || 0, job.total_items);
