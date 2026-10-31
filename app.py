@@ -15,6 +15,7 @@ from flask import Flask, jsonify, redirect, render_template, request, send_file,
 
 import staging as library_staging
 from album_submission import clean_match_audit, submission_key
+from job_diagnostics import explain_job
 
 app = Flask(__name__)
 
@@ -343,6 +344,8 @@ def normalize_persisted_job(raw):
         "finalize_target_id": raw.get("finalize_target_id"),
         "album_submission_key": raw.get("album_submission_key"),
         "match_audit": clean_match_audit(raw.get("match_audit")),
+        "archive_skipped_items": int(raw.get("archive_skipped_items") or 0),
+        "last_activity_at": raw.get("last_activity_at"),
     }
 
     if source == "yt-dlp":
@@ -1056,8 +1059,15 @@ def append_log(job_id, line):
         if not job:
             return
 
+        job["last_activity_at"] = time.time()
         if "HTTP Error 403: Forbidden" in line:
             job["http_403"] = True
+        if (
+            "has already been recorded in the archive" in line.lower()
+            or ("[download]" in line and "has already been downloaded" in line.lower())
+        ):
+            job["archive_skipped_items"] = int(job.get("archive_skipped_items") or 0) + 1
+            persist_jobs_locked()
 
         if job.get("source") == "spotify":
             progress_match = _spotdl_progress_re.search(line)
@@ -1252,6 +1262,7 @@ def run_job(job_id):
         job = jobs[job_id]
         job["status"] = "running"
         job["started_at"] = time.time()
+        job["last_activity_at"] = job["started_at"]
         job["message"] = "Starting spotDL" if job.get("source") == "spotify" else "Starting yt-dlp"
         persist_jobs_locked()
 
@@ -1637,6 +1648,11 @@ def public_job_from_group_locked(root_id, members):
         "final_dir": first_value("final_dir"),
         "album_submission_key": first_value("album_submission_key"),
         "match_audit": first_value("match_audit") or {},
+        "last_activity_at": representative.get("last_activity_at"),
+        "diagnosis": explain_job(
+            representative,
+            album_submissions.get(first_value("album_submission_key"), {}).get("duplicate_requests", 0),
+        ),
     }
 
 
@@ -1874,20 +1890,29 @@ def enqueue_verified_album():
             latest_id = claim.get("latest_job_id") or claim["job_id"]
             existing = jobs.get(latest_id) or jobs.get(claim["job_id"])
             if existing is not None:
+                # Count suppressed duplicate submissions for the visible job.
+                claim["duplicate_requests"] = int(claim.get("duplicate_requests") or 0) + 1
+                persist_jobs_locked()
                 # Return the actual job state, never an older persisted status.
                 return jsonify({
                     "ok": True, "duplicate": True, "job_id": claim["job_id"],
                     "idempotency_key": key, "status": existing["status"],
                     "latest_job_id": existing["id"], "visible": True,
+                    "duplicate_reason": "same_youtube_album_id",
+                    "duplicate_requests": claim["duplicate_requests"],
                     "message": existing.get("message", ""),
                 }), 200
             if claim.get("last_status") == "succeeded":
+                claim["duplicate_requests"] = int(claim.get("duplicate_requests") or 0) + 1
+                persist_jobs_locked()
                 # History pruning removes the card, not the completed album.
                 # Tell clients explicitly that there is no visible queue item.
                 return jsonify({
                     "ok": True, "duplicate": True, "job_id": claim["job_id"],
                     "idempotency_key": key, "status": "succeeded",
                     "latest_job_id": latest_id, "visible": False,
+                    "duplicate_reason": "previously_succeeded",
+                    "duplicate_requests": claim["duplicate_requests"],
                     "message": "This album was downloaded previously; the job is no longer in history.",
                 }), 200
             # A failed, interrupted, removed, or otherwise orphaned job must
@@ -1920,7 +1945,8 @@ def enqueue_verified_album():
         }
         jobs[job_id] = job
         album_submissions[key] = {"job_id": job_id, "created_at": job["created_at"],
-                                  "match_audit": audit, "last_status": "queued"}
+                                  "match_audit": audit, "last_status": "queued",
+                                  "duplicate_requests": 0}
         pruned = {}
         if len(jobs) > MAX_HISTORY:
             removable = sorted(
@@ -1948,6 +1974,7 @@ def enqueue_verified_album():
         "ok": True, "duplicate": False, "job_id": job_id,
         "idempotency_key": key, "status": "queued",
         "latest_job_id": job_id, "visible": True,
+        "duplicate_requests": 0,
     }), 201
 
 
