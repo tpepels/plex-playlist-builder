@@ -338,3 +338,15 @@ def test_ui_distinguishes_killswitch_from_direct_connection():
     assert "VPN NOT CONNECTED · DOWNLOADS BLOCKED" in js
     assert 'data.kill_switch && !ready' in js
     assert "entry.phase" in js
+
+
+def test_gateway_compose_preconfigures_full_tunnel_sysctl():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    for filename in ("compose.yaml", "compose.parent-vpn.yaml"):
+        source = (root / filename).read_text()
+        assert 'net.ipv4.conf.all.src_valid_mark: "1"' in source
+    image = (root / "Dockerfile.vpn-gateway").read_text()
+    assert "wg-quick" in image
+    assert "sysctl -n net.ipv4.conf.all.src_valid_mark" in image
+    assert "cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1" in image
