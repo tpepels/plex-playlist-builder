@@ -85,6 +85,96 @@ Then:
 Open `http://YOUR-SERVER-IP:4545`.
 
 
+## Managed WireGuard countries in the downloader UI
+
+This is a **separate opt-in Compose mode** from the older
+`compose.surfshark.yaml` Gluetun setup. Use one VPN mode at a time. Once the
+managed gateway is deployed, VPN profiles are uploaded and switched entirely
+from the downloader UI. Do not use Wireshark files: upload **WireGuard**
+`.conf` files downloaded for distinct Surfshark locations. Surfshark:
+VPN > Manual setup > WireGuard > Locations > Download.
+
+### Initial setup on the media server (once)
+
+Use the existing downloader Compose project and a modern Docker Compose with
+`!reset` support. Make sure all downloader jobs are idle before changing
+networking. The gateway owns the VPN tunnel, and the downloader has no Docker
+socket access or `NET_ADMIN` privileges.
+
+```sh
+cd /path/to/yt-dlp-server
+git pull --ff-only
+cp -n .env.surfshark.example .env.surfshark
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+# Put the generated secret into SURFSHARK_CONTROL_API_KEY in .env.surfshark.
+chmod 600 .env.surfshark
+sudo install -d -m 700 /srv/yt-dlp-server/wireguard-profiles
+
+docker compose --env-file .env.surfshark \
+  -f compose.yaml -f compose.wireguard.yaml config -q
+# The old downloader is using port 4545, so stop it first.
+docker compose -f compose.yaml stop yt-dlp-server
+# If the old Surfshark Gluetun override was active, stop it too:
+# docker compose --env-file .env.surfshark \
+#   -f compose.yaml -f compose.surfshark.yaml stop surfshark-vpn
+docker compose --env-file .env.surfshark \
+  -f compose.yaml -f compose.wireguard.yaml \
+  up -d --build --force-recreate wireguard-gateway yt-dlp-server
+```
+
+Do not run the old Gluetun and managed WireGuard Compose overrides together.
+The command above deliberately targets only the gateway and downloader,
+not Plex or the playlist manager. When the gateway first starts with no
+profiles, its kill switch blocks downloader Internet traffic until you
+activate a valid profile, while preserving the LAN-facing downloader UI.
+
+If a separate parent Compose file defines the downloader, adjust the
+override to that exact project and its service names. Paths in Compose
+overrides resolve relative to the first Compose file.
+
+### Upload and verify in the browser
+
+1. Open the downloader at port 4545 and expand **WireGuard VPN · country
+   rotation**. Enter the `SURFSHARK_CONTROL_API_KEY` you configured above.
+   This is an administrator credential: use the web UI only over a trusted
+   local network or HTTPS, not a public HTTP endpoint. The browser holds
+   the token in its input field; it is not saved to local storage.
+2. Select **multiple Surfshark WireGuard .conf files** and press
+   **Upload profiles**. Files are parsed strictly, capped at 8 KB each,
+   and stored as private mode-0600 files in
+   `/srv/yt-dlp-server/wireguard-profiles` on the server. The app
+   never returns private keys in a response or log.
+3. Press **Connect** on a profile to establish and verify a real Internet
+   exit IP. The UI reports a failed connection if verification fails.
+4. Press **Test all countries once**. The gateway temporarily activates each
+   uploaded country, checks its public IP and geolocated country, and
+   reports PASS/FAIL per configuration; the previous connection is restored.
+   Failures include identical consecutive exit IPs or mismatched countries.
+   Country names are inferred from filenames such as `nl-ams.conf`;
+   for single uploads you can specify the label explicitly. Use a two-letter
+   country code or recognizable full country name.
+5. Use **Next country** for a manual one-step change. Optionally set
+   `SURFSHARK_ROTATE_ON_403=1` in `.env.surfshark` and recreate both
+   services to attempt a single automatic profile switch after repeated
+   YouTube HTTP 403s. This remains off by default.
+
+The dashboard blocks new download requests during a rotation test and
+requires the existing job queue to be idle before manual switches. Do not
+run another downloader process while testing. The WireGuard gateway uses
+kernel WireGuard and requires host `NET_ADMIN`/WireGuard support; check
+`docker logs yt-dlp-wireguard-gateway` and the dashboard if it cannot
+connect. A VPN does not guarantee access to streams blocked by YouTube's
+token verification or anti-bot systems.
+
+**Security:** VPN private keys are plaintext on the server's restricted
+persistent directory, never committed to Git. The control API listens only
+on `127.0.0.1:8787` inside the shared downloader namespace and uses a
+strong token. The gateway installs outbound-deny firewall rules before
+opening the API, allowing outbound Internet traffic only via WireGuard
+(and the selected tunnel endpoint). The optional managed gateway is distinct
+from Gluetun; its new network switching code should be tested on your
+actual Linux/Docker host before relying on the kill switch.
+
 ## Optional Surfshark VPN for downloader only
 
 This feature is **off by default**. Use Gluetun with Surfshark WireGuard to
