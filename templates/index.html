@@ -1021,7 +1021,8 @@
           requestAnimationFrame(() => entry.scrollIntoView({block:"center", behavior:"smooth"}));
         }
       }
-      const state = historyNode("div", "history-state", item.status);
+      const state = historyNode("div", "history-state",
+        item.status + (item.recovered_http_403 ? " · 403 recovered" : ""));
       const details = historyNode("div", "history-primary");
       const title = (item.artist ? item.artist + " — " : "") +
         (item.title || "Album title unavailable");
@@ -1035,6 +1036,8 @@
         historyTime(item.created_at) + " · Job " + item.job_id +
         " · " + item.completed_items + "/" + item.total_items + " confirmed tracks" +
         (item.removed_from_queue ? " · removed from active list" : "") +
+        (item.automatic_403_restarts ? " · " + item.automatic_403_restarts +
+          " automatic 403 restart(s)" : "") +
         (item.previous_attempts.length ? " · " +
           (item.previous_attempts.length + 1) + " total attempts" : "")));
       if (item.previous_attempts.length) {
