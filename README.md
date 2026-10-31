@@ -146,6 +146,13 @@ Verify from another machine with
 Rebuild **both** the gateway and downloader to apply VPN-network
 changes. There is no need to re-upload profiles.
 
+### Client key display
+
+The VPN panel shows the client public key used by each uploaded location.
+All countries may share one registered client key; Surfshark's server keys
+are distinct and must not be registered as client keys. Expand any saved
+profile's Client public key section to compare it with Surfshark settings.
+
 ### Diagnosing a failed connection
 
 If all countries fail with the same result, keep the uploaded profiles;
