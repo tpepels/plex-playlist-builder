@@ -12,6 +12,7 @@ import ipaddress
 import json
 import os
 import re
+import secrets
 import socket
 import subprocess
 import threading
@@ -24,7 +25,8 @@ from urllib.request import Request, urlopen
 ROOT = Path(os.getenv("VPN_PROFILE_DIR", "/profiles"))
 ACTIVE_FILE = ROOT / "wg0.conf"
 META_FILE = ROOT / "profiles.json"
-TOKEN = os.environ.get("SURFSHARK_CONTROL_API_KEY", "")
+TOKEN_FILE = Path(os.getenv("VPN_CONTROL_TOKEN_FILE", "/data/state/.vpn-control-token"))
+TOKEN = ""
 LOCK = threading.RLock()
 TASK = {"running": False, "results": [], "message": "Idle", "done": True}
 COUNTRY_CODES = {
@@ -438,9 +440,40 @@ class Handler(BaseHTTPRequestHandler):
         self.handle_one()
 
 
+def ensure_control_token():
+    """Create a private, persistent control token readable by the downloader UID.
+
+    This file is on the already-mounted downloader state volume; it never
+    crosses the browser and never needs to be copied into an .env file.
+    """
+    global TOKEN
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if TOKEN_FILE.exists():
+        token = TOKEN_FILE.read_text().strip()
+        if len(token) < 32:
+            raise RuntimeError("Existing VPN control token is invalid")
+    else:
+        token = secrets.token_urlsafe(36)
+        try:
+            fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            token = TOKEN_FILE.read_text().strip()
+        else:
+            with os.fdopen(fd, "w") as f:
+                f.write(token + "\\n")
+    if len(token) < 32:
+        raise RuntimeError("VPN control token could not be initialized")
+    os.chmod(TOKEN_FILE, 0o600)
+    # The downloader is unprivileged. It reads this one file but receives
+    # no raw uploaded VPN profiles and no capability to alter networking.
+    uid = int(os.getenv("VPN_DOWNLOADER_UID", "1000"))
+    gid = int(os.getenv("VPN_DOWNLOADER_GID", "1000"))
+    os.chown(TOKEN_FILE, uid, gid)
+    TOKEN = token
+
+
 def main():
-    if not TOKEN or len(TOKEN) < 24:
-        raise RuntimeError("A strong SURFSHARK_CONTROL_API_KEY is required")
+    ensure_control_token()
     ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
     ROOT.chmod(0o700)
     firewall()
