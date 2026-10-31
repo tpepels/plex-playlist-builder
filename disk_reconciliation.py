@@ -81,7 +81,8 @@ def reconcile_inventory(inventory, tracks, *, query="", status="all",
                 match = matches[0]
                 label = {"artist": match["artist"], "album": match["album"],
                          "rating_key": match["rating_key"]}
-                if label not in labels:
+                if not any(existing["artist"] == label["artist"] and
+                           existing["album"] == label["album"] for existing in labels):
                     labels.append(label)
             elif result == "ambiguous":
                 files_ambiguous += 1
