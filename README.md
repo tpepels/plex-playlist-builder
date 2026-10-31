@@ -171,7 +171,9 @@ persistent directory, never committed to Git. The control API listens only
 on `127.0.0.1:8787` inside the shared downloader namespace and uses a
 strong token. The gateway installs outbound-deny firewall rules before
 opening the API, allowing outbound Internet traffic only via WireGuard
-(and the selected tunnel endpoint). The optional managed gateway is distinct
+(and the selected tunnel endpoint). Docker's built-in DNS resolver may
+forward queries outside the VPN, so this must not yet be treated as a
+DNS-leak-tested privacy setup. The optional managed gateway is distinct
 from Gluetun; its new network switching code should be tested on your
 actual Linux/Docker host before relying on the kill switch.
 
