@@ -218,8 +218,8 @@ and recovers automatically when YouTube rejects a media stream:
    restart yt-dlp to **re-extract a fresh stream URL**, keeping staged audio
    and preserving completed tracks via the download archive.
 3. If the second attempt also fails with a 403, wait 90 seconds and make a
-   final attempt with the `web_safari` player client, which can offer an
-   alternative HLS audio stream. It is not guaranteed to work for every video.
+   final attempt with yt-dlp's maintained `default` player-client selection.
+   This avoids assuming the older `web_safari` HLS path is available.
 4. Record the exact number of automatic restarts; show a recovering state
    during backoff, and keep the job failed with its staging files untouched
    if all attempts fail. A later manual retry remains possible.
@@ -232,7 +232,7 @@ with many tracks are expected to run slower than before.
 | --- | --- | --- |
 | `YOUTUBE_403_RESTARTS` | `2` | Fresh yt-dlp process restarts (0-3) |
 | `YOUTUBE_403_BACKOFF_SECONDS` | `30` | Initial cooldown; second is 3× (5-300) |
-| `YOUTUBE_403_FALLBACK_CLIENT` | `web_safari` | Client for the final restart (empty = keep mweb) |
+| `YOUTUBE_403_FALLBACK_CLIENT` | `default` | Client for final restart (empty = keep mweb) |
 | `YOUTUBE_TRACK_PAUSE_MIN` | `5` | Minimum per-track delay (0-30 seconds) |
 | `YOUTUBE_TRACK_PAUSE_MAX` | `10` | Maximum per-track delay (0-45 seconds) |
 | `YOUTUBE_REQUEST_PAUSE` | `1` | Delay between extraction requests (0-10 seconds) |
