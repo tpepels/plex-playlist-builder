@@ -350,3 +350,82 @@ def test_gateway_compose_preconfigures_full_tunnel_sysctl():
     assert "wg-quick" in image
     assert "sysctl -n net.ipv4.conf.all.src_valid_mark" in image
     assert "cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1" in image
+
+
+def test_handshake_diagnostics_counts_only_permitted_udp_without_secret():
+    from types import SimpleNamespace
+    import vpn_gateway as g
+
+    sample = """Chain VPN_ENDPOINT (1 references)
+ pkts bytes target prot opt in out source destination
+   10 1480 ACCEPT udp -- * * 0.0.0.0/0 203.0.113.5 udp dpt:51820
+"""
+    original = g.run
+    try:
+        g.run = lambda *args, **kwargs: SimpleNamespace(
+            returncode=0, stdout=sample, stderr="")
+        assert g.endpoint_udp_packets(51820) == 10
+        assert g.endpoint_udp_packets(52000) is None
+    finally:
+        g.run = original
+
+
+def test_client_public_key_derivation_never_exposes_private_secret(monkeypatch):
+    from types import SimpleNamespace
+    import vpn_gateway as g
+
+    calls = []
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return SimpleNamespace(
+            returncode=0,
+            stdout="".join(["A" * 43, "=\n"]),
+            stderr="")
+    monkeypatch.setattr(g.subprocess, "run", fake_run)
+    pub = g.client_public_key(PROFILE)
+    assert pub == "A" * 43 + "="
+    assert calls[0][0] == ["wg", "pubkey"]
+    assert calls[0][1]["input"].strip() == KEY_A
+    assert KEY_A not in pub
+
+
+def test_handshake_failure_includes_safe_diagnostics_before_rollback(
+    monkeypatch, tmp_path
+):
+    from types import SimpleNamespace
+    import vpn_gateway as g
+
+    monkeypatch.setattr(g, "ROOT", tmp_path)
+    monkeypatch.setattr(g, "ACTIVE_FILE", tmp_path / "wg0.conf")
+    monkeypatch.setattr(g, "META_FILE", tmp_path / "profiles.json")
+    monkeypatch.setattr(g, "FIREWALL_ENABLED", True)
+    g.save_metadata({"profiles": [{"id": "a", "filename": "us-nyc.conf",
+                                   "country": "us-nyc"}], "active": None})
+    (tmp_path / "a.conf").write_text(PROFILE)
+    monkeypatch.setattr(g, "parse_profile", lambda config: {
+        "endpoint": "203.0.113.5", "port": 51820, "text": config})
+    monkeypatch.setattr(g, "stop_tunnel", lambda: None)
+    monkeypatch.setattr(g, "allow_endpoint", lambda *a: None)
+    monkeypatch.setattr(g, "run", lambda *args, **kwargs:
+                        SimpleNamespace(returncode=0, stderr="", stdout=""))
+    monkeypatch.setattr(g, "wait_for_handshake",
+                        lambda: (_ for _ in ()).throw(
+                            g.VPNConnectionError("handshake", "Peer did not respond")))
+    monkeypatch.setattr(g, "endpoint_udp_packets", lambda port: 3)
+    monkeypatch.setattr(g, "client_public_key", lambda config: "A" * 43 + "=")
+
+    with pytest.raises(g.VPNConnectionError) as exc:
+        g._activate("a")
+    assert exc.value.phase == "handshake"
+    assert exc.value.diagnostics["udp_packets_allowed"] == 3
+    assert exc.value.diagnostics["port"] == 51820
+    assert exc.value.diagnostics["client_public_key"] == "A" * 43 + "="
+    assert KEY_A not in str(exc.value.diagnostics)
+
+
+def test_browser_shows_egress_counter_and_registered_client_public_key():
+    from pathlib import Path
+    script = (Path(__file__).parents[1] / "static/vpn-manager.js").read_text()
+    assert "udp_packets_allowed" in script
+    assert "CLIENT PUBLIC KEY" in script
+    assert "entry.diagnostics" in script
