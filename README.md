@@ -269,8 +269,8 @@ then opens the downloader dashboard. Errors remain visible with a retry
 action; ambiguous matches show their candidate URLs without downloading.
 
 The signed POST supports `Accept: application/json` and returns
-`{ok, job_id, latest_job_id, status, duplicate, retried, visible, active,
-message, downloader_url}`. The manager submits a verified album to yt-dlp,
+`{ok, job_id, latest_job_id, status, duplicate, duplicate_reason,
+duplicate_requests, retried, visible, active, message, downloader_url}`. The manager submits a verified album to yt-dlp,
 then makes a second request to check that the job genuinely exists and is
 visible before redirecting. It never treats an old, failed, or pruned
 idempotency claim as an active queued job. A previously failed/partial
@@ -280,6 +280,14 @@ the new attempt is verified before redirecting. The downloader URL includes
 an already completed job that is no longer visible, the manager remains on
 its status page with an explanation and an optional dashboard link.
 Traditional form POST requests retain the existing HTTP 303 redirect.
+On an existing active job the progress page now reports **Duplicate download
+prevented**, explains that the same YouTube album ID already has a job, and
+offers a link to inspect it **without automatically leaving the explanation**.
+A newly queued job (or a native retry) opens the corresponding highlighted
+card after acknowledgement. An exact album already owned in Plex gets
+**Album already in Plex** with no retry prompt, and a completed historical
+job is explicitly distinguished from an active download. yt-dlp archive
+skips are separately reported on the downloader's job card.
 
 When a single catalog match is **exact** (including a redundant leading
 artist prefix) and has an exact artist credit, the browser automatically
