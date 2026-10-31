@@ -1083,17 +1083,22 @@
     const statusLine = document.getElementById("history-status");
     if (!rows.length && historyRows.length) {
       list.append(historyNode("p", "history-muted",
-        "No attempts match these optional filters. Select All attempts and clear the search."));
+        !text && selection === "all"
+          ? (focusedDetailIds.size
+              ? "The selected job is expanded above; there are no other finished results."
+              : "No completed or failed results yet. Active downloads are shown above.")
+          : "No finished results match this filter."));
     } else if (!rows.length) {
       list.append(historyNode("p", "history-muted",
-        "No retained download attempts were returned by the server."));
+        "No retained download results are available yet."));
     }
     const failed = (historyGlobalCounts.failed || 0) + (historyGlobalCounts.partial || 0);
     document.getElementById("history-summary").textContent =
-      failed + " failed/partial · " +
-      (historyGlobalCounts.succeeded || 0) + " succeeded";
-    statusLine.textContent = rows.length + " results shown from " +
-      historyRows.length + " saved attempts. Search and filters are optional.";
+      failed + " failed attempts · " +
+      (historyGlobalCounts.succeeded || 0) + " succeeded attempts";
+    statusLine.textContent = rows.length + (rows.length === 1 ? " result" : " results") +
+      " shown from " + historyRows.length +
+      " saved attempts. Search and filters are optional.";
   }
 
   async function refreshHistory() {
