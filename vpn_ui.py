@@ -14,7 +14,6 @@ from urllib.request import Request, urlopen
 
 from flask import Blueprint, jsonify, request
 
-bp = Blueprint("vpn_ui", __name__)
 GATEWAY = "http://127.0.0.1:8787"
 TEST_LOCK = threading.Lock()
 test_active = False
@@ -61,6 +60,8 @@ def idle(jobs, jobs_lock):
 
 
 def register(app, jobs, jobs_lock):
+    bp = Blueprint("vpn_ui", __name__)
+
     @app.before_request
     def guard_downloads_during_test():
         if not configured() or request.method != "POST":
