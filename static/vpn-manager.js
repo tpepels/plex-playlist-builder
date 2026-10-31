@@ -7,10 +7,8 @@
   const list = $("vpn-profiles");
   const testResults = $("vpn-test-results");
   const progress = $("vpn-test-progress");
-  const keyField = $("vpn-admin-key");
   let busy = false;
   let timer = null;
-  let available = false;
 
   function message(text, problem = false) {
     feedback.textContent = text;
@@ -18,9 +16,7 @@
   }
 
   async function api(path, options = {}) {
-    const key = keyField.value.trim();
-    if (!key) throw Error("Enter the VPN administrator token first.");
-    const headers = {"X-VPN-Admin-Token": key, ...(options.headers || {})};
+    const headers = {"X-Requested-With": "XMLHttpRequest", ...(options.headers || {})};
     const response = await fetch("/api/vpn" + path, {
       method: options.method || "GET",
       headers,
@@ -34,10 +30,8 @@
       throw Error("Invalid response from VPN service.");
     }
     if (!response.ok) {
-      if (response.status === 503 && data.enabled === false) available = false;
       throw Error(data.error || "VPN operation failed.");
     }
-    available = true;
     return data;
   }
 
@@ -54,7 +48,6 @@
       b.disabled = value;
     }
     $("vpn-upload-input").disabled = value;
-    $("vpn-country").disabled = value;
     panel.classList.toggle("vpn-working", value);
   }
 
@@ -130,7 +123,6 @@
   }
 
   async function refresh() {
-    if (!keyField.value.trim()) return;
     try {
       const data = await api("/profiles");
       render(data);
@@ -170,7 +162,6 @@
   }
 
   $("vpn-refresh").addEventListener("click", refresh);
-  keyField.addEventListener("change", refresh);
   $("vpn-next-button").addEventListener("click", () =>
     act("/rotate", "Changing to the next WireGuard country…"));
 
@@ -189,14 +180,17 @@
       }
       body.append("configs", file);
     }
-    body.append("country", $("vpn-country").value);
     setBusy(true);
     message("Validating WireGuard profiles…");
     try {
       const response = await api("/profiles", {method: "POST", body});
-      message((response.uploaded || []).length + " profiles uploaded. Keys are stored only in the gateway's protected volume.");
+      const count = (response.uploaded || []).length;
+      message(count + " WireGuard " + (count === 1 ? "profile" : "profiles") + " uploaded. " +
+        (response.warning ? "Connection test failed: " + response.warning
+          : response.connected ? "First location connected: " +
+            (response.connected.country || "Unknown") + " · " + response.connected.ip
+            : "Existing VPN connection retained."), Boolean(response.warning));
       input.value = "";
-      $("vpn-country").value = "";
     } catch (err) {
       message(err.message, true);
     } finally {
@@ -220,4 +214,6 @@
       message(err.message, true);
     }
   });
+  panel.addEventListener("toggle", () => { if (panel.open) refresh(); });
+  refresh();
 })();
