@@ -73,13 +73,31 @@ docker compose stop yt-dlp-server
 docker compose up -d --build
 ```
 
-For installations embedded in a larger media-server Compose project,
-integrate the two services from this repository's `compose.yaml` into
-that existing project *once* (or deploy them as their existing dedicated
-Compose project). Do not run two downloader containers against the same
-state/staging directories. The playlist manager should continue reaching
-`http://yt-dlp-server:4545` on its shared Docker network. No other media
-container needs to use the VPN.
+### Your existing shared media-stack deployment
+
+For the existing `~/media-stack/docker-compose.yml` deployment, the
+repository also includes a **one-command migration script**. Run only when
+download jobs are idle:
+
+```sh
+cd ~/media-stack/yt-dlp-server
+git pull --ff-only
+bash scripts/enable-vpn-ui.sh
+```
+
+The script places a symlink to `compose.parent-vpn.yaml` in the parent
+media-stack as its standard Compose override, validates the merged Compose,
+checks for active downloader jobs and then rebuilds **only** the gateway and
+downloader. Existing music, staging, history, the playlist manager and other
+media services are preserved. Subsequent normal `docker compose` commands
+inside `~/media-stack` automatically use the installed override.
+
+If `~/media-stack/docker-compose.override.yml` already exists with other
+customizations, the script stops without overwriting it; that environment
+needs a safe merge instead. It cannot blindly replace another override.
+
+The playlist manager continues reaching `http://yt-dlp-server:4545` on the
+existing project network. No other media container is routed through the VPN.
 
 The gateway and downloader must be recreated once because Docker itself
 owns network namespaces and VPN permissions; a webpage cannot change the
