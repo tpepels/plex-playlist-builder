@@ -78,11 +78,13 @@
   }
 
   function render(data) {
+    // Update test/busy state BEFORE deriving buttons' disabled states.
+    showTest(data);
     const profiles = data.profiles || [];
-    $("vpn-count").textContent = profiles.length + " profiles";
+    $("vpn-count").textContent = profiles.length + " locations";
     $("vpn-connection").textContent = data.active
       ? "ACTIVE · " + (profiles.find((p) => p.id === data.active)?.country || "Unknown")
-      : "NO ACTIVE VPN";
+      : "DIRECT CONNECTION · VPN OFF";
     $("vpn-connection").classList.toggle("vpn-disconnected", !data.active);
     list.replaceChildren();
     for (const item of profiles) {
@@ -117,9 +119,8 @@
         "No WireGuard profiles uploaded. Add at least two countries to test rotation.",
         "vpn-muted"));
     }
-    $("vpn-test-button").disabled = busy || profiles.length < 2;
+    $("vpn-test-button").disabled = busy || profiles.length < 1;
     $("vpn-next-button").disabled = busy || profiles.length < 2;
-    showTest(data);
   }
 
   async function refresh() {
