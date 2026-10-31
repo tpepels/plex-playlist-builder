@@ -1288,25 +1288,85 @@ def run_job(job_id):
         persist_jobs_locked()
 
     is_spotify = job.get("source") == "spotify"
-    cmd = build_spotdl_command(job) if is_spotify else build_command(job)
+    youtube = not is_spotify and is_youtube_url(job["url"])
+    policy = recovery_policy()
     error_file = spotdl_error_file(job_id) if is_spotify else None
     if error_file and error_file.exists():
         error_file.unlink()
 
     try:
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
+        restart_index = 0
+        had_http_403 = False
+        while True:
+            with jobs_lock:
+                current = jobs[job_id]
+                # Each fresh process has its own failure result; a previous
+                # attempt's HTTP 403 cannot trigger another retry by itself.
+                current["http_403"] = False
+                persist_jobs_locked()
+                snapshot = dict(current)
+            client = player_client_for_attempt(
+                YOUTUBE_PLAYER_CLIENT, restart_index, policy,
+            ) if youtube else None
+            cmd = (build_spotdl_command(snapshot) if is_spotify
+                   else build_command(snapshot, player_client=client))
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            assert process.stdout is not None
+            for line in process.stdout:
+                append_log(job_id, line)
+            returncode = process.wait()
 
-        assert process.stdout is not None
-        for line in process.stdout:
-            append_log(job_id, line)
+            with jobs_lock:
+                current = jobs[job_id]
+                got_http_403 = bool(current.get("http_403"))
+                had_http_403 = had_http_403 or got_http_403
+                retry = should_restart(
+                    youtube=youtube, spotify=is_spotify,
+                    forced=bool(snapshot.get("force")),
+                    returncode=returncode, got_http_403=got_http_403,
+                    already_restarted=restart_index, policy=policy,
+                )
+                if retry:
+                    delay = retry_delay(restart_index + 1, policy)
+                    next_client = player_client_for_attempt(
+                        YOUTUBE_PLAYER_CLIENT, restart_index + 1, policy,
+                    )
+                    current["automatic_403_restarts"] = restart_index + 1
+                    current["message"] = (
+                        f"YouTube HTTP 403; waiting {delay}s to retry with "
+                        f"a fresh media URL ({restart_index + 2}/"
+                        f"{policy['restarts'] + 1} attempts, "
+                        f"client {next_client})."
+                    )
+                    current["log"].append(
+                        f"RECOVERY: {current['message']} Completed files "
+                        "will be kept and skipped via the download archive."
+                    )
+                    current["log"] = current["log"][-40:]
+                    persist_jobs_locked()
+            if not retry:
+                break
+            # Restart yt-dlp itself. This re-extracts the video/stream URL;
+            # replaying the same expired URL is not an effective recovery.
+            time.sleep(delay)
+            restart_index += 1
 
-        returncode = process.wait()
+        with jobs_lock:
+            current = jobs[job_id]
+            if returncode == 0 and had_http_403:
+                current["recovered_http_403"] = True
+                current["http_403"] = False
+                current["log"].append(
+                    "RECOVERY: The download completed after automatic HTTP 403 recovery."
+                )
+                current["log"] = current["log"][-40:]
+                persist_jobs_locked()
         spotdl_errors = []
         if error_file and error_file.exists():
             for error_line in error_file.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -1397,10 +1457,17 @@ def run_job(job_id):
                     else:
                         job["message"] = f"spotDL failed; {max(1, job['failed_items'])} track(s) failed"
                 elif job["http_403"] and is_youtube_url(job["url"]):
+                    retries = int(job.get("automatic_403_restarts") or 0)
                     if BGUTIL_SERVER_HOME.is_dir():
-                        job["message"] = "YouTube returned HTTP 403 despite PO-token support"
+                        job["message"] = (
+                            f"YouTube HTTP 403 after {retries} automatic restart(s). "
+                            "PO-token provider configured; token generation unverified."
+                        )
                     else:
-                        job["message"] = "YouTube returned HTTP 403 - PO-token provider unavailable"
+                        job["message"] = (
+                            f"YouTube HTTP 403 after {retries} automatic restart(s). "
+                            "PO-token provider directory unavailable."
+                        )
                 else:
                     job["message"] = f"yt-dlp exited with code {returncode}"
             persist_jobs_locked()
