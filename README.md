@@ -131,6 +131,21 @@ After the normal downloader update above:
 5. Use **Next country** to manually change your download IP between jobs.
    You can also connect/remove individual profiles through the UI.
 
+### Dashboard access when the VPN handshake fails
+
+The VPN gateway publishes `4545/tcp` while the downloader shares its
+network namespace. Localhost health checks can succeed even when the
+WireGuard default-route policy misroutes replies to LAN clients. The
+gateway now marks **only TCP replies from source port 4545** with its
+managed WireGuard `FwMark=51820`, so the packets use Docker's normal
+underlay route. Download traffic remains subject to the outbound-DROP
+kill switch.
+
+Verify from another machine with
+`curl -4 --connect-timeout 5 http://media-server:4545/health`.
+Rebuild **both** the gateway and downloader to apply VPN-network
+changes. There is no need to re-upload profiles.
+
 ### Diagnosing a failed connection
 
 If all countries fail with the same result, keep the uploaded profiles;
