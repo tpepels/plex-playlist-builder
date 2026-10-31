@@ -175,6 +175,7 @@ def current_software_version():
 
 
 SOFTWARE_VERSION = current_software_version()
+VERSIONS["server"] = SOFTWARE_VERSION
 
 
 def persist_jobs_locked():
@@ -1598,7 +1599,14 @@ def staged_jobs_to_finalize_after_restore():
                 continue
 
             if job.get("status") in {"succeeded", "partial"}:
-                if is_album_job(job) and album_hold_reason(job, len(staged)):
+                hold_reason = album_hold_reason(job, len(staged))
+                if hold_reason:
+                    job["status"] = "partial"
+                    job["staged_files"] = len(staged)
+                    job["message"] = (
+                        f"Album kept out of Plex: {hold_reason}. Retry to complete it."
+                    )
+                    changed = True
                     continue
                 finalize_ids.append(job["id"])
                 continue
@@ -2391,6 +2399,17 @@ def ignore_missing_youtube_track(job_id):
             candidate["missing_tracks"] = extract_youtube_missing_tracks(candidate.get("log", []), ignored)
             if candidate.get("status") == "failed":
                 close_job_if_only_ignored_locked(candidate, ignored)
+            if candidate.get("status") == "succeeded" and is_album_job(candidate):
+                media_count = len(library_staging.media_files(
+                    library_staging.stage_dir(TEMP_DIR, candidate)
+                ))
+                hold_reason = album_hold_reason(candidate, media_count)
+                if hold_reason:
+                    candidate["status"] = "partial" if media_count else "failed"
+                    candidate["staged_files"] = media_count
+                    candidate["message"] = (
+                        f"Album kept out of Plex: {hold_reason}. Retry to complete it."
+                    )
 
         persist_jobs_locked()
         requested = jobs.get(job_id)
