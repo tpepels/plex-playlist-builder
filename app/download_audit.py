@@ -77,6 +77,34 @@ def _downloader_data(path):
     return result
 
 
+def _downloader_object(path):
+    origin = os.getenv("YTDLP_SERVER_URL", "http://yt-dlp-server:4545").rstrip("/")
+    from urllib.parse import urlparse
+    parsed = urlparse(origin)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.path:
+        raise ValueError("YTDLP_SERVER_URL must be an HTTP(S) server origin.")
+    request = Request(origin + path, headers={"Accept": "application/json"})
+    try:
+        with urlopen(request, timeout=45) as response:
+            result = json.load(response)
+    except (URLError, TimeoutError, OSError, ValueError) as exc:
+        raise RuntimeError(f"yt-dlp {path} is unavailable.") from exc
+    if not isinstance(result, dict):
+        raise ValueError(f"yt-dlp {path} returned invalid data.")
+    return result
+
+
+def read_music_inventory():
+    return _downloader_object("/api/disk-inventory")
+
+
+def read_download_history(query="", status="all", offset=0, limit=100):
+    from urllib.parse import urlencode
+    querystring = urlencode({"q": query, "status": status,
+                             "offset": offset, "limit": limit})
+    return _downloader_object("/api/download-history?" + querystring)
+
+
 def read_downloader_jobs():
     return _downloader_data("/api/jobs")
 
