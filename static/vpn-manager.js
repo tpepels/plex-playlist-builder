@@ -7,6 +7,8 @@
   const list = $("vpn-profiles");
   const testResults = $("vpn-test-results");
   const progress = $("vpn-test-progress");
+  const keySetup = $("vpn-key-setup");
+  const keyInput = $("vpn-private-key");
   let busy = false;
   let timer = null;
 
@@ -30,7 +32,9 @@
       throw Error("Invalid response from VPN service.");
     }
     if (!response.ok) {
-      throw Error(data.error || "VPN operation failed.");
+      const problem = Error(data.error || "VPN operation failed.");
+      problem.needsPrivateKey = Boolean(data.needs_private_key);
+      throw problem;
     }
     return data;
   }
@@ -48,6 +52,7 @@
       b.disabled = value;
     }
     $("vpn-upload-input").disabled = value;
+    keyInput.disabled = value;
     panel.classList.toggle("vpn-working", value);
   }
 
@@ -162,6 +167,37 @@
     }
   }
 
+  async function checkTemplates() {
+    const files = Array.from($("vpn-upload-input").files || []);
+    if (!files.length) {
+      keySetup.hidden = true;
+      keyInput.value = "";
+      return;
+    }
+    let requiresKey = false;
+    try {
+      for (const file of files) {
+        if (file.size > 8192) continue;
+        const content = await file.text();
+        if (content.includes("<insert_your_private_key_here>")) {
+          requiresKey = true;
+          break;
+        }
+      }
+    } catch (_) {
+      // Server preflight will report missing keys if client inspection fails.
+    }
+    keySetup.hidden = !requiresKey;
+    if (requiresKey) {
+      message("These Surfshark files are templates. Enter your registered WireGuard private key once for all selected locations.", true);
+    } else {
+      keyInput.value = "";
+      message(files.length + " configuration " + (files.length === 1 ? "file" : "files") +
+        " selected. Ready to upload.");
+    }
+  }
+
+  $("vpn-upload-input").addEventListener("change", checkTemplates);
   $("vpn-refresh").addEventListener("click", refresh);
   $("vpn-next-button").addEventListener("click", () =>
     act("/rotate", "Changing to the next WireGuard country…"));
@@ -173,7 +209,14 @@
       return;
     }
     if (busy) return;
+    const privateKey = keyInput.value.trim();
+    if (!keySetup.hidden && !privateKey) {
+      message("Your files lack a WireGuard client private key. Generate one in Surfshark's manual WireGuard setup and paste it above.", true);
+      keyInput.focus();
+      return;
+    }
     const body = new FormData();
+    if (privateKey) body.append("private_key", privateKey);
     for (const file of input.files) {
       if (!file.name.endsWith(".conf")) {
         message("Only .conf files can be uploaded.", true);
@@ -192,7 +235,13 @@
             (response.connected.country || "Unknown") + " · " + response.connected.ip
             : "Existing VPN connection retained."), Boolean(response.warning));
       input.value = "";
+      keyInput.value = "";
+      keySetup.hidden = true;
     } catch (err) {
+      if (err.needsPrivateKey) {
+        keySetup.hidden = false;
+        keyInput.focus();
+      }
       message(err.message, true);
     } finally {
       setBusy(false);
