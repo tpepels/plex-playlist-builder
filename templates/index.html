@@ -106,6 +106,7 @@
     .history-entry { display:grid; grid-template-columns:95px minmax(0,1fr) auto; align-items:start; gap:10px;
       background:#20262b; border:1px solid #384149; border-radius:9px; padding:10px 12px; }
     .history-entry.history-failed { border-left:3px solid var(--bad); }
+    .history-entry.targeted { border-color:var(--good); box-shadow:0 0 0 2px #6fdc8c33; }
     .history-entry.history-partial { border-left:3px solid var(--wait); }
     .history-state { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; }
     .history-failed .history-state { color:var(--bad); } .history-partial .history-state { color:var(--wait); }
@@ -949,14 +950,40 @@
     return true;
   }
 
+  function latestHistoryPerRetryChain(records) {
+    // Only collapse attempts explicitly linked by retry_of, never unrelated
+    // downloads of the same album. Full original attempts stay in the API.
+    const byId = new Map(records.map(item => [item.job_id, item]));
+    const chains = new Map();
+    for (const item of records) {
+      let cursor = item;
+      const visited = new Set([cursor.job_id]);
+      while (cursor.retry_of && byId.has(cursor.retry_of) &&
+             !visited.has(cursor.retry_of)) {
+        cursor = byId.get(cursor.retry_of);
+        visited.add(cursor.job_id);
+      }
+      const key = cursor.job_id;
+      if (!chains.has(key)) chains.set(key, []);
+      chains.get(key).push(item);
+    }
+    return [...chains.values()].map(chain => {
+      chain.sort((a, b) => Number(b.attempt || 1) - Number(a.attempt || 1) ||
+        Number(b.created_at || 0) - Number(a.created_at || 0));
+      return {...chain[0], previous_attempts: chain.slice(1)};
+    });
+  }
+
   function renderHistory() {
     const list = document.getElementById("history-results");
     const selection = document.getElementById("history-filter").value;
     const text = document.getElementById("history-query").value.trim().toLowerCase();
     list.replaceChildren();
-    const rows = historyRows.filter(item => {
+    const grouped = latestHistoryPerRetryChain(historyRows);
+    const rows = grouped.filter(item => {
       if (ACTIVE_STATES.has(item.status)) return false;
-      if (focusedDetailIds.has(item.job_id)) return false;
+      if (focusedDetailIds.has(item.job_id) ||
+          item.previous_attempts.some(attempt => focusedDetailIds.has(attempt.job_id))) return false;
       if (!historyMatchesFilter(item, selection)) return false;
       if (!text) return true;
       return [item.title, item.artist, item.job_id, item.status, item.reason,
@@ -999,7 +1026,21 @@
       details.append(historyNode("div", "history-date",
         historyTime(item.created_at) + " · Job " + item.job_id +
         " · " + item.completed_items + "/" + item.total_items + " confirmed tracks" +
-        (item.removed_from_queue ? " · removed from active list" : "")));
+        (item.removed_from_queue ? " · removed from active list" : "") +
+        (item.previous_attempts.length ? " · " +
+          (item.previous_attempts.length + 1) + " total attempts" : "")));
+      if (item.previous_attempts.length) {
+        const more = document.createElement("details");
+        const toggle = historyNode("summary", "", "Earlier attempts (" +
+          item.previous_attempts.length + ")");
+        more.append(toggle);
+        for (const previous of item.previous_attempts) {
+          more.append(historyNode("div", "history-reason",
+            historyTime(previous.created_at) + " · " + previous.status +
+            " · " + (previous.reason || "No recorded reason")));
+        }
+        details.append(more);
+      }
 
       const links = historyNode("div", "history-links");
       // The full job is not rendered in a second card: this result row is
@@ -1051,8 +1092,8 @@
     document.getElementById("history-summary").textContent =
       failed + " failed/partial · " +
       (historyGlobalCounts.succeeded || 0) + " succeeded";
-    statusLine.textContent = rows.length + " of " + historyRows.length +
-      " saved results shown. Filter only when needed.";
+    statusLine.textContent = rows.length + " results shown from " +
+      historyRows.length + " saved attempts. Search and filters are optional.";
   }
 
   async function refreshHistory() {
