@@ -58,21 +58,29 @@ def _indexed_files(tracks):
     return index, count
 
 
-def read_downloader_jobs():
+def _downloader_data(path):
     origin = os.getenv("YTDLP_SERVER_URL", "http://yt-dlp-server:4545").rstrip("/")
     from urllib.parse import urlparse
     parsed = urlparse(origin)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.path:
         raise ValueError("YTDLP_SERVER_URL must be an HTTP(S) server origin.")
-    request = Request(origin + "/api/jobs", headers={"Accept": "application/json"})
+    request = Request(origin + path, headers={"Accept": "application/json"})
     try:
         with urlopen(request, timeout=12) as response:
             result = json.load(response)
     except (URLError, TimeoutError, OSError, ValueError) as exc:
-        raise RuntimeError("yt-dlp job history is unavailable.") from exc
+        raise RuntimeError(f"yt-dlp {path} is unavailable.") from exc
     if not isinstance(result, list):
-        raise ValueError("yt-dlp did not return a list of download jobs.")
+        raise ValueError(f"yt-dlp {path} returned invalid data.")
     return result
+
+
+def read_downloader_jobs():
+    return _downloader_data("/api/jobs")
+
+
+def read_disk_audit():
+    return _downloader_data("/api/import-audit")
 
 
 def _title_fields(job):
@@ -92,8 +100,12 @@ def _title_fields(job):
     ]
 
 
-def reconcile(jobs, tracks, query=""):
+def reconcile(jobs, tracks, query="", disk=None):
     index, plex_file_count = _indexed_files(tracks)
+    disk_by_id = {
+        str(item.get("job_id")): item for item in (disk or [])
+        if isinstance(item, dict) and item.get("job_id")
+    }
     filter_text = str(query or "").strip().casefold()
     entries = []
     for job in jobs:
@@ -110,12 +122,22 @@ def reconcile(jobs, tracks, query=""):
         indexed = len(seen)
         status = str(job.get("status") or "unknown")
         published = bool(job.get("final_dir"))
+        storage = disk_by_id.get(str(job.get("id")), {})
+        disk_known = bool(storage)
+        files_on_disk = int(storage.get("files_present") or 0) if disk_known else None
+        files_missing_on_disk = int(storage.get("files_missing") or 0) if disk_known else None
         if status == "needs_metadata":
             outcome = "metadata_required"
             reason = "Downloaded audio remains staged; artist and album metadata must be approved before publication."
         elif status in {"queued", "running", "finalizing"}:
             outcome = "in_progress"
             reason = "The job has not completed library publication."
+        elif published and disk_known and files_missing_on_disk and not files_on_disk:
+            outcome = "missing_on_disk"
+            reason = "The downloader records publication, but all recorded files are now absent from its music volume."
+        elif published and disk_known and files_missing_on_disk:
+            outcome = "partially_missing_on_disk"
+            reason = "Some published files are missing from yt-dlp's music volume; check the file paths before rescanning Plex."
         elif published and not recognized:
             outcome = "unverifiable_paths"
             reason = "A publish destination exists, but its saved file paths cannot be compared with Plex."
@@ -156,6 +178,10 @@ def reconcile(jobs, tracks, query=""):
             "requested": (job.get("match_audit") or {}).get("requested_album") or "",
             "source_url": str(job.get("url") or ""),
             "staged_files": int(job.get("staged_files") or 0),
+            "files_on_disk": files_on_disk,
+            "files_missing_on_disk": files_missing_on_disk,
+            "final_dir_exists": storage.get("final_dir_exists") if disk_known else None,
+            "staged_audio_on_disk": storage.get("staged_audio_count") if disk_known else None,
             "created_at": job.get("created_at"),
         })
     counts = Counter(item["outcome"] for item in entries)
@@ -167,6 +193,6 @@ def reconcile(jobs, tracks, query=""):
         "items": entries,
         "limitations": ("Only jobs retained by yt-dlp are checked. Paths are matched "
                         "under YT-DLP Imports, even if Plex mounts the folder elsewhere. "
-                        "An unmatched path does not establish whether the file is absent "
-                        "from disk or simply not scanned by Plex."),
+                        "A missing Plex match can mean an unscanned file, a library mount "
+                        "problem, or an indexing failure; it does not prove the files are lost."),
     }
