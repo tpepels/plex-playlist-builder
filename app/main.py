@@ -42,6 +42,7 @@ from .isc_discovery import fetch_catalog, compare_library
 from .playlist_covers import import_cover_zip, MAX_ZIP_BYTES
 from .playlist_policies import read_policies, set_policy
 from .youtube_album import lookup_album, norm, same_owned_release
+from .download_audit import read_downloader_jobs, reconcile
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
@@ -292,6 +293,42 @@ def export_library():
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/downloads-audit")
+def download_audit_page():
+    """Read-only diagnostic dashboard for imported music."""
+    page = templates.env.get_template("download_audit.html").render(
+        downloader_url=downloader_ui_url()
+    )
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/download-audit")
+def api_download_audit(q: str = Query(default="", max_length=150)):
+    """Reconcile all retained yt-dlp album jobs with actual Plex media paths."""
+    try:
+        jobs = read_downloader_jobs()
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        _, music = connect()
+        tracks = music.searchTracks()  # A fresh Plex index, never the insights cache.
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Cannot inspect the Plex Music library.") from exc
+    return reconcile(jobs, tracks, query=q)
+
+
+@app.post("/api/download-audit/scan")
+def scan_music_for_downloads():
+    """Explicitly request a Plex Music scan; completion must be checked later."""
+    try:
+        _, music = connect()
+        music.update()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Could not request a Plex Music scan.") from exc
+    return {"ok": True, "status": "scan_requested",
+            "message": "Plex accepted a library scan request. This does not mean indexing is complete."}
 
 
 @app.get("/api/library-albums.tsv")
