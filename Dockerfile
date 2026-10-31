@@ -40,7 +40,7 @@ RUN rm -rf "$HOME" "$XDG_CACHE_HOME" "$DENO_DIR" \
     && mkdir -p "$HOME" "$XDG_CACHE_HOME" "$DENO_DIR" \
     && chmod 1777 "$HOME" "$XDG_CACHE_HOME" "$DENO_DIR"
 
-COPY app.py staging.py album_completeness.py album_submission.py job_diagnostics.py disk_inventory.py job_history.py download_resilience.py retry_queue.py surfshark_vpn.py ./
+COPY app.py staging.py album_completeness.py album_submission.py job_diagnostics.py disk_inventory.py job_history.py download_resilience.py retry_queue.py surfshark_vpn.py vpn_ui.py ./
 COPY tools ./tools
 COPY templates ./templates
 COPY static ./static
