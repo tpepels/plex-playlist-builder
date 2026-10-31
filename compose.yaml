@@ -53,7 +53,7 @@ services:
       TEMP_DIR: /data/tmp
       VPN_GATEWAY_ENABLED: "1"
       VPN_CONTROL_TOKEN_FILE: /data/state/.vpn-control-token
-      SURFSHARK_ROTATE_ON_403: ${SURFSHARK_ROTATE_ON_403:-0}
+      SURFSHARK_ROTATE_ON_403: ${SURFSHARK_ROTATE_ON_403:-1}
       # Optional:
       # COOKIES_FILE: /data/state/cookies.txt
     volumes:
