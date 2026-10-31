@@ -204,6 +204,9 @@
 <script>
   const initialJobs = {{ jobs | tojson }};
   const ACTIVE_STATES = new Set(["queued", "running", "finalizing", "needs_metadata"]);
+  let focusedDetailIds = new Set();
+  let previousActiveIds = new Set(initialJobs.filter(job => ACTIVE_STATES.has(job.status))
+    .map(job => job.id));
   const form = document.getElementById("download-form");
   const urlInput = document.getElementById("url-input");
   const downloadButton = document.getElementById("download-button");
@@ -259,7 +262,14 @@
         .filter(Boolean)
     );
     root.replaceChildren();
-    const liveJobs = jobs.filter(job => ACTIVE_STATES.has(job.status));
+    // A focused completed/failed job can be expanded into its full original
+    // card to inspect logs, files and recovery options. Its compact result row
+    // is then hidden, so there is still only one visible representation.
+    const selected = jobs.find(job => !ACTIVE_STATES.has(job.status) &&
+      focusedJobId && (job.id === focusedJobId ||
+        (job.request_member_ids || []).includes(focusedJobId)));
+    focusedDetailIds = new Set(selected ? [selected.id, ...(selected.request_member_ids || [])] : []);
+    const liveJobs = jobs.filter(job => ACTIVE_STATES.has(job.status) || job === selected);
     if (!liveJobs.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
@@ -894,7 +904,17 @@
     if (!force && document.activeElement && document.activeElement.matches("#jobs input")) return;
     try {
       const response = await fetch("/api/jobs", {cache:"no-store"});
-      if (response.ok) renderJobs(await response.json());
+      if (response.ok) {
+        const jobs = await response.json();
+        const active = new Set(jobs.filter(job => ACTIVE_STATES.has(job.status))
+          .map(job => job.id));
+        const changedToTerminal = [...previousActiveIds].some(id => !active.has(id));
+        previousActiveIds = active;
+        renderJobs(jobs);
+        // When a download finishes or fails, move its result into the compact
+        // history promptly rather than waiting for the periodic refresh.
+        if (changedToTerminal) refreshHistory();
+      }
     } catch (_) {}
   }
 
@@ -936,6 +956,7 @@
     list.replaceChildren();
     const rows = historyRows.filter(item => {
       if (ACTIVE_STATES.has(item.status)) return false;
+      if (focusedDetailIds.has(item.job_id)) return false;
       if (!historyMatchesFilter(item, selection)) return false;
       if (!text) return true;
       return [item.title, item.artist, item.job_id, item.status, item.reason,
