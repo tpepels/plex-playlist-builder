@@ -231,11 +231,17 @@
   const probeResult = document.getElementById("probe-result");
 
   const focusParams = new URLSearchParams(window.location.search);
-  const focusedJobId = focusParams.get("job");
-  const requestedResult = focusParams.get("result");
+  let focusedJobId = focusParams.get("job");
+  let requestedResult = focusParams.get("result");
   // Deep links are one-shot focus requests, not persistent application state.
   if (focusedJobId) window.history?.replaceState?.(null, "", window.location.pathname || "/");
   let actionNotice = "";
+  function dismissFocus() {
+    focusedJobId = null;
+    requestedResult = null;
+    actionNotice = "";
+    document.getElementById("job-notice").hidden = true;
+  }
   let didScrollToJob = false;
   let probeTimer = null;
   let probeController = null;
@@ -905,6 +911,7 @@
   }
 
   urlInput.addEventListener("input", () => {
+    dismissFocus();
     probedUrl = "";
     playlistInput.disabled = false;
     clearTimeout(probeTimer);
@@ -1184,8 +1191,12 @@
     }
   }
 
-  document.getElementById("history-search").addEventListener("click", refreshHistory);
+  document.getElementById("history-search").addEventListener("click", () => {
+    dismissFocus();
+    refreshHistory();
+  });
   document.getElementById("retry-all-failed").addEventListener("click", async () => {
+    dismissFocus();
     const button = document.getElementById("retry-all-failed");
     const status = document.getElementById("history-status");
     button.disabled = true;
@@ -1237,8 +1248,14 @@
       button.disabled = false;
     }
   });
-  document.getElementById("history-query").addEventListener("input", renderHistory);
-  document.getElementById("history-filter").addEventListener("change", renderHistory);
+  document.getElementById("history-query").addEventListener("input", () => {
+    dismissFocus();
+    renderHistory();
+  });
+  document.getElementById("history-filter").addEventListener("change", () => {
+    dismissFocus();
+    renderHistory();
+  });
   refreshHistory();
   // Completed/failed jobs move out of the active cards on the next refresh;
   // keep the results list current without requiring another button click.
