@@ -579,6 +579,8 @@ async def queue_youtube_album(request: Request):
             "latest_job_id": job["latest_job_id"],
             "status": job["status"], "duplicate": job["duplicate"],
             "retried": job.get("retried", False),
+            "duplicate_reason": job.get("duplicate_reason"),
+            "duplicate_requests": job.get("duplicate_requests", 0),
             "visible": job["visible"], "active": active,
             "message": job["message"], "downloader_url": target_url,
         }, headers={"Cache-Control": "no-store"})
