@@ -61,12 +61,14 @@ def lookup_file(relative_path, by_tail):
 
 def reconcile_inventory(inventory, tracks, *, query="", status="all",
                         offset=0, limit=100):
-    if status not in {"all", "missing", "partial", "indexed", "ambiguous"}:
+    if status not in {"unindexed", "all", "missing", "partial", "indexed", "ambiguous"}:
         raise ValueError("Unsupported disk audit status filter.")
     by_tail, plex_files = plex_media_index(tracks)
     albums = inventory.get("albums", [])
     all_rows = []
     counts = Counter()
+    missing_file_count = 0
+    partially_indexed_file_count = 0
     q = str(query or "").strip().casefold()
     for album in albums:
         disk_files = [f for f in album.get("files", []) if isinstance(f, str)]
@@ -99,6 +101,10 @@ def reconcile_inventory(inventory, tracks, *, query="", status="all",
         else:
             outcome = "missing"
         counts[outcome] += 1
+        if outcome == "missing":
+            missing_file_count += len(unmatched)
+        elif outcome == "partial":
+            partially_indexed_file_count += len(unmatched)
         row = {
             "folder": album["folder"],
             "artist_folder": album.get("artist_folder", ""),
@@ -107,6 +113,7 @@ def reconcile_inventory(inventory, tracks, *, query="", status="all",
             "files_on_disk": total,
             "files_indexed": files_indexed,
             "files_ambiguous": files_ambiguous,
+            "files_not_in_plex": len(unmatched),
             "status": outcome,
             "plex_labels": labels,
             "missing_files": unmatched[:12],
@@ -120,7 +127,10 @@ def reconcile_inventory(inventory, tracks, *, query="", status="all",
             " ".join(item["artist"] + " " + item["album"] for item in labels),
         )):
             continue
-        if status != "all" and row["status"] != status:
+        if status == "unindexed":
+            if row["status"] not in {"missing", "partial"}:
+                continue
+        elif status != "all" and row["status"] != status:
             continue
         all_rows.append(row)
     # Missing imports and missing albums sort first, while still preserving
@@ -138,6 +148,8 @@ def reconcile_inventory(inventory, tracks, *, query="", status="all",
         "disk_album_folders": inventory.get("album_folders", 0),
         "plex_total_media_files": plex_files,
         "disk_status_counts": dict(counts),
+        "not_in_plex_audio_files": missing_file_count + partially_indexed_file_count,
+        "not_in_plex_album_folders": counts["missing"] + counts["partial"],
         "total_matches": len(all_rows),
         "offset": offset, "limit": limit,
         "items": all_rows[offset:offset+limit],
