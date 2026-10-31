@@ -356,15 +356,13 @@ def firewall():
     # port 4545, so they bypass that wg0 route and use Docker's underlay.
     # Adding a low-priority ip rule cannot work reliably: wg-quick inserts
     # its own routing rules before it, as demonstrated by 48/49 before 50.
-    mark_rule = (
-        "iptables", "-t", "mangle", "OUTPUT", "-p", "tcp", "--sport",
-        str(WEB_PORT), "-j", "MARK", "--set-mark", str(WG_FWMARK)
-    )
-    present = run(mark_rule[0], mark_rule[1], "-C", *mark_rule[2:],
-                  check=False)
+    mark_match = ("-p", "tcp", "--sport", str(WEB_PORT),
+                  "-j", "MARK", "--set-mark", str(WG_FWMARK))
+    present = run("iptables", "-t", "mangle", "-C", "OUTPUT",
+                  *mark_match, check=False)
     if present.returncode:
-        run(mark_rule[0], mark_rule[1], "-I", "OUTPUT", "1",
-            *mark_rule[4:])
+        run("iptables", "-t", "mangle", "-I", "OUTPUT", "1",
+            *mark_match)
     # Once any profile is selected, stay fail-closed until a verified tunnel
     # connects. Fresh installations without profiles retain direct networking.
     run("iptables", "-P", "OUTPUT", "DROP")
