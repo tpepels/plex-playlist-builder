@@ -48,225 +48,93 @@ For YouTube/YouTube Music the server writes yt-dlp info JSON sidecars into stagi
 
 If both artist/album-artist and album are trustworthy, the server retags staged audio and publishes the complete collection. **Album imports also require a successful download, a known expected track count, no unresolved failures, and exactly that many staged audio files.** Otherwise the files remain in staging, outside Plex, even if the source or user has marked a missing track ignored. If metadata is unresolved, a complete album becomes **Needs metadata** until the user confirms it. A matching count cannot establish exact track identity; independent track-level verification is still advisable.
 
-## Add it to the existing media-server compose
+## Install and update
 
-Assuming this repository is cloned as `./yt-dlp-server` next to the compose file:
+The repository's normal `compose.yaml` includes the downloader and the
+WireGuard gateway. **No Surfshark environment variables, VPN credentials,
+configuration files, or extra Compose overrides are needed.** The gateway
+generates an internal control token and the downloader reads it privately.
+Port 4545 remains the same. Download history, music and staging remain in
+their existing bind mounts.
 
-    yt-dlp-server:
-      build:
-        context: ./yt-dlp-server
-      container_name: yt-dlp-server
-      user: "${UID:-1000}:${GID:-1000}"
-      ports:
-        - "4545:4545"
-      environment:
-        TZ: ${TZ}
-        PORT: 4545
-        MUSIC_ROOT: /data/music
-        IMPORT_SUBDIR: YT-DLP Imports
-        STATE_DIR: /data/state
-        TEMP_DIR: /data/tmp
-      volumes:
-        - /srv/completed/music:/data/music
-        - /srv/yt-dlp-server/state:/data/state
-        - /srv/yt-dlp-server/tmp:/data/tmp
-      restart: unless-stopped
-
-Prepare writable state directories once:
-
-    sudo mkdir -p /srv/yt-dlp-server/state /srv/yt-dlp-server/tmp
-    sudo chown -R "$(id -u):$(id -g)" /srv/yt-dlp-server
-
-Then:
-
-    docker compose build yt-dlp-server
-    docker compose up -d yt-dlp-server
-
-Open `http://YOUR-SERVER-IP:4545`.
-
-
-## Managed WireGuard countries in the downloader UI
-
-This is a **separate opt-in Compose mode** from the older
-`compose.surfshark.yaml` Gluetun setup. Use one VPN mode at a time. Once the
-managed gateway is deployed, VPN profiles are uploaded and switched entirely
-from the downloader UI. Do not use Wireshark files: upload **WireGuard**
-`.conf` files downloaded for distinct Surfshark locations. Surfshark:
-VPN > Manual setup > WireGuard > Locations > Download.
-
-### Initial setup on the media server (once)
-
-Use the existing downloader Compose project and a modern Docker Compose with
-`!reset` support. Make sure all downloader jobs are idle before changing
-networking. The gateway owns the VPN tunnel, and the downloader has no Docker
-socket access or `NET_ADMIN` privileges.
+To install normally:
 
 ```sh
-cd /path/to/yt-dlp-server
+docker compose up -d --build
+```
+
+To upgrade **an existing** downloader that previously exposed port 4545
+itself, stop that downloader before bringing up the new port-owning gateway.
+Do this only between download jobs:
+
+```sh
 git pull --ff-only
-cp -n .env.surfshark.example .env.surfshark
-python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
-# Put the generated secret into SURFSHARK_CONTROL_API_KEY in .env.surfshark.
-chmod 600 .env.surfshark
-sudo install -d -m 700 /srv/yt-dlp-server/wireguard-profiles
-
-docker compose --env-file .env.surfshark \
-  -f compose.yaml -f compose.wireguard.yaml config -q
-# The old downloader is using port 4545, so stop it first.
-docker compose -f compose.yaml stop yt-dlp-server
-# If the old Surfshark Gluetun override was active, stop it too:
-# docker compose --env-file .env.surfshark \
-#   -f compose.yaml -f compose.surfshark.yaml stop surfshark-vpn
-docker compose --env-file .env.surfshark \
-  -f compose.yaml -f compose.wireguard.yaml \
-  up -d --build --force-recreate wireguard-gateway yt-dlp-server
+docker compose stop yt-dlp-server
+docker compose up -d --build
 ```
 
-Do not run the old Gluetun and managed WireGuard Compose overrides together.
-The command above deliberately targets only the gateway and downloader,
-not Plex or the playlist manager. When the gateway first starts with no
-profiles, its kill switch blocks downloader Internet traffic until you
-activate a valid profile, while preserving the LAN-facing downloader UI.
+For installations embedded in a larger media-server Compose project,
+integrate the two services from this repository's `compose.yaml` into
+that existing project *once* (or deploy them as their existing dedicated
+Compose project). Do not run two downloader containers against the same
+state/staging directories. The playlist manager should continue reaching
+`http://yt-dlp-server:4545` on its shared Docker network. No other media
+container needs to use the VPN.
 
-If a separate parent Compose file defines the downloader, adjust the
-override to that exact project and its service names. Paths in Compose
-overrides resolve relative to the first Compose file.
+The gateway and downloader must be recreated once because Docker itself
+owns network namespaces and VPN permissions; a webpage cannot change the
+network mode of an already-running container.
 
-### Upload and verify in the browser
+## Surfshark VPN: upload and test entirely in the web interface
 
-1. Open the downloader at port 4545 and expand **WireGuard VPN · country
-   rotation**. Enter the `SURFSHARK_CONTROL_API_KEY` you configured above.
-   This is an administrator credential: use the web UI only over a trusted
-   local network or HTTPS, not a public HTTP endpoint. The browser holds
-   the token in its input field; it is not saved to local storage.
-2. Select **multiple Surfshark WireGuard .conf files** and press
-   **Upload profiles**. Files are parsed strictly, capped at 8 KB each,
-   and stored as private mode-0600 files in
-   `/srv/yt-dlp-server/wireguard-profiles` on the server. The app
-   never returns private keys in a response or log.
-3. Press **Connect** on a profile to establish and verify a real Internet
-   exit IP. The UI reports a failed connection if verification fails.
-4. Press **Test all countries once**. The gateway temporarily activates each
-   uploaded country, checks its public IP and geolocated country, and
-   reports PASS/FAIL per configuration; the previous connection is restored.
-   Failures include identical consecutive exit IPs or mismatched countries.
-   Country names are inferred from filenames such as `nl-ams.conf`;
-   for single uploads you can specify the label explicitly. Use a two-letter
-   country code or recognizable full country name.
-5. Use **Next country** for a manual one-step change. Optionally set
-   `SURFSHARK_ROTATE_ON_403=1` in `.env.surfshark` and recreate both
-   services to attempt a single automatic profile switch after repeated
-   YouTube HTTP 403s. This remains off by default.
+After the normal downloader update above:
 
-The dashboard blocks new download requests during a rotation test and
-requires the existing job queue to be idle before manual switches. Do not
-run another downloader process while testing. The WireGuard gateway uses
-kernel WireGuard and requires host `NET_ADMIN`/WireGuard support; check
-`docker logs yt-dlp-wireguard-gateway` and the dashboard if it cannot
-connect. A VPN does not guarantee access to streams blocked by YouTube's
-token verification or anti-bot systems.
+1. Open the downloader at **port 4545** and expand **Surfshark VPN**.
+2. Download Surfshark **WireGuard** `.conf` configurations for your desired
+   locations (Surfshark account > VPN > Manual setup > WireGuard).
+3. Select several `.conf` files in the upload field and choose
+   **Upload .conf files**. No administrator token, country text field or
+   manual VPN configuration is required. Profiles are persisted under
+   `/srv/yt-dlp-server/wireguard-profiles` and never shown with private
+   keys. Country codes are inferred from location filenames
+   (for example, `nl-ams.conf`, `de-fra.conf`).
+4. The first profile is connected automatically and checked against a
+   public-IP geolocation service. Select **Test all countries once** to
+   cycle through every uploaded location, report observed country and
+   public IP, and then restore the previous selection.
+5. Use **Next country** to manually change your download IP between jobs.
+   You can also connect/remove individual profiles through the UI.
 
-**Security:** VPN private keys are plaintext on the server's restricted
-persistent directory, never committed to Git. The control API listens only
-on `127.0.0.1:8787` inside the shared downloader namespace and uses a
-strong token. The gateway installs outbound-deny firewall rules before
-opening the API, allowing outbound Internet traffic only via WireGuard
-(and the selected tunnel endpoint). Docker's built-in DNS resolver may
-forward queries outside the VPN, so this must not yet be treated as a
-DNS-leak-tested privacy setup. The optional managed gateway is distinct
-from Gluetun; its new network switching code should be tested on your
-actual Linux/Docker host before relying on the kill switch.
+Before the first profile is uploaded, downloads still use the usual
+**direct connection**. Once a VPN profile is selected, the gateway
+installs an outbound-deny kill switch; if VPN connection or verification
+fails, downloads remain blocked rather than silently reverting to direct
+Internet access. Network access may therefore be interrupted while
+changing profiles. The dashboard rejects manual switches when downloads
+are active or queued. A VPN may not solve YouTube 403/PO-token problems.
 
-## Optional Surfshark VPN for downloader only
+Automatic country switching after repeated HTTP 403s remains **disabled
+by default**. An administrator can enable it later through the optional
+Compose environment variable `SURFSHARK_ROTATE_ON_403=1`; this is
+unnecessary for manual upload, switching and testing.
 
-This feature is **off by default**. Use Gluetun with Surfshark WireGuard to
-route the yt-dlp server's outbound traffic through Surfshark, without
-changing the VPN routing of Plex, Transmission, Caddy or other services.
-The downloader's port 4545 remains published on the Docker host through
-Gluetun. Inside the same Compose network, Gluetun aliases the name
-`yt-dlp-server` for clients that already call that host.
+**Security:** The control API binds to loopback inside the shared
+downloader network namespace and authenticates with a private
+automatically generated token stored under the persistent downloader
+state directory. Uploaded WireGuard keys are stored only in the
+gateway's protected private volume. The browser sends no secret.
+Since the main downloader web UI has no user login, everyone who can
+access it can also submit VPN management actions; keep port 4545
+restricted to your trusted LAN or behind authenticated HTTPS.
+Cross-origin browser form submissions are rejected. The managed gateway
+is not yet validated against your own Docker host or independently
+DNS-leak-tested. Docker's resolver may forward DNS queries outside the
+VPN; do not assume this is a privacy-audited network configuration.
 
-1. Surfshark website: VPN > Manual setup > WireGuard. Generate a fresh
-   WireGuard key pair, then download a server config and copy its IPv4
-   `Address` CIDR field (not the VPN server's public IP).
-2. On the server, inside the yt-dlp-server repository:
-
-   ```sh
-   cp .env.surfshark.example .env.surfshark
-   chmod 600 .env.surfshark
-   # Edit the private key, WireGuard address, region and control key.
-   python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
-   ```
-
-   Put the generated random string into `SURFSHARK_CONTROL_API_KEY`. Never
-   commit the completed file, send it in chat, or expose the control server's
-   port 8000 to the LAN. Docker environment inspection by host administrators
-   can reveal these settings; keep Docker access restricted.
-
-3. Use the **same Compose project** and the Surfshark override. For this
-   repository's standalone Compose file:
-
-   ```sh
-   docker compose --env-file .env.surfshark \
-     -f compose.yaml -f compose.surfshark.yaml config -q
-   # Stop only the old downloader first: it currently owns host port 4545.
-   docker compose -f compose.yaml stop yt-dlp-server
-   docker compose --env-file .env.surfshark \
-     -f compose.yaml -f compose.surfshark.yaml \
-     up -d --build --force-recreate surfshark-vpn yt-dlp-server
-   ```
-
-   Do this only when no downloader job is running. The explicit service
-   names prevent rebuilding or restarting unrelated media services. If using a parent Compose
-   project containing other media services, apply the
-   `yt-dlp-server/compose.surfshark.yaml` override **to that same parent
-   Compose file** and use its existing project name/network. Do not start
-   a second downloader against the same staging/state volumes. Paths in
-   Compose overrides resolve relative to the first Compose file.
-
-4. Check VPN status and its reported public IP from the downloader's shared
-   namespace:
-
-   ```sh
-   docker exec yt-dlp-server python /app/surfshark_vpn.py status
-   ```
-
-   Compare this against your usual non-VPN public IP before retrying failed
-   albums. Confirm the downloader web UI remains reachable on port 4545 and
-   any playlist manager that uses `http://yt-dlp-server:4545` can still
-   reach it.
-
-### Exit IP changes
-
-A manual **bounded reconnect** can be requested only while the downloader
-has no queued, running or finalizing jobs:
-
-```sh
-docker exec yt-dlp-server python /app/surfshark_vpn.py rotate
-```
-
-The command prints the old/new public IP and reports `changed: false` if the
-reconnect reused the same Surfshark exit. A WireGuard reconnect can choose
-the same server, so it is **not** a guaranteed IP switch.
-
-For an explicit geographic change, edit
-`SURFSHARK_SERVER_COUNTRIES` in `.env.surfshark` and re-create **both**
-`surfshark-vpn` and `yt-dlp-server` with the Compose command above, only
-while the downloader is idle. Recreating just Gluetun can leave the
-downloader on an obsolete network namespace. Note that other countries
-may have stricter geographic restrictions.
-
-Optionally set `SURFSHARK_ROTATE_ON_403=1` to attempt at most one VPN
-reconnect after repeated YouTube HTTP 403 failures, before the last normal
-yt-dlp retry. This happens only **between** completed yt-dlp subprocesses
-and is disabled by default. A fresh yt-dlp process re-extracts media URLs.
-If the VPN comes back with the same exit IP, the logs say so rather than
-claiming a switch. This never bypasses PO-token checks and is not a
-guaranteed 403 solution. Do not set a short repetitive rotation interval.
-
-The default non-VPN deployment remains unchanged if the override is not
-used. Existing persistent staged files and job history are shared by the
-two configurations; they must never be started simultaneously.
+The old `compose.surfshark.yaml` and `compose.wireguard.yaml`
+overrides are legacy alternatives. **Do not combine them with the new
+standard deployment.** Neither is needed for uploading and rotating
+profiles in the web UI.
 
 ## Chrome extension
 
