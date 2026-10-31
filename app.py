@@ -16,6 +16,10 @@ from flask import Flask, jsonify, redirect, render_template, request, send_file,
 import staging as library_staging
 from disk_inventory import inventory_music, inventory_staging
 from job_history import history_records
+from download_resilience import (
+    recovery_policy, retry_delay, player_client_for_attempt,
+    track_pacing_args, should_restart,
+)
 from album_submission import clean_match_audit, submission_key
 from job_diagnostics import explain_job
 
@@ -334,6 +338,8 @@ def normalize_persisted_job(raw):
         "finished_at": raw.get("finished_at"),
         "returncode": raw.get("returncode"),
         "http_403": bool(raw.get("http_403", False)),
+        "automatic_403_restarts": int(raw.get("automatic_403_restarts") or 0),
+        "recovered_http_403": bool(raw.get("recovered_http_403", False)),
         "retry_of": raw.get("retry_of"),
         "attempt": int(raw.get("attempt") or 1),
         "source": source,
@@ -511,13 +517,13 @@ def is_youtube_album_playlist(url):
     return playlist_id.startswith("OLAK5uy_")
 
 
-def youtube_extractor_args(url):
+def youtube_extractor_args(url, player_client=None):
     if not is_youtube_url(url):
         return []
 
     args = [
         "--extractor-args",
-        f"youtube:player_client={YOUTUBE_PLAYER_CLIENT}",
+        f"youtube:player_client={player_client or YOUTUBE_PLAYER_CLIENT}",
     ]
 
     if BGUTIL_SERVER_HOME.is_dir():
@@ -1007,7 +1013,7 @@ def build_spotdl_command(job):
     return cmd
 
 
-def build_command(job):
+def build_command(job, *, player_client=None):
     stage = library_staging.ensure_stage_dir(TEMP_DIR, job)
     cmd = [
         "yt-dlp",
@@ -1052,7 +1058,9 @@ def build_command(job):
     else:
         cmd.extend(["--no-overwrites", "--download-archive", str(ARCHIVE_FILE)])
 
-    cmd.extend(youtube_extractor_args(job["url"]))
+    if is_youtube_url(job["url"]):
+        cmd.extend(track_pacing_args(recovery_policy()))
+    cmd.extend(youtube_extractor_args(job["url"], player_client=player_client))
     cmd.extend(cookie_args())
     cmd.append(job["url"])
     return cmd
