@@ -345,14 +345,17 @@ def test_worker():
                     result = _activate(entry["id"])
                     changed_ip = previous_ip is None or previous_ip != result["ip"]
                     expected = expected_country_code(entry["country"])
-                    country_match = expected is not None and expected == result.get("country_code")
-                    ok = changed_ip and country_match
+                    observed = result.get("country_code") or ""
+                    country_match = expected is None or expected == observed
+                    ok = changed_ip and bool(observed) and country_match
                     if not changed_ip:
                         note = "Exit IP did not change"
+                    elif not observed:
+                        note = "Public IP found, but location lookup did not identify a country"
                     elif expected is None:
-                        note = "Unknown expected country; use a country name or ISO code"
+                        note = "Public IP and country observed; source filename has no recognizable country code"
                     elif not country_match:
-                        note = "Expected " + expected + "; observed " + str(result.get("country_code") or "?")
+                        note = "Expected " + expected + "; observed " + observed
                     else:
                         note = "Verified country and exit IP"
                     item = {"filename": entry["filename"], "country": entry["country"],
