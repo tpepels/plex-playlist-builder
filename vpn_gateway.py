@@ -478,7 +478,9 @@ def ensure_control_token():
     # no raw uploaded VPN profiles and no capability to alter networking.
     uid = int(os.getenv("VPN_DOWNLOADER_UID", "1000"))
     gid = int(os.getenv("VPN_DOWNLOADER_GID", "1000"))
-    os.chown(TOKEN_FILE, uid, gid)
+    owner = TOKEN_FILE.stat()
+    if owner.st_uid != uid or owner.st_gid != gid:
+        os.chown(TOKEN_FILE, uid, gid)
     TOKEN = token
 
 
