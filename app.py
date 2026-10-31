@@ -1063,7 +1063,7 @@ def append_log(job_id, line):
             return
 
         job["last_activity_at"] = time.time()
-        if "HTTP Error 403: Forbidden" in line:
+        if "HTTP Error 403" in line or "HTTP 403" in line:
             job["http_403"] = True
         if (
             "has already been recorded in the archive" in line.lower()
@@ -1121,6 +1121,10 @@ def append_log(job_id, line):
 
         job["log"].append(line)
         job["log"] = job["log"][-40:]
+        # Failures must survive a sudden server restart, even when yt-dlp
+        # has not yet returned a final process exit code.
+        if line.startswith("ERROR:") or job.get("http_403"):
+            persist_jobs_locked()
 
 def finalize_staged_job(job_id):
     with jobs_lock:
