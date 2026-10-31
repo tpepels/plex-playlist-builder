@@ -77,6 +77,8 @@ label{font-size:13px;color:#bbc2ca}
       div("metric", (data.counts.indexed || 0) + " volledig in Plex"),
       div("metric", (data.counts.missing_from_plex || 0) + " niet in Plex-index"),
       div("metric", (data.counts.partially_indexed || 0) + " gedeeltelijk"),
+      div("metric", ((data.counts.missing_on_disk || 0) +
+          (data.counts.partially_missing_on_disk || 0)) + " bestanden ontbreken"),
       div("metric", (data.counts.metadata_required || 0) + " metadata nodig"),
       div("metric", (data.counts.in_progress || 0) + " bezig")
     );
@@ -84,6 +86,8 @@ label{font-size:13px;color:#bbc2ca}
       indexed: "Alle bestanden in Plex gevonden",
       missing_from_plex: "Gepubliceerd, maar ontbreekt in Plex",
       partially_indexed: "Slechts een deel in Plex",
+      missing_on_disk: "Gepubliceerde bestanden ontbreken op schijf",
+      partially_missing_on_disk: "Sommige bestanden ontbreken op schijf",
       metadata_required: "Wacht op metadata in yt-dlp",
       in_progress: "Nog aan het downloaden",
       not_published: "Niet gepubliceerd",
@@ -102,6 +106,14 @@ label{font-size:13px;color:#bbc2ca}
         "Plex heeft " + job.files_indexed + " van " + job.files_recorded +
         " geregistreerde publicatiebestanden geïndexeerd.");
       card.append(heading, state, why, ratio);
+      if (job.files_on_disk !== null) {
+        card.append(div("metadata", "Bestanden op yt-dlp-schijf: " +
+          job.files_on_disk + " aanwezig · " + job.files_missing_on_disk + " ontbreken."));
+      }
+      if (job.staged_audio_on_disk > 0) {
+        card.append(div("metadata", "Nog in staging: " +
+          job.staged_audio_on_disk + " audiobestand(en)."));
+      }
       if (job.requested) card.append(div("metadata", "Gevraagd album: " + job.requested));
       if (job.final_dir) card.append(div("path", "Opgeslagen onder: " + job.final_dir));
       if (job.plex_labels.length) {
