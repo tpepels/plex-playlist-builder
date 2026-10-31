@@ -186,3 +186,11 @@ def test_single_job_retry_reuses_same_safe_builder(server):
     assert server.jobs[retry_id]["retry_of"] == "single"
     assert server.jobs[retry_id]["staging_owner_id"] == "origin"
     assert server.jobs[retry_id]["force"] is False
+
+
+def test_legacy_retry_without_staging_owner_reuses_original_job_folder():
+    previous = job("original-legacy", completed=68, total=69)
+    previous.pop("staging_owner_id")
+    retry = build_retry(previous, "new-retry", created_at=100)
+    assert retry["staging_owner_id"] == "original-legacy"
+    assert retry["retry_of"] == "original-legacy"
