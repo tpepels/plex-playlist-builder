@@ -88,8 +88,8 @@ def rotate(key, *, timeout=50, interval=2):
 
 
 def rotate_if_enabled():
-    """Optional one-shot 403 fallback. Never rotates on ordinary downloads."""
-    if os.getenv("SURFSHARK_ROTATE_ON_403") != "1":
+    """Default-on one-shot 403 fallback for configured VPN downloads."""
+    if os.getenv("SURFSHARK_ROTATE_ON_403", "1") != "1":
         return None
     if os.getenv("VPN_GATEWAY_ENABLED") == "1":
         try:
