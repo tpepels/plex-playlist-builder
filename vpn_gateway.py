@@ -20,6 +20,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 ROOT = Path(os.getenv("VPN_PROFILE_DIR", "/profiles"))
@@ -45,6 +46,85 @@ COUNTRY_CODES = {
 }
 MAX_PROFILES = 20
 MAX_BYTES = 8192
+
+
+class VPNConnectionError(RuntimeError):
+    """Safe, user-visible connection stage; never contains config or keys."""
+
+    def __init__(self, phase, message):
+        self.phase = phase
+        super().__init__(message)
+
+
+def setup_error(stderr):
+    """Classify only known error patterns. Never return raw command stderr."""
+    value = stderr.lower()
+    if "operation not permitted" in value or "permission denied" in value:
+        return VPNConnectionError(
+            "permissions", "WireGuard cannot start: container lacks required "
+            "network permissions. Check NET_ADMIN and /dev/net/tun.")
+    if "operation not supported" in value or "protocol not supported" in value:
+        return VPNConnectionError(
+            "kernel", "WireGuard is unavailable in the host kernel or container.")
+    if "nft: command not found" in value or "iptables-restore: command not found" in value:
+        return VPNConnectionError(
+            "firewall", "WireGuard routing tools are missing from the gateway image.")
+    if "file exists" in value:
+        return VPNConnectionError(
+            "routing", "WireGuard could not create its route or interface "
+            "because a previous route already exists.")
+    if "resolvconf: not found" in value:
+        return VPNConnectionError(
+            "dns_setup", "WireGuard requires a DNS helper missing from this image.")
+    return VPNConnectionError(
+        "tunnel_setup", "WireGuard could not create the tunnel. Inspect the "
+        "gateway's network capabilities; no VPN credentials are shown.")
+
+
+def has_handshake():
+    """Only inspect handshake timestamps, never print public or private keys."""
+    output = run("wg", "show", "wg0", "latest-handshakes", check=False)
+    if output.returncode:
+        return False
+    for line in output.stdout.splitlines():
+        values = line.split()
+        if len(values) == 2 and values[1].isdigit() and int(values[1]) > 0:
+            return True
+    return False
+
+
+def wait_for_handshake(seconds=13):
+    """Initiate traffic via the tunnel then require an actual WG peer response.
+
+    Numeric IPv4 bypasses Docker DNS. It is used solely to trigger the VPN
+    handshake; successful HTTPS geolocation remains a separate requirement.
+    """
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if has_handshake():
+            return
+        try:
+            with socket.create_connection(("1.1.1.1", 443), timeout=1.4):
+                pass
+        except OSError:
+            # TCP may fail when there is no tunnel; the WG handshake still runs.
+            pass
+        if has_handshake():
+            return
+        time.sleep(0.5)
+    raise VPNConnectionError(
+        "handshake", "WireGuard interface started, but the Surfshark server "
+        "did not complete a handshake. Check that the private key is registered "
+        "with Surfshark and that the host allows UDP port 51820.")
+
+
+def check_dns():
+    try:
+        socket.getaddrinfo("ipwho.is", 443, family=socket.AF_INET)
+    except OSError:
+        raise VPNConnectionError(
+            "dns", "WireGuard handshake succeeded, but DNS lookup failed. "
+            "The gateway cannot resolve public-IP verification hosts.") from None
 
 
 def run(*argv, check=True):
@@ -213,49 +293,81 @@ def _activate(profile_id):
     stop_tunnel()
     allow_endpoint(candidate["endpoint"], candidate["port"])
     write_private(ACTIVE_FILE, candidate["text"])
+    failure = None
     try:
-        run("wg-quick", "up", str(ACTIVE_FILE))
+        startup = run("wg-quick", "up", str(ACTIVE_FILE), check=False)
+        if startup.returncode:
+            raise setup_error(startup.stderr)
+        wait_for_handshake()
+        check_dns()
         check = probe()
         if not check.get("ip"):
-            raise RuntimeError("VPN has no verified external IP")
+            raise VPNConnectionError("egress", "VPN handshake worked, but "
+                                     "there was no verified public IP.")
         data["active"] = profile_id
         save_metadata(data)
         return check
-    except Exception:
+    except VPNConnectionError as exc:
+        failure = exc
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        failure = VPNConnectionError(
+            "setup", "VPN initialization failed before exit-IP verification.")
+    # Preserve the safe failure reason while attempting a fail-closed rollback.
+    try:
         stop_tunnel()
-        # Keep the firewall closed even if restoring the previous tunnel fails.
-        data["active"] = None
-        save_metadata(data)
-        if previous_text and previous:
-            try:
-                old = parse_profile(previous_text)
-                allow_endpoint(old["endpoint"], old["port"])
-                write_private(ACTIVE_FILE, old["text"])
-                run("wg-quick", "up", str(ACTIVE_FILE))
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        pass
+    data["active"] = None
+    save_metadata(data)
+    if previous_text and previous:
+        try:
+            old = parse_profile(previous_text)
+            allow_endpoint(old["endpoint"], old["port"])
+            write_private(ACTIVE_FILE, old["text"])
+            restored = run("wg-quick", "up", str(ACTIVE_FILE), check=False)
+            if not restored.returncode:
+                # A restarted interface is not automatically a working
+                # connection; require at least the old peer handshake.
+                wait_for_handshake(seconds=6)
                 data["active"] = previous
                 save_metadata(data)
-            except Exception:
-                pass
-        raise RuntimeError("Unable to establish VPN for selected profile") from None
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            pass
+    raise failure
 
 
 def probe():
-    # Internet request is forced through wg0 by the OUTPUT firewall.
-    # This public IP-geolocation service can be rate-limited or unavailable.
-    for _ in range(3):
+    """Check the public exit after a verified handshake, with a backup API.
+
+    Both services use HTTPS and report the requester's apparent egress IP.
+    Their errors are deliberately not forwarded to the UI.
+    """
+    hosts = (
+        ("https://ipwho.is/", "ipwhois"),
+        ("https://ipapi.co/json/", "ipapi"),
+    )
+    for url, provider in hosts:
         try:
-            probe_request = Request("https://ipwho.is/",
-                                    headers={"User-Agent": "yt-dlp-wireguard-gateway/1.0",
-                                             "Accept": "application/json"})
-            with urlopen(probe_request, timeout=7) as response:
-                item = json.load(response)
-            if item.get("success") and item.get("ip"):
-                return {"ip": str(item["ip"]),
-                        "country": str(item.get("country") or "Unknown"),
-                        "country_code": str(item.get("country_code") or "")}
-        except (OSError, ValueError):
-            time.sleep(1)
-    raise RuntimeError("VPN external IP test failed (network or geolocation unavailable)")
+            request = Request(url, headers={
+                "User-Agent": "yt-dlp-wireguard-gateway/1.0",
+                "Accept": "application/json",
+            })
+            with urlopen(request, timeout=5) as response:
+                if int(response.headers.get("Content-Length", "0") or 0) > 65536:
+                    continue
+                item = json.loads(response.read(65536))
+            ip = str(item.get("ip") or "")
+            if not ip or (provider == "ipwhois" and item.get("success") is False):
+                continue
+            ipaddress.ip_address(ip)
+            country = item.get("country") if provider == "ipwhois" else item.get("country_name")
+            return {"ip": ip, "country": str(country or "Unknown"),
+                    "country_code": str(item.get("country_code") or "")}
+        except (HTTPError, URLError, ValueError, TypeError, OSError):
+            continue
+    raise VPNConnectionError(
+        "exit_ip", "WireGuard handshake and DNS succeeded, but both HTTPS "
+        "public-IP services failed. Check VPN egress or HTTPS connectivity.")
 
 
 def expected_country_code(label):
@@ -279,6 +391,8 @@ def list_profiles():
     status = {"running": TASK["running"], "done": TASK["done"],
               "message": TASK["message"], "results": list(TASK["results"])}
     return {"profiles": value["profiles"], "active": value["active"],
+            "kill_switch": FIREWALL_ENABLED,
+            "tunnel_ready": has_handshake() if FIREWALL_ENABLED else False,
             "test": status}
 
 
@@ -373,7 +487,9 @@ def test_worker():
                 with LOCK:
                     TASK["results"].append({"filename": entry["filename"],
                                             "country": entry["country"], "ok": False,
-                                            "message": str(exc)})
+                                            "phase": exc.phase if isinstance(exc, VPNConnectionError) else "unknown",
+                                            "message": str(exc) if isinstance(exc, VPNConnectionError)
+                                            else "VPN connection failed during setup."})
         with LOCK:
             TASK["message"] = "Restoring previous VPN state"
             if original:
