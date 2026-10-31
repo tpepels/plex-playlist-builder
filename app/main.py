@@ -317,7 +317,12 @@ def api_download_audit(q: str = Query(default="", max_length=150)):
         tracks = music.searchTracks()  # A fresh Plex index, never the insights cache.
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Cannot inspect the Plex Music library.") from exc
-    return reconcile(jobs, tracks, query=q, disk=disk)
+    report = reconcile(jobs, tracks, query=q, disk=disk)
+    report["plex_music_locations"] = [
+        str(path) for path in (getattr(music, "locations", None) or [])
+        if path
+    ]
+    return report
 
 
 @app.post("/api/download-audit/scan")
