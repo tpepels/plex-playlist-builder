@@ -41,6 +41,12 @@
     .section-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
     h2 { font-size:17px; margin:0 0 13px; }
     .versions { color:var(--muted); font-size:12px; }
+    .compact-help { margin-top:12px; color:var(--muted); font-size:12px; }
+    .compact-help > summary { cursor:pointer; width:fit-content; }
+    .compact-help[open] > summary { margin-bottom:12px; }
+    .compact-help .sources { margin-top:12px; }
+    .version-details { margin-top:0; }
+
     .jobs { display:grid; gap:10px; }
     .job { min-width:0; max-width:100%; overflow:hidden; background:var(--panel2); border:1px solid var(--line); border-radius:11px; padding:13px 14px; }
     .job.targeted { border-color:var(--good); box-shadow:0 0 0 2px #6fdc8c33; }
@@ -131,7 +137,6 @@
   <div class="page-head">
     <div class="page-title">
       <h1>yt-dlp music server</h1>
-      <p class="sub">Audio only. Metadata and cover art embedded when the source provides them.</p>
     </div>
     <a class="extension-download" href="{{ url_for('download_chrome_extension') }}" download>
       Chrome extension
@@ -150,8 +155,10 @@
         <label><input type="checkbox" name="force"> Ignore archive and overwrite existing file</label>
       </div>
     </form>
-    <div class="path">Staging first: /data/tmp/staging · Library publish only after completion + metadata validation: {{ import_root }}/Artist/Album/Track</div>
-    <div class="sources">
+    <details class="compact-help">
+      <summary>Supported sources, format and storage details</summary>
+      <div class="path">Audio only, with metadata and cover art when available. Staging: /data/tmp/staging. Completed albums only: {{ import_root }}/Artist/Album/Track</div>
+      <div class="sources">
       <div class="sources-title">Supported sources</div>
       <div class="source-chips" aria-label="Example supported sites">
         <span class="source-chip">Spotify via spotDL</span>
@@ -171,12 +178,16 @@
         <a href="https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md" target="_blank" rel="noopener noreferrer">see the full current list</a>.
         Spotify links use Spotify metadata while spotDL tries YouTube Music, YouTube, Bandcamp, then SoundCloud for audio. Missing tracks can be resolved manually with a direct YouTube, Bandcamp, or SoundCloud URL. Some sites may require cookies or may stop working temporarily when the site changes.
       </div>
-    </div>
+      </div>
+    </details>
   </section>
   <section class="panel">
     <div class="section-head">
       <h2>Downloads</h2>
-      <div class="versions">spotDL {{ versions.spotdl }} · yt-dlp {{ versions.yt_dlp }} · {{ versions.deno.splitlines()[0] }} · PO bgutil {{ versions.bgutil }}</div>
+      <details class="compact-help version-details">
+        <summary>Downloader versions</summary>
+        <div class="versions">spotDL {{ versions.spotdl }} · yt-dlp {{ versions.yt_dlp }} · {{ versions.deno.splitlines()[0] }} · PO bgutil {{ versions.bgutil }}</div>
+      </details>
     </div>
     <div id="job-overview" class="job-overview" role="status" aria-live="polite"></div>
     <div id="job-notice" class="job-notice" hidden role="status" aria-live="polite"></div>
@@ -219,6 +230,9 @@
   const focusParams = new URLSearchParams(window.location.search);
   const focusedJobId = focusParams.get("job");
   const requestedResult = focusParams.get("result");
+  // Deep links are one-shot focus requests, not persistent application state.
+  if (focusedJobId) window.history?.replaceState?.(null, "", window.location.pathname || "/");
+  let actionNotice = "";
   let didScrollToJob = false;
   let probeTimer = null;
   let probeController = null;
@@ -242,22 +256,27 @@
       counts.active + " working · " + counts.waiting + " waiting · " +
       counts.action + " need metadata · " + counts.failed + " failed/partial · " +
       counts.finished + " finished · " + counts.duplicates + " duplicate requests prevented";
-    if (focusedJobId) {
-      const found = jobs.find(job => job.id === focusedJobId ||
-        (job.request_member_ids || []).includes(focusedJobId));
-      notice.hidden = false;
-      notice.className = found ? "job-notice" : "job-notice warning";
-      const explanation = found
-        ? "Job " + focusedJobId + ": " + (found.diagnosis?.heading || found.status) +
-          ". " + (found.diagnosis?.explanation || found.message || "")
-        : "Job " + focusedJobId + " is not active. Check the finished and failed results below.";
+    const found = focusedJobId ? jobs.find(job => job.id === focusedJobId ||
+      (job.request_member_ids || []).includes(focusedJobId)) : null;
+    notice.hidden = true;
+    if (found) {
+      const album = found.metadata_album || found.source_title ||
+        found.match_audit?.requested_album || "Untitled recording";
+      const artist = found.metadata_artist || found.source_album_artist ||
+        found.match_audit?.requested_artist || "";
+      const displayName = (artist ? artist + " — " : "") + album;
       notice.textContent = requestedResult === "duplicate"
-        ? "Duplicate download prevented. The same YouTube album ID already has a job; " +
-          "no new download was created. " + explanation
+        ? displayName + " is already in the download history; no new job was created."
         : requestedResult === "completed"
-        ? "Album previously downloaded. No new job was created; its old job card may " +
-          "no longer be visible."
-        : explanation;
+        ? displayName + " was downloaded previously; no new job was created."
+        : displayName + ": " + (found.diagnosis?.heading || found.status) +
+          ". " + (found.diagnosis?.explanation || found.message || "");
+      notice.className = "job-notice";
+      notice.hidden = false;
+    } else if (actionNotice) {
+      notice.className = "job-notice";
+      notice.textContent = actionNotice;
+      notice.hidden = false;
     }
     const openLogs = new Set(
       Array.from(root.querySelectorAll(".job details[open]"))
@@ -355,7 +374,9 @@
       if (job.progress) bits.push(job.progress);
       if (job.source === "spotify") bits.push("Spotify / spotDL");
       else if (job.playlist) bits.push("playlist");
-      if (job.attempt_count > 1) bits.push("attempt " + job.attempt + " of " + job.attempt_count);
+      if (job.version_attempt) bits.push("software " +
+        (job.software_version || "legacy") + " · try " + job.version_attempt +
+        " (total attempt " + job.attempt + ")");
       if (job.final_dir) bits.push(job.final_dir);
       meta.textContent = bits.filter(Boolean).join(" · ");
       card.appendChild(meta);
@@ -1039,6 +1060,8 @@
         (item.removed_from_queue ? " · removed from active list" : "") +
         (item.automatic_403_restarts ? " · " + item.automatic_403_restarts +
           " automatic 403 restart(s)" : "") +
+        (item.software_version ? " · software " + item.software_version +
+          ", try " + (item.version_attempt || 1) : "") +
         (item.previous_attempts.length ? " · " +
           (item.previous_attempts.length + 1) + " total attempts" : "")));
       if (item.previous_attempts.length) {
@@ -1049,6 +1072,8 @@
         for (const previous of item.previous_attempts) {
           more.append(historyNode("div", "history-reason",
             historyTime(previous.created_at) + " · " + previous.status +
+            " · software " + (previous.software_version || "legacy") +
+            ", try " + (previous.version_attempt || 1) +
             " · " + (previous.reason || "No recorded reason")));
         }
         details.append(more);
@@ -1198,11 +1223,11 @@
       await refreshHistory();
       // The history render updates the status text. Retain the actual outcome
       // in the visible overview for this bulk operation.
+      actionNotice = "Retry all failed: " + result.queued_count + " queued, " +
+        result.skipped_capacity + " not queued. Download archive and staging are preserved.";
       document.getElementById("job-notice").hidden = false;
       document.getElementById("job-notice").className = "job-notice";
-      document.getElementById("job-notice").textContent =
-        "Retry all failed: " + result.queued_count + " queued, " +
-        result.skipped_capacity + " not queued. Download archive and staging are preserved.";
+      document.getElementById("job-notice").textContent = actionNotice;
     } catch (error) {
       status.textContent = "Retry all failed: " + error.message;
     } finally {
