@@ -429,3 +429,71 @@ def test_browser_shows_egress_counter_and_registered_client_public_key():
     assert "udp_packets_allowed" in script
     assert "CLIENT PUBLIC KEY" in script
     assert "entry.diagnostics" in script
+
+
+def test_wireguard_transfer_reports_only_numeric_counters(monkeypatch):
+    import vpn_gateway as g
+    from types import SimpleNamespace
+    peer = "A" * 43 + "="
+    def run(*args, **kwargs):
+        assert args == ("wg", "show", "wg0", "transfer")
+        return SimpleNamespace(returncode=0, stdout=f"{peer}\t20\t148\n",
+                               stderr="")
+    monkeypatch.setattr(g, "run", run)
+    assert g.wireguard_transfer() == {"rx_bytes": 20, "tx_bytes": 148}
+
+
+def test_wireguard_transfer_unavailable_without_usable_data(monkeypatch):
+    import vpn_gateway as g
+    from types import SimpleNamespace
+    monkeypatch.setattr(g, "run",
+                        lambda *args, **kwargs:
+                        SimpleNamespace(returncode=1, stdout="", stderr=""))
+    assert g.wireguard_transfer() is None
+
+
+def test_endpoint_route_uses_wireguard_socket_mark_to_check_underlay(monkeypatch):
+    import vpn_gateway as g
+    from types import SimpleNamespace
+
+    calls = []
+    def command(*args, **kwargs):
+        calls.append(args)
+        if args[:4] == ("wg", "show", "wg0", "fwmark"):
+            return SimpleNamespace(returncode=0, stdout="0xca6c\n", stderr="")
+        return SimpleNamespace(returncode=0,
+                               stdout="146.70.186.149 via 172.18.0.1 dev eth0 src 172.18.0.2 mark 0xca6c\n",
+                               stderr="")
+    monkeypatch.setattr(g, "run", command)
+    assert g.endpoint_route("146.70.186.149") == "underlay"
+    assert calls[-1] == ("ip", "-4", "route", "get",
+                         "146.70.186.149", "mark", "0xca6c")
+
+
+def test_endpoint_route_detects_own_tunnel_loop(monkeypatch):
+    import vpn_gateway as g
+    from types import SimpleNamespace
+
+    def command(*args, **kwargs):
+        if args[0] == "wg":
+            return SimpleNamespace(returncode=0, stdout="0xca6c", stderr="")
+        return SimpleNamespace(returncode=0,
+                               stdout="146.70.186.149 dev wg0 src 10.14.0.2", stderr="")
+    monkeypatch.setattr(g, "run", command)
+    assert g.endpoint_route("146.70.186.149") == "tunnel"
+
+
+def test_handshake_diagnostics_include_transfer_and_route_without_secrets(monkeypatch):
+    import vpn_gateway as g
+    monkeypatch.setattr(g, "wireguard_transfer",
+                        lambda: {"rx_bytes": 0, "tx_bytes": 148})
+    monkeypatch.setattr(g, "endpoint_udp_packets", lambda _: None)
+    monkeypatch.setattr(g, "endpoint_route", lambda _: "underlay")
+    monkeypatch.setattr(g, "client_public_key", lambda _: "A" * 43 + "=")
+    diagnostics = g.safe_handshake_diagnostics({
+        "endpoint": "146.70.186.149", "port": 51820, "text": PROFILE})
+    assert diagnostics["wireguard_tx_bytes"] == 148
+    assert diagnostics["wireguard_rx_bytes"] == 0
+    assert diagnostics["udp_packets_allowed"] is None
+    assert diagnostics["endpoint_route"] == "underlay"
+    assert KEY_A not in str(diagnostics)
