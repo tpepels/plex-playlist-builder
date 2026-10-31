@@ -1,0 +1,33 @@
+name: Fast checks
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: fast-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      MUSIC_ROOT: ${{ runner.temp }}/music
+      TEMP_DIR: ${{ runner.temp }}/staging
+      STATE_DIR: ${{ runner.temp }}/state
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install minimal offline test dependencies
+        run: python -m pip install -q pytest flask mutagen
+      - name: Compile Python sources
+        run: python -m py_compile app.py staging.py album_completeness.py retry_queue.py job_history.py
+      - name: Focused offline regression tests
+        run: python -m pytest -q tests/test_album_completeness.py tests/test_bulk_retry.py tests/test_job_history.py tests/test_job_diagnostics.py
+      - name: Browser UI logic (Node)
+        run: node --test tests/test_download_ui.mjs tests/test_download_history_ui.mjs tests/test_retry_all_ui.mjs
