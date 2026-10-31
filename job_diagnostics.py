@@ -28,7 +28,12 @@ def explain_job(job, repeated_requests=0):
     tone = "neutral"
     heading = "Checking status"
 
-    if status == "queued":
+    if status == "running" and str(job.get("message") or "").startswith("YouTube HTTP 403; waiting"):
+        heading = "Recovering from HTTP 403"
+        explanation = str(job.get("message"))
+        action = "Automatic retry is scheduled. Previously saved tracks are retained."
+        tone = "warning"
+    elif status == "queued":
         heading = "Waiting in download queue"
         explanation = "The request is accepted. yt-dlp has not started processing it yet."
         action = "No action required."
@@ -109,4 +114,6 @@ def explain_job(job, repeated_requests=0):
         "duplicate_requests": max(0, int(repeated_requests or 0)),
         "file_count": len(files),
         "has_published_directory": bool(job.get("final_dir")),
+        "automatic_403_restarts": int(job.get("automatic_403_restarts") or 0),
+        "recovered_http_403": bool(job.get("recovered_http_403")),
     }
