@@ -194,7 +194,7 @@ or metadata.
 
 Both containers must be updated for the new endpoints.
 
-## Find downloaded albums missing from Plex
+## Legacy job-based download audit (API only)
 
 The toolbar's **Downloadcontrole** link opens `/downloads-audit?q=Beethoven`.
 The read-only `GET /api/download-audit?q=...` compares all retained yt-dlp
