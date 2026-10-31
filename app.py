@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import queue
 import re
@@ -14,6 +15,7 @@ from urllib.request import Request, urlopen
 from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
 
 import staging as library_staging
+from album_completeness import album_hold_reason, is_album_job
 from disk_inventory import inventory_music, inventory_staging
 from job_history import history_records
 from retry_queue import failed_candidates, build_retry
@@ -156,6 +158,23 @@ VERSIONS = {
     ]),
     "spotdl": tool_version(["spotdl", "--version"]),
 }
+
+
+def current_software_version():
+    """Fingerprint deployed downloader code and toolchain, not historical retries."""
+    digest = hashlib.sha256()
+    for name in ("app.py", "staging.py", "album_completeness.py",
+                 "retry_queue.py", "download_resilience.py",
+                 "album_submission.py", "job_diagnostics.py"):
+        path = Path(__file__).with_name(name)
+        digest.update(name.encode())
+        digest.update(path.read_bytes())
+    for name, version in sorted(VERSIONS.items()):
+        digest.update(f"{name}={version}".encode())
+    return digest.hexdigest()[:12]
+
+
+SOFTWARE_VERSION = current_software_version()
 
 
 def persist_jobs_locked():
@@ -343,6 +362,8 @@ def normalize_persisted_job(raw):
         "recovered_http_403": bool(raw.get("recovered_http_403", False)),
         "retry_of": raw.get("retry_of"),
         "attempt": int(raw.get("attempt") or 1),
+        "software_version": str(raw.get("software_version") or "legacy"),
+        "version_attempt": int(raw.get("version_attempt") or 1),
         "source": source,
         "retry_base_completed": int(retry_base_completed),
         "failed_items": int(raw.get("failed_items") or 0),
@@ -1156,8 +1177,22 @@ def finalize_staged_job(job_id):
         if not target_job.get("staging_owner_id") and source_job.get("staging_owner_id"):
             target_job["staging_owner_id"] = source_job["staging_owner_id"]
 
+        staged_count = len(library_staging.media_files(
+            library_staging.stage_dir(TEMP_DIR, target_job)
+        ))
+        hold_reason = album_hold_reason(target_job, staged_count)
+        if hold_reason:
+            target_job["status"] = "partial" if staged_count else "failed"
+            target_job["staged_files"] = staged_count
+            target_job["message"] = (
+                f"Album kept out of Plex: {hold_reason}. Retry to complete it."
+            )
+            persist_jobs_locked()
+            return {"status": "incomplete", "message": target_job["message"],
+                    "media_count": staged_count}
+
         target_job["status"] = "finalizing"
-        target_job["message"] = "Publishing successful downloads"
+        target_job["message"] = "Publishing complete download"
         persist_jobs_locked()
 
         snapshot = dict(target_job)
@@ -1428,7 +1463,7 @@ def run_job(job_id):
                         f"Partial - {job['completed_items']} tracks saved; "
                         f"{max(1, job['failed_items'])} failed"
                     )
-                should_finalize = bool(staged_media)
+                should_finalize = bool(staged_media) and not is_album_job(job)
             elif not failed:
                 job["status"] = "succeeded"
                 should_finalize = bool(staged_media)
@@ -1471,6 +1506,18 @@ def run_job(job_id):
                         )
                 else:
                     job["message"] = f"yt-dlp exited with code {returncode}"
+            # Even a zero exit code can conceal missing playlist items or
+            # archive-skipped files that are absent from this album's stage.
+            # Keep any incomplete album out of the scanned library.
+            if is_album_job(job):
+                hold_reason = album_hold_reason(job, len(staged_media))
+                if hold_reason:
+                    job["status"] = "partial" if staged_media else "failed"
+                    job["staged_files"] = len(staged_media)
+                    job["message"] = (
+                        f"Album kept out of Plex: {hold_reason}. Retry to complete it."
+                    )
+                    should_finalize = False
             persist_jobs_locked()
 
         if should_finalize:
@@ -1551,6 +1598,8 @@ def staged_jobs_to_finalize_after_restore():
                 continue
 
             if job.get("status") in {"succeeded", "partial"}:
+                if is_album_job(job) and album_hold_reason(job, len(staged)):
+                    continue
                 finalize_ids.append(job["id"])
                 continue
 
@@ -1572,7 +1621,8 @@ def staged_jobs_to_finalize_after_restore():
                     f"Recovering partial Spotify download - "
                     f"{len(staged)} staged track(s) ready to publish"
                 )
-                finalize_ids.append(job["id"])
+                if not is_album_job(job):
+                    finalize_ids.append(job["id"])
                 changed = True
 
         if changed:
@@ -1715,6 +1765,8 @@ def public_job_from_group_locked(root_id, members):
         "http_403": representative["http_403"],
         "retry_of": representative["retry_of"],
         "attempt": representative["attempt"],
+        "software_version": representative.get("software_version") or "legacy",
+        "version_attempt": representative.get("version_attempt", 1),
         "source": representative.get("source", "yt-dlp"),
         "failed_items": representative.get("failed_items", 0),
         "missing_tracks": [
@@ -1859,6 +1911,8 @@ def download():
         "http_403": False,
         "retry_of": None,
         "attempt": 1,
+        "software_version": SOFTWARE_VERSION,
+        "version_attempt": 1,
         "source": source,
         "retry_base_completed": 0,
         "failed_items": 0,
@@ -2028,6 +2082,7 @@ def enqueue_verified_album():
             "created_at": time.time(), "started_at": None, "finished_at": None,
             "returncode": None, "http_403": False, "retry_of": None, "attempt": 1,
             "source": "yt-dlp", "retry_base_completed": 0, "failed_items": 0,
+            "software_version": SOFTWARE_VERSION, "version_attempt": 1,
             "unidentified_failed_items": 0, "missing_tracks": [],
             "resolution_of": None, "spotify_track_url": None,
             "manual_source_url": None, "download_query": None,
@@ -2184,7 +2239,7 @@ def queue_retry_locked(previous):
     if download_queue.full():
         return None, "queue_full"
     retry_id = uuid.uuid4().hex[:10]
-    retry = build_retry(previous, retry_id)
+    retry = build_retry(previous, retry_id, software_version=SOFTWARE_VERSION)
     jobs[retry_id] = retry
     if not persist_jobs_locked():
         jobs.pop(retry_id, None)
@@ -2446,6 +2501,8 @@ def resolve_missing_spotify_track(job_id):
             "http_403": False,
             "retry_of": None,
             "attempt": 1,
+            "software_version": SOFTWARE_VERSION,
+            "version_attempt": 1,
             "source": "spotify",
             "retry_base_completed": 0,
             "failed_items": 0,
