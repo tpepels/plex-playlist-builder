@@ -46,6 +46,7 @@
     .job.targeted { border-color:var(--good); box-shadow:0 0 0 2px #6fdc8c33; }
     .job-notice { margin:0 0 12px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; color:var(--muted); }
     .job-notice.warning { color:var(--bad); border-color:#713238; }
+    .job-overview { color:var(--muted); font-size:13px; padding:9px 0 14px; overflow-wrap:anywhere; }
     .job-top { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:14px; align-items:start; }
     .job-release { min-width:0; display:flex; gap:10px; align-items:center; }
     .job-cover { width:54px; height:54px; border-radius:7px; object-fit:contain; background:#0e1012; border:1px solid var(--line); }
@@ -150,6 +151,7 @@
       <h2>Downloads</h2>
       <div class="versions">spotDL {{ versions.spotdl }} · yt-dlp {{ versions.yt_dlp }} · {{ versions.deno.splitlines()[0] }} · PO bgutil {{ versions.bgutil }}</div>
     </div>
+    <div id="job-overview" class="job-overview" role="status" aria-live="polite"></div>
     <div id="job-notice" class="job-notice" hidden role="status" aria-live="polite"></div>
     <div id="jobs" class="jobs">{% if not jobs %}<div class="empty">No downloads yet.</div>{% endif %}</div>
   </section>
@@ -173,13 +175,27 @@
   function renderJobs(jobs) {
     const root = document.getElementById("jobs");
     const notice = document.getElementById("job-notice");
+    const counts = {active: 0, waiting: 0, action: 0, finished: 0, failed: 0, duplicates: 0};
+    for (const job of jobs) {
+      if (["running", "finalizing"].includes(job.status)) counts.active++;
+      else if (job.status === "queued") counts.waiting++;
+      else if (job.status === "needs_metadata") counts.action++;
+      else if (job.status === "failed" || job.status === "partial") counts.failed++;
+      else if (job.status === "succeeded") counts.finished++;
+      counts.duplicates += job.diagnosis?.duplicate_requests || 0;
+    }
+    document.getElementById("job-overview").textContent =
+      counts.active + " working · " + counts.waiting + " waiting · " +
+      counts.action + " need metadata · " + counts.failed + " failed/partial · " +
+      counts.finished + " finished · " + counts.duplicates + " duplicate requests prevented";
     if (focusedJobId) {
-      const found = jobs.some(job => job.id === focusedJobId ||
+      const found = jobs.find(job => job.id === focusedJobId ||
         (job.request_member_ids || []).includes(focusedJobId));
       notice.hidden = false;
       notice.className = found ? "job-notice" : "job-notice warning";
       notice.textContent = found
-        ? "Album job " + focusedJobId + " found in this downloader."
+        ? "Job " + focusedJobId + ": " + (found.diagnosis?.heading || found.status) +
+          ". " + (found.diagnosis?.explanation || found.message || "")
         : "Album job " + focusedJobId + " is not visible on this downloader. " +
           "Check that the playlist manager points to this same yt-dlp service.";
     }
