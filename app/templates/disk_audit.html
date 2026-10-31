@@ -58,7 +58,7 @@ input{min-width:180px;flex:1}
   "use strict";
   const $ = id => document.getElementById(id);
   const downloader = {{ downloader_url | tojson }};
-  let tab = "disk", offset = 0, total = 0, loading = false;
+  let tab = "disk", offset = 0, total = 0, loading = false, requestSerial = 0;
   const limit = 100;
   const opts = {
     disk: [["all","Alle statussen"],["missing","Niet in Plex"],["partial","Gedeeltelijk"],["ambiguous","Ambigue locatie"],["indexed","In Plex"]],
@@ -173,7 +173,9 @@ input{min-width:180px;flex:1}
     }
   }
   async function load(append=false) {
-    if (loading) return;
+    if (append && loading) return;
+    const serial = ++requestSerial;
+    const requestedTab = tab;
     loading = true; $("check").disabled = true; $("load-more").disabled = true;
     const search = $("query").value.trim();
     const params = new URLSearchParams({
@@ -187,6 +189,7 @@ input{min-width:180px;flex:1}
       const path = tab === "disk" ? "/api/disk-reconciliation?" : "/api/download-history?";
       const response = await fetch(path + params.toString(),{cache:"no-store"});
       const data = await response.json();
+      if (serial !== requestSerial || requestedTab !== tab) return;
       if (!response.ok) throw new Error(data.detail || data.error || "Controle mislukt");
       if (tab === "disk") {
         renderDisk(data,append);
@@ -205,10 +208,14 @@ input{min-width:180px;flex:1}
           "Geen resultaten voor dit filter. Probeer zonder zoekterm of kies een andere status."));
       }
     } catch(error) {
-      $("status-text").textContent = "Controle mislukt: " + error.message;
-      $("load-more").hidden = true;
+      if (serial === requestSerial) {
+        $("status-text").textContent = "Controle mislukt: " + error.message;
+        $("load-more").hidden = true;
+      }
     } finally {
-      loading = false; $("check").disabled = false; $("load-more").disabled = false;
+      if (serial === requestSerial) {
+        loading = false; $("check").disabled = false; $("load-more").disabled = false;
+      }
     }
   }
   $("filter-form").addEventListener("submit",event => {
