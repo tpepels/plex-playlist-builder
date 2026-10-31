@@ -149,7 +149,10 @@ def test_html_album_submission_and_json_api_share_identity(server, monkeypatch):
     original = next(iter(server.jobs))
     again = client.post("/download", data={"url": URL, "playlist": "on"})
     assert again.status_code == 302
+    assert "result=duplicate" in again.headers["Location"]
+    assert "job=" + original in again.headers["Location"]
     assert server.download_queue.qsize() == 1
+    assert server.album_submissions[submission_key(URL)]["duplicate_requests"] == 1
     api = client.post("/api/albums", json={"url": URL})
     assert api.status_code == 200
     assert api.get_json()["duplicate"] is True
@@ -183,3 +186,24 @@ def test_downloader_dashboard_highlights_requested_job_and_reports_absent_job():
     assert 'card.classList.add("targeted")' in html
     assert "not visible on this downloader" in html
     assert "request_member_ids" in html
+
+
+def test_html_completed_album_is_not_queued_again_after_history_pruning(server, monkeypatch):
+    monkeypatch.setattr(server, "probe_url", lambda url: {
+        "kind": "playlist", "title": "An album", "count": 3,
+        "album_artist": "Artist", "thumbnail": None,
+    })
+    client = server.app.test_client()
+    original = client.post("/download", data={"url": URL, "playlist": "on"})
+    assert original.status_code == 302
+    existing_id = next(iter(server.jobs))
+    with server.jobs_lock:
+        server.jobs[existing_id]["status"] = "succeeded"
+        assert server.persist_jobs_locked()
+        server.jobs.pop(existing_id)
+        assert server.persist_jobs_locked()
+    prior_queue_size = server.download_queue.qsize()
+    response = client.post("/download", data={"url": URL, "playlist": "on"})
+    assert response.status_code == 302
+    assert "result=completed" in response.headers["Location"]
+    assert server.download_queue.qsize() == prior_queue_size
