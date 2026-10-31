@@ -521,9 +521,12 @@ def test_web_dashboard_survives_fail_closed_firewall(monkeypatch):
             "--sport", "4545", "-j", "ACCEPT") in calls
     assert ("ip6tables", "-A", "OUTPUT", "-p", "tcp",
             "--sport", "4545", "-j", "ACCEPT") in calls
-    # The dashboard's replies should not follow wg-quick's default tunnel.
-    assert ("ip", "-4", "rule", "add", "priority", "50",
-            "ipproto", "tcp", "sport", "4545", "lookup", "main") in calls
+    # Web replies are marked with the SAME fwmark as WireGuard's socket,
+    # bypassing wg-quick's earlier "not fwmark" VPN routing rule.
+    assert ("iptables", "-t", "mangle", "-C", "OUTPUT", "-p", "tcp",
+            "--sport", "4545", "-j", "MARK", "--set-mark", "51820") in calls
+    assert not any(args[:4] == ("ip", "-4", "rule", "add")
+                   for args in calls)
     # No general non-VPN outbound bypass is introduced.
     assert ("iptables", "-A", "OUTPUT", "-j", "ACCEPT") not in calls
     assert ("ip6tables", "-A", "OUTPUT", "-j", "ACCEPT") not in calls
@@ -534,3 +537,55 @@ def test_web_dashboard_survives_fail_closed_firewall(monkeypatch):
              and "-d" not in args)
         for args in calls if args[0] in {"iptables", "ip6tables"}
     )
+
+
+def test_web_mangle_rule_inserted_once_and_kept_after_vpn_start(monkeypatch):
+    """Firewall must mark dashboard replies, no reliance on fragile ip-rule prefs."""
+    import vpn_gateway as g
+    from types import SimpleNamespace
+
+    commands = []
+    def fake(*argv, check=True):
+        commands.append(argv)
+        if "-C" in argv:
+            return SimpleNamespace(returncode=1)
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(g, "run", fake)
+    monkeypatch.setattr(g, "FIREWALL_ENABLED", False)
+
+    g.firewall()
+    assert ("iptables", "-t", "mangle", "-I", "OUTPUT", "1",
+            "-p", "tcp", "--sport", "4545",
+            "-j", "MARK", "--set-mark", "51820") in commands
+    assert ("iptables", "-P", "OUTPUT", "DROP") in commands
+    assert ("iptables", "-A", "OUTPUT", "-p", "tcp",
+            "--sport", "4545", "-j", "ACCEPT") in commands
+    assert not any(args[:4] == ("ip", "-4", "rule", "add")
+                   for args in commands)
+
+
+def test_web_mangle_rule_is_idempotent(monkeypatch):
+    import vpn_gateway as g
+    from types import SimpleNamespace
+    commands = []
+    def fake(*argv, check=True):
+        commands.append(argv)
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(g, "run", fake)
+    g.firewall()
+    assert any(args[:4] == ("iptables", "-t", "mangle", "-C")
+               for args in commands)
+    assert not any(args[:4] == ("iptables", "-t", "mangle", "-I")
+                   for args in commands)
+
+
+def test_sanitized_profile_uses_fixed_route_mark_on_every_parse():
+    import vpn_gateway as g
+    first = g.parse_profile(PROFILE)
+    assert first["text"].count("FwMark = 51820") == 1
+    second = g.parse_profile(first["text"])
+    assert second["text"] == first["text"]
+    with pytest.raises(ValueError, match="FwMark"):
+        g.parse_profile(PROFILE.replace(
+            "Address = 10.14.0.2/16",
+            "Address = 10.14.0.2/16\nFwMark = 123"))
