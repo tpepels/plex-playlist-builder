@@ -25,8 +25,9 @@ function node() {
   };
 }
 
-function runUI(jobs) {
+function runUI(jobs, search = "") {
   const dom = new Map();
+  const historyChanges = [];
   const byId = id => {
     if (!dom.has(id)) dom.set(id, node());
     return dom.get(id);
@@ -41,14 +42,17 @@ function runUI(jobs) {
     activeElement: null,
   };
   const context = {
-    document, window: {location: {search: ""}, confirm() {return true;}},
+    document, window: {
+      location: {search, pathname: "/"}, confirm() {return true;},
+      history: {replaceState(_state, _title, path) {historyChanges.push(path);}},
+    },
     URLSearchParams, URL, fetch: async () => ({ok: false}),
     setInterval() {}, setTimeout() {}, clearTimeout() {},
     requestAnimationFrame() {},
     AbortController: class {},
   };
   vm.runInNewContext(source, context, {timeout: 1500});
-  return {byId};
+  return {byId, historyChanges};
 }
 
 function job(id, status, source) {
@@ -88,4 +92,26 @@ test("terminal jobs do not create a second detailed card", () => {
   const ui = runUI([job("beethoven-403", "failed", "yt-dlp")]);
   assert.equal(ui.byId("jobs").children.length, 1);
   assert.match(ui.byId("jobs").children[0].textContent, /No active downloads/);
+});
+
+test("unsupported stale job IDs leave no notice and are removed from the address bar", () => {
+  const ui = runUI([], "?job=stale-123&result=duplicate");
+  assert.equal(ui.byId("job-notice").hidden, true);
+  assert.deepEqual(ui.historyChanges, ["/"]);
+});
+
+test("deep-linked job notice names its album rather than an opaque job ID", () => {
+  const active = {...job("internal-id", "running", "yt-dlp"),
+    source_title: "Live at the Vanguard", source_album_artist: "Jazz Artist"};
+  const ui = runUI([active], "?job=internal-id&result=duplicate");
+  assert.equal(ui.byId("job-notice").hidden, false);
+  assert.match(ui.byId("job-notice").textContent, /Jazz Artist — Live at the Vanguard/);
+  assert.doesNotMatch(ui.byId("job-notice").textContent, /internal-id/);
+  assert.deepEqual(ui.historyChanges, ["/"]);
+});
+
+test("static server help and tool versions are collapsed by default", () => {
+  assert.match(template, /<details class="compact-help">\s*<summary>Supported sources/);
+  assert.match(template, /<details class="compact-help version-details">/);
+  assert.match(template, /<summary>Advanced options<\/summary>/);
 });
