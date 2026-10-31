@@ -99,9 +99,15 @@ def failed_candidates(current, archived=None):
     return candidates, dict(exclusions)
 
 
-def build_retry(previous, retry_id, *, created_at=None):
-    """Equivalent to a single-job Retry, preserving stage and source identity."""
+def build_retry(previous, retry_id, *, created_at=None, software_version=None):
+    """Build a retry. Global ancestry and per-release attempt counts coexist."""
     job_id = previous["id"]
+    software_version = str(software_version or previous.get("software_version") or "legacy")
+    version_attempt = (
+        int(previous.get("version_attempt") or 1) + 1
+        if software_version == (previous.get("software_version") or "legacy")
+        else 1
+    )
     total = int(previous.get("total_items") or 0)
     completed = min(int(previous.get("completed_items") or 0), total) if total else int(previous.get("completed_items") or 0)
     source = previous.get("source", "yt-dlp")
@@ -142,6 +148,7 @@ def build_retry(previous, retry_id, *, created_at=None):
         "http_403": False, "automatic_403_restarts": 0,
         "recovered_http_403": False,
         "retry_of": job_id, "attempt": int(previous.get("attempt") or 1) + 1,
+        "software_version": software_version, "version_attempt": version_attempt,
         "source": source, "retry_base_completed": completed,
         "failed_items": 0, "unidentified_failed_items": 0, "missing_tracks": [],
         "resolution_of": None, "spotify_track_url": None,
