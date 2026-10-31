@@ -155,6 +155,28 @@
     <div id="job-notice" class="job-notice" hidden role="status" aria-live="polite"></div>
     <div id="jobs" class="jobs">{% if not jobs %}<div class="empty">No downloads yet.</div>{% endif %}</div>
   </section>
+  <section class="panel" id="history-panel">
+    <details id="history-details">
+      <summary>Complete download history, including failures and removed cards</summary>
+      <p class="job-meta">Every new attempt is kept. Historical HTTP 403 failures remain
+        searchable even after their card is removed from the queue. Earlier jobs
+        already erased by older versions cannot be recovered here.</p>
+      <div class="url-row">
+        <input id="history-query" type="search" placeholder="Album, artist, job ID or 403"
+          aria-label="Search all download attempts">
+        <select id="history-filter" aria-label="History status filter">
+          <option value="failed">Failed and partial</option>
+          <option value="all">All attempts</option>
+          <option value="incomplete">Incomplete</option>
+          <option value="published">Published albums</option>
+        </select>
+        <button id="history-search" type="button">Search history</button>
+      </div>
+      <p id="history-status" class="job-meta" role="status"></p>
+      <div id="history-results" class="jobs"></div>
+      <button id="history-more" type="button" hidden>Load more history</button>
+    </details>
+  </section>
 </main>
 <script>
   const initialJobs = {{ jobs | tojson }};
@@ -854,6 +876,85 @@
 
   const JOB_REFRESH_MS = 5000;
   setInterval(refreshJobs, JOB_REFRESH_MS);
+
+  let historyOffset = 0;
+  let historyTotal = 0;
+  async function refreshHistory(append=false) {
+    const button = document.getElementById("history-search");
+    const more = document.getElementById("history-more");
+    const list = document.getElementById("history-results");
+    const status = document.getElementById("history-status");
+    button.disabled = true;
+    more.disabled = true;
+    if (!append) list.replaceChildren();
+    status.textContent = "Loading saved download attempts…";
+    const params = new URLSearchParams({
+      q:document.getElementById("history-query").value,
+      status:document.getElementById("history-filter").value,
+      offset:String(append ? historyOffset : 0),limit:"100",
+    });
+    try {
+      const response = await fetch("/api/download-history?" + params, {cache:"no-store"});
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error || "History unavailable");
+      historyTotal = data.total;
+      for (const item of data.items) {
+        const card = document.createElement("article");
+        card.className = "job";
+        const heading = document.createElement("h3");
+        heading.textContent = (item.artist ? item.artist + " — " : "") +
+          (item.title || item.url || "Unknown download");
+        const outcome = document.createElement("div");
+        outcome.className = "job-meta";
+        outcome.textContent = item.status.toUpperCase() +
+          (item.http_403 ? " · HTTP 403 source error" : "") +
+          (item.removed_from_queue ? " · removed from active queue" : "") +
+          " · Job " + item.job_id;
+        const reason = document.createElement("div");
+        reason.className = "job-meta";
+        reason.textContent = item.reason || "No detailed failure message saved.";
+        card.append(heading, outcome, reason);
+        if (item.final_dir) {
+          const path = document.createElement("div");
+          path.className = "job-meta";
+          path.textContent = "Published to: " + item.final_dir;
+          card.append(path);
+        }
+        if (item.url) {
+          const source = document.createElement("a");
+          source.href = item.url;
+          source.textContent = "Open original source";
+          source.target = "_blank";
+          source.rel = "noopener noreferrer";
+          card.append(source);
+        }
+        list.append(card);
+      }
+      historyOffset = (append ? historyOffset : 0) + data.items.length;
+      more.hidden = historyOffset >= historyTotal;
+      status.textContent = historyTotal + " matching attempts, " + historyOffset +
+        " shown. Failed jobs are retained, not automatically deleted.";
+      if (!historyTotal) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "No matching history entries. Older, already-pruned jobs cannot be reconstructed.";
+        list.append(empty);
+      }
+    } catch (error) {
+      status.textContent = "Cannot load history: " + error.message;
+    } finally {
+      button.disabled = false;
+      more.disabled = false;
+    }
+  }
+  document.getElementById("history-details").addEventListener("toggle", event => {
+    if (event.target.open) refreshHistory(false);
+  });
+  document.getElementById("history-search").addEventListener("click", () => refreshHistory(false));
+  document.getElementById("history-query").addEventListener("keydown", event => {
+    if (event.key === "Enter") {event.preventDefault();refreshHistory(false);}
+  });
+  document.getElementById("history-more").addEventListener("click", () => refreshHistory(true));
 </script>
 </body>
 </html>
