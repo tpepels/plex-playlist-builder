@@ -25,6 +25,7 @@ from download_resilience import (
 )
 from album_submission import clean_match_audit, submission_key
 from job_diagnostics import explain_job
+from surfshark_vpn import rotate_if_enabled
 
 app = Flask(__name__)
 
@@ -166,7 +167,7 @@ def current_software_version():
     for name in ("app.py", "staging.py", "album_completeness.py",
                  "retry_queue.py", "download_resilience.py",
                  "album_submission.py", "job_diagnostics.py",
-                 "templates/index.html"):
+                 "surfshark_vpn.py", "templates/index.html"):
         path = Path(__file__).resolve().parent / name
         digest.update(name.encode())
         digest.update(path.read_bytes())
@@ -1390,6 +1391,23 @@ def run_job(job_id):
                     persist_jobs_locked()
             if not retry:
                 break
+            # Optional final-stage fallback after repeated 403s. The subprocess
+            # has already exited, so no media transfer is interrupted.
+            if youtube and restart_index + 1 == policy["restarts"]:
+                vpn_result = rotate_if_enabled()
+                if vpn_result is not None:
+                    with jobs_lock:
+                        current = jobs[job_id]
+                        if vpn_result.get("changed"):
+                            note = ("Surfshark changed exit IP before the last "
+                                    "retry; a new yt-dlp process will extract "
+                                    "fresh stream URLs.")
+                        else:
+                            note = ("Surfshark IP switch was unavailable or "
+                                    "the exit IP did not change.")
+                        current["log"].append("RECOVERY: " + note)
+                        current["log"] = current["log"][-40:]
+                        persist_jobs_locked()
             # Restart yt-dlp itself. This re-extracts the video/stream URL;
             # replaying the same expired URL is not an effective recovery.
             time.sleep(delay)
