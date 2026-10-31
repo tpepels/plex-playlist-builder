@@ -405,6 +405,7 @@
     for (const job of liveJobs) {
       const card = document.createElement("article");
       card.className = "job";
+      card.classList.add(job.status);
       card.dataset.jobId = job.id;
       if (focusedJobId && (job.id === focusedJobId ||
           (job.request_member_ids || []).includes(focusedJobId))) {
