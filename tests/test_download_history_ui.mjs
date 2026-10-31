@@ -5,8 +5,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 
 const template = fs.readFileSync(new URL("../templates/index.html", import.meta.url), "utf8");
-const script = template.split("<script>")[1].split("</script>")[0]
-  .replace("{{ jobs | tojson }}", "[]");
+const scriptTemplate = template.split("<script>")[1].split("</script>")[0];
 
 function element() {
   return {
@@ -33,8 +32,9 @@ function attempt(i, status) {
     final_dir: status === "succeeded" ? "/music" : "",
   };
 }
-function runUI(attempts) {
+function runUI(attempts, activeJobs=[]) {
   const nodes = new Map(), calls = [];
+  const script = scriptTemplate.replace("{{ jobs | tojson }}", JSON.stringify(activeJobs));
   const get = id => {
     if (!nodes.has(id)) nodes.set(id, element());
     return nodes.get(id);
@@ -84,7 +84,7 @@ test("39 failed album titles are visible without searching", async () => {
   const ui = runUI(attempts);
   await flush();
   assert.equal(ui.get("history-results").children.length, 52);
-  assert.match(ui.get("history-summary").textContent, /50 saved attempts · 39 failed\/partial/);
+  assert.match(ui.get("history-summary").textContent, /39 failed\/partial · 11 succeeded/);
   assert.match(ui.get("history-results").children[0].textContent, /Failed and partial downloads/);
   assert.match(rowText(ui.get("history-results").children[1]), /Album 38/);
   assert.equal(ui.calls.length, 1);
@@ -110,5 +110,25 @@ test("all pages load automatically for Ctrl+F across historical jobs", async () 
   await flush();
   assert.equal(ui.calls.length, 2);
   assert.equal(ui.get("history-results").children.length, 217);
-  assert.match(ui.get("history-status").textContent, /215 of 215 loaded attempts visible/);
+  assert.match(ui.get("history-status").textContent, /215 of 215 saved results shown/);
+});
+
+test("active download is not repeated in finished history", async () => {
+  const active = {
+    id: "queued-job", request_member_ids: ["queued-job"],
+    status: "queued", source: "yt-dlp", url: "https://music.youtube.com/playlist?list=OLAK5uy_active",
+    source_title: "Active album", total_items: 0, completed_items: 0,
+    files: [], log: [], missing_tracks: [], progress: "",
+    diagnosis: {heading:"Waiting in download queue", explanation:"Accepted",
+      next_action:"Wait", tone:"neutral", duplicate_requests:0, archived_items:0}
+  };
+  const histories = [attempt(1, "failed"), {
+    ...attempt(2, "queued"), job_id: "queued-job",
+  }];
+  const ui = runUI(histories, [active]);
+  await flush();
+  assert.equal(ui.get("jobs").children.length, 1);
+  assert.equal(ui.get("jobs").children[0].dataset.jobId, "queued-job");
+  assert.equal(ui.get("history-results").children.length, 2); // failed group + one failed result
+  assert.match(rowText(ui.get("history-results").children[1]), /Album 1/);
 });
