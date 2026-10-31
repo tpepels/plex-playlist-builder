@@ -32,9 +32,19 @@ input{min-width:180px;flex:1}
 #load-more{margin:15px 0}
 @media(max-width:640px){main{padding:0 12px}.toolbar button{flex:1}}
 </style>
+<link rel="stylesheet" href="/static/signal-console.css">
 </head>
-<body><main>
-<a href="/">← Playlist Manager</a>
+<body><main class="signal-shell">
+<header class="signal-header signal-transition">
+  <div class="signal-brand">
+    <img class="signal-mark" src="/static/signal-mark.svg" width="61" height="61" alt="" aria-hidden="true">
+    <div><div class="signal-kicker">SIGNAL / LIBRARY AUDIT</div>
+      <div class="signal-wordmark">DISK <span>/ RECONCILIATION</span></div>
+      <a class="signal-back" href="/">← Playlist manager</a>
+    </div>
+  </div>
+  <button id="signal-theme-toggle" type="button" class="signal-theme-button" aria-pressed="true">CYBER: ON</button>
+</header>
 <h1>Bestanden op schijf die ontbreken in Plex</h1>
 <p>Dit overzicht begint bij de bestanden op je muziekvolume, ook als yt-dlp geen enkele downloadjob meer heeft. Standaard zie je uitsluitend albumfolders waarvan één of meer audiobestanden niet in Plex staan. Mislukte downloads kun je afzonderlijk bekijken via Downloadgeschiedenis.</p>
 <div class="tabs" role="tablist" aria-label="Soort controle">
@@ -244,4 +254,4 @@ input{min-width:180px;flex:1}
   options();load(false);
 })();
 </script>
-</main></body></html>
+</main><script src="/static/signal-console.js" defer></script></body></html>
