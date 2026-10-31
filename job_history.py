@@ -5,6 +5,10 @@ from collections import Counter
 
 
 def _reason(job):
+    # A recovered HTTP 403 must not be displayed as the reason for a
+    # successful download. Historic errors remain in the log.
+    if job.get("status") == "succeeded":
+        return str(job.get("message") or "Completed")[:500]
     for line in reversed(job.get("log") or []):
         value = str(line).strip()
         if value.startswith(("ERROR:", "FATAL:")) or "HTTP Error 403" in value:
@@ -71,6 +75,8 @@ def history_records(current, archived, *, query="", status="all", offset=0, limi
             "attempt": int(job.get("attempt") or 1),
             "title_known": bool(title),
             "has_retried": str(job.get("id")) in retried_ids,
+            "automatic_403_restarts": int(job.get("automatic_403_restarts") or 0),
+            "recovered_http_403": bool(job.get("recovered_http_403")),
         })
     entries.sort(key=lambda item: (float(item["created_at"] or 0),
                                    item["job_id"]), reverse=True)
