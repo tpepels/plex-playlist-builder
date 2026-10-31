@@ -25,7 +25,7 @@ def recovery_policy(environ=None):
         "track_pause_min": _number(env.get("YOUTUBE_TRACK_PAUSE_MIN"), 5, 0, 30),
         "track_pause_max": _number(env.get("YOUTUBE_TRACK_PAUSE_MAX"), 10, 0, 45),
         "request_pause": _number(env.get("YOUTUBE_REQUEST_PAUSE"), 1, 0, 10),
-        "fallback_client": str(env.get("YOUTUBE_403_FALLBACK_CLIENT", "web_safari") or "").strip(),
+        "fallback_client": str(env.get("YOUTUBE_403_FALLBACK_CLIENT", "default") or "").strip(),
     }
 
 
