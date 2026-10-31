@@ -242,10 +242,11 @@ def expected_country_code(label):
     if value in COUNTRY_CODES:
         return COUNTRY_CODES[value]
     if re.fullmatch(r"[a-z]{2}", value):
-        return value.upper()
+        return "GB" if value == "uk" else value.upper()
     match = re.match(r"([a-z]{2})[-_.]", value)
     if match:
-        return match.group(1).upper()
+        code = match.group(1).upper()
+        return "GB" if code == "UK" else code
     return None
 
 
