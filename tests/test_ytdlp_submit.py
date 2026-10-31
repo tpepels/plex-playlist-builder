@@ -35,6 +35,7 @@ def test_album_submission_returns_job_id_and_audit(monkeypatch):
         "job_id": "abc123", "duplicate": False, "status": "queued",
         "visible": True, "latest_job_id": "abc123",
         "message": "Waiting for worker", "retried": False,
+        "duplicate_reason": None, "duplicate_requests": 0,
     }
     assert len(calls) == 2
     assert calls[1][0].get_method() == "GET"
