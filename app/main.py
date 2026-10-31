@@ -42,7 +42,7 @@ from .isc_discovery import fetch_catalog, compare_library
 from .playlist_covers import import_cover_zip, MAX_ZIP_BYTES
 from .playlist_policies import read_policies, set_policy
 from .youtube_album import lookup_album, norm, same_owned_release
-from .download_audit import read_downloader_jobs, reconcile
+from .download_audit import read_downloader_jobs, read_disk_audit, reconcile
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
@@ -309,6 +309,7 @@ def api_download_audit(q: str = Query(default="", max_length=150)):
     """Reconcile all retained yt-dlp album jobs with actual Plex media paths."""
     try:
         jobs = read_downloader_jobs()
+        disk = read_disk_audit()
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
@@ -316,7 +317,7 @@ def api_download_audit(q: str = Query(default="", max_length=150)):
         tracks = music.searchTracks()  # A fresh Plex index, never the insights cache.
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Cannot inspect the Plex Music library.") from exc
-    return reconcile(jobs, tracks, query=q)
+    return reconcile(jobs, tracks, query=q, disk=disk)
 
 
 @app.post("/api/download-audit/scan")
