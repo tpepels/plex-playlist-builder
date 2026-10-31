@@ -162,6 +162,54 @@
     }
   }
 
+  function keyField(key) {
+    const input = element("input", undefined, "vpn-public-key-input");
+    input.type = "text";
+    input.readOnly = true;
+    input.value = key;
+    input.setAttribute("aria-label", "Client public key for Surfshark");
+    input.addEventListener("click", () => {
+      if (typeof input.select === "function") input.select();
+    });
+    return input;
+  }
+
+  function showPublicKeys(profiles) {
+    publicKeysPanel.replaceChildren();
+    if (!profiles.length) return;
+    const uniqueKeys = [...new Set(profiles.map(p => p.client_public_key).filter(Boolean))];
+    const missing = profiles.filter(p => !p.client_public_key).length;
+    publicKeysPanel.append(element("strong",
+      "Client public key to register with Surfshark"));
+    if (uniqueKeys.length === 1 && !missing) {
+      publicKeysPanel.append(element("p",
+        "All " + profiles.length + " countries use this same client key. Register it once.",
+        "vpn-muted"));
+      publicKeysPanel.append(keyField(uniqueKeys[0]));
+    } else if (uniqueKeys.length > 1) {
+      publicKeysPanel.append(element("p",
+        "These profiles use different client keys. Register each distinct key in Surfshark and check the country-specific values below.",
+        "vpn-key-warning"));
+      for (const key of uniqueKeys) {
+        const count = profiles.filter(p => p.client_public_key === key).length;
+        publicKeysPanel.append(element("p",
+          count + " location(s) use:", "vpn-muted"));
+        publicKeysPanel.append(keyField(key));
+      }
+    } else if (uniqueKeys.length === 1) {
+      publicKeysPanel.append(element("p",
+        "Some keys could not be derived. Available key:", "vpn-key-warning"));
+      publicKeysPanel.append(keyField(uniqueKeys[0]));
+    } else {
+      publicKeysPanel.append(element("p",
+        "No client public keys available. Update the WireGuard gateway first.",
+        "vpn-muted"));
+    }
+    publicKeysPanel.append(element("p",
+      "Select the text to copy it. The server's [Peer] PublicKey in a .conf file is different and must not be registered.",
+      "vpn-muted"));
+  }
+
   function render(data) {
     // Update test/busy state BEFORE deriving buttons' disabled states.
     showTest(data);
