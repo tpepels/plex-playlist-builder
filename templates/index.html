@@ -164,7 +164,9 @@
   const playlistInput = document.getElementById("playlist-input");
   const probeResult = document.getElementById("probe-result");
 
-  const focusedJobId = new URLSearchParams(window.location.search).get("job");
+  const focusParams = new URLSearchParams(window.location.search);
+  const focusedJobId = focusParams.get("job");
+  const requestedResult = focusParams.get("result");
   let didScrollToJob = false;
   let probeTimer = null;
   let probeController = null;
@@ -193,11 +195,18 @@
         (job.request_member_ids || []).includes(focusedJobId));
       notice.hidden = false;
       notice.className = found ? "job-notice" : "job-notice warning";
-      notice.textContent = found
+      const explanation = found
         ? "Job " + focusedJobId + ": " + (found.diagnosis?.heading || found.status) +
           ". " + (found.diagnosis?.explanation || found.message || "")
         : "Album job " + focusedJobId + " is not visible on this downloader. " +
           "Check that the playlist manager points to this same yt-dlp service.";
+      notice.textContent = requestedResult === "duplicate"
+        ? "Duplicate download prevented. The same YouTube album ID already has a job; " +
+          "no new download was created. " + explanation
+        : requestedResult === "completed"
+        ? "Album previously downloaded. No new job was created; its old job card may " +
+          "no longer be visible."
+        : explanation;
     }
     const openLogs = new Set(
       Array.from(root.querySelectorAll(".job details[open]"))
