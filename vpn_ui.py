@@ -20,7 +20,7 @@ from flask import Blueprint, jsonify, request
 GATEWAY = "http://127.0.0.1:8787"
 TEST_LOCK = threading.Lock()
 test_active = False
-_PRIVATE_KEY_DIRECTIVE = re.compile(r"(?m)^([ \\t]*PrivateKey[ \\t]*=[ \\t]*)([^\\r\\n]*)(\\r?)$")
+_PRIVATE_KEY_DIRECTIVE = re.compile(r"(?m)^([ \t]*PrivateKey[ \t]*=[ \t]*)([^\r\n]*)(\r?)$")
 _SURFSHARK_PLACEHOLDER = "<insert_your_private_key_here>"
 
 
