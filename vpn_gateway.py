@@ -250,10 +250,14 @@ def expected_country_code(label):
 
 
 def list_profiles():
-    with LOCK:
-        value = metadata()
-        return {"profiles": value["profiles"], "active": value["active"],
-                "test": dict(TASK)}
+    # Never block status polling on a slow VPN handshake or geolocation
+    # request. Metadata writes are atomic file replacements and task fields
+    # are independent small Python values.
+    value = metadata()
+    status = {"running": TASK["running"], "done": TASK["done"],
+              "message": TASK["message"], "results": list(TASK["results"])}
+    return {"profiles": value["profiles"], "active": value["active"],
+            "test": status}
 
 
 def add_profile(filename, country, content):
