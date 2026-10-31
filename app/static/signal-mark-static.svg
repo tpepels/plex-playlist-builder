@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="signal-title">
+<title id="signal-title">Signal Console</title>
+<defs><linearGradient id="gr" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#70efbd"/><stop offset="1" stop-color="#67d6ef"/></linearGradient></defs>
+<path fill="#10222b" stroke="#416c6a" stroke-width="1.5" d="M50 4 89 27v46L50 96 11 73V27Z"/>
+<circle cx="50" cy="50" r="35" fill="none" stroke="#294e54" stroke-width="1"/>
+<g><circle cx="50" cy="50" r="35" fill="none" stroke="#70eec4" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="41 179"/></g>
+<path d="M50 50 82 37" stroke="#6edfc5" stroke-width="1.5" opacity=".5"/>
+<circle cx="50" cy="50" r="27" fill="none" stroke="#378d8e" stroke-width="1.1" stroke-dasharray="1 5"/>
+<path d="M32 38 45 50 32 62" stroke="url(#gr)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+<path d="M49 65h22" stroke="#6dd8ec" stroke-width="6" stroke-linecap="round"/>
+<circle cx="76" cy="27" r="3" fill="#72edb9"/>
+</svg>
