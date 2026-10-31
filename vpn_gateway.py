@@ -310,8 +310,12 @@ def rotate():
                         if p["id"] == data["active"]), -1)
         target = choices[(current + 1) % len(choices)]
         previous = data.get("active")
+        old_ip = probe()["ip"] if previous else None
         result = _activate(target["id"])
-        return {"profile": target, **result, "changed_profile": previous != target["id"]}
+        changed_ip = old_ip is None or old_ip != result["ip"]
+        return {"profile": target, **result,
+                "changed_profile": previous != target["id"],
+                "changed_ip": changed_ip}
 
 
 def test_worker():
