@@ -39,14 +39,18 @@ def server(tmp_path, monkeypatch):
     with service.jobs_lock:
         original_jobs = dict(service.jobs)
         original_claims = dict(service.album_submissions)
+        original_archive = dict(service.archived_jobs)
         service.jobs.clear()
         service.album_submissions.clear()
+        service.archived_jobs.clear()
     yield service
     with service.jobs_lock:
         service.jobs.clear()
         service.jobs.update(original_jobs)
         service.album_submissions.clear()
         service.album_submissions.update(original_claims)
+        service.archived_jobs.clear()
+        service.archived_jobs.update(original_archive)
 
 
 def test_api_creates_one_job_and_returns_same_id_after_repeated_requests(server):
