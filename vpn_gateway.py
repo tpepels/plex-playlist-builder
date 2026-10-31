@@ -46,6 +46,8 @@ COUNTRY_CODES = {
 }
 MAX_PROFILES = 20
 MAX_BYTES = 8192
+# Cache only the derived PUBLIC half. Do not cache private-key strings.
+PROFILE_PUBLIC_CACHE = {}
 # Reuse wg-quick's fwmark to exempt the HTTP listener's reply packets from
 # its default-route policy without granting general direct Internet access.
 WG_FWMARK = 51820
@@ -539,14 +541,41 @@ def expected_country_code(label):
     return None
 
 
+def stored_client_public_key(profile_id):
+    """Derive the public key from an EXISTING uploaded profile.
+
+    This also works for profiles uploaded before the public-key UI existed.
+    A stat-based cache keeps normal status polling cheap and stores only
+    public keys, never configuration contents or client private keys.
+    """
+    if not isinstance(profile_id, str) or not re.fullmatch(r"[0-9a-f]{32}", profile_id):
+        return None
+    file = ROOT / (profile_id + ".conf")
+    try:
+        stat = file.stat()
+        fingerprint = (stat.st_mtime_ns, stat.st_size)
+        cached = PROFILE_PUBLIC_CACHE.get(profile_id)
+        if cached and cached[0] == fingerprint:
+            return cached[1]
+        value = client_public_key(file.read_text())
+    except (OSError, UnicodeError):
+        return None
+    if value is not None:
+        PROFILE_PUBLIC_CACHE[profile_id] = (fingerprint, value)
+    return value
+
+
 def list_profiles():
-    # Never block status polling on a slow VPN handshake or geolocation
-    # request. Metadata writes are atomic file replacements and task fields
-    # are independent small Python values.
+    # Metadata writes are atomic file replacements, and the public-key
+    # cache avoids repeated wg subprocesses during status polling.
     value = metadata()
+    profiles = [
+        {**item, "client_public_key": stored_client_public_key(item.get("id"))}
+        for item in value["profiles"]
+    ]
     status = {"running": TASK["running"], "done": TASK["done"],
               "message": TASK["message"], "results": list(TASK["results"])}
-    return {"profiles": value["profiles"], "active": value["active"],
+    return {"profiles": profiles, "active": value["active"],
             "kill_switch": FIREWALL_ENABLED,
             "tunnel_ready": has_handshake() if FIREWALL_ENABLED else False,
             "test": status}
@@ -586,6 +615,7 @@ def delete_profile(profile_id):
         data["profiles"] = [p for p in data["profiles"] if p["id"] != profile_id]
         save_metadata(data)
         (ROOT / (profile_id + ".conf")).unlink(missing_ok=True)
+        PROFILE_PUBLIC_CACHE.pop(profile_id, None)
         return {"deleted": True}
 
 
