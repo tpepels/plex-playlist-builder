@@ -214,6 +214,7 @@
     // Update test/busy state BEFORE deriving buttons' disabled states.
     showTest(data);
     const profiles = data.profiles || [];
+    showPublicKeys(profiles);
     $("vpn-count").textContent = profiles.length + " locations";
     const activeName = profiles.find((p) => p.id === data.active)?.country || "Unknown";
     const ready = Boolean(data.active && data.tunnel_ready);
@@ -238,6 +239,12 @@
       description.append(element("strong", item.country));
       description.append(element("small", item.filename));
       row.append(description);
+      if (item.client_public_key) {
+        const details = element("details", undefined, "vpn-profile-key");
+        details.append(element("summary", "Client public key"));
+        details.append(keyField(item.client_public_key));
+        row.append(details);
+      }
       if (data.active === item.id) row.append(element("span", "CONNECTED", "vpn-active-tag"));
       const actions = element("div", undefined, "vpn-row-actions");
       if (item.id !== data.active) {
