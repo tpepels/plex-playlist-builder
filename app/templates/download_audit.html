@@ -27,10 +27,20 @@ ul{padding-left:21px;color:#c1c8cf;font-size:13px}
 label{font-size:13px;color:#bbc2ca}
 @media(max-width:680px){main{padding:0 12px}.toolbar{align-items:stretch}button{min-height:42px}}
 </style>
+<link rel="stylesheet" href="/static/signal-console.css">
 </head>
 <body>
-<main>
-<a href="/">← Playlist Manager</a>
+<main class="signal-shell">
+<header class="signal-header signal-transition">
+  <div class="signal-brand">
+    <img class="signal-mark" src="/static/signal-mark.svg" width="61" height="61" alt="" aria-hidden="true">
+    <div><div class="signal-kicker">SIGNAL / LIBRARY AUDIT</div>
+      <div class="signal-wordmark">DOWNLOAD <span>/ AUDIT</span></div>
+      <a class="signal-back" href="/">← Playlist manager</a>
+    </div>
+  </div>
+  <button id="signal-theme-toggle" type="button" class="signal-theme-button" aria-pressed="true">CYBER: ON</button>
+</header>
 <h1>Downloadcontrole</h1>
 <p>Controleer of yt-dlp-bestanden daadwerkelijk door Plex zijn geïndexeerd. Vergelijking gebeurt op bestandslocatie, ook wanneer Plex een klassieke opname onder een andere uitvoerder of albumtitel toont.</p>
 <form id="audit-form" class="toolbar">
@@ -201,4 +211,4 @@ label{font-size:13px;color:#bbc2ca}
   check();
 })();
 </script>
-</main></body></html>
+</main><script src="/static/signal-console.js" defer></script></body></html>
