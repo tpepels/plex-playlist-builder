@@ -34,6 +34,21 @@ Open **http://media-server:8098**, finish the browser setup wizard, configure th
 
 Start with a small subset and confirm Plex playback/download succeeds. Then use AudioMuse's **Analysis and Clustering → Start Analysis** to analyze the music library. **Do not start clustering that writes playlists**. Analysis can take substantial time; existing results persist if interrupted.
 
+## Existing installation: wrong Docker tag or image pull failure
+
+AudioMuse's Git releases use `vX.Y.Z`, but GHCR image versions use **`X.Y.Z`**, without the `v`. The previous example incorrectly used `v3.7.0`; this has been fixed. If Docker reports `ghcr.io/neptunehub/audiomuse-ai:v3.7.0: not found` on an installation that already has its own `/srv/audiomuse-ai/.env`, do **not** recopy the sample `.env`: that would overwrite its generated database password. Instead:
+
+```bash
+cd /srv/audiomuse-ai
+sudo sed -i 's/^AUDIOMUSE_TAG=v3\.7\.0$/AUDIOMUSE_TAG=3.7.0/' .env
+sudo docker compose config --quiet
+sudo docker compose pull
+sudo docker compose up -d
+sudo docker compose ps
+```
+
+If the tag fails again, check the currently published tags at https://github.com/NeptuneHub/AudioMuse-AI/pkgs/container/audiomuse-ai and use an existing version (or `latest` for the released rolling version). The PostgreSQL `Interrupted` message is a consequence of the failed Docker Compose pull, not evidence of a PostgreSQL problem.
+
 ## Read-only mapping check
 
 From a working copy of the playlist-manager repository, download `plex-music-library.tsv` from the existing app, then:
@@ -54,7 +69,7 @@ The probe only reads the AudioMuse `/api/sync?fields=index` manifest and the loc
 - Web app: port **8098** (playlist manager stays on 5051).
 - Postgres 15 persists in a dedicated volume; no published database port.
 - One worker, CPU-capped at 2 cores by default (`AUDIOMUSE_WORKER_CPUS`).
-- Image tag pinned to **v3.7.0**, instead of unpinned `latest`.
+- Image tag pinned to **3.7.0** (Git release `v3.7.0`; GHCR image tags omit the leading `v`), instead of unpinned `latest`.
 - No music-directory mount: AudioMuse streams from Plex.
 - Keep the web app LAN-only or behind trusted authenticated access.
 - `sudo docker compose down` preserves volumes. **Never use `down -v` unless you deliberately want to erase all AudioMuse analysis data.**
