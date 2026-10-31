@@ -309,7 +309,7 @@ def download_audit_page():
 @app.get("/api/disk-reconciliation")
 def api_disk_reconciliation(
     q: str = Query(default="", max_length=150),
-    status: Literal["all", "missing", "partial", "indexed", "ambiguous"] = "all",
+    status: Literal["unindexed", "all", "missing", "partial", "indexed", "ambiguous"] = "unindexed",
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=200),
 ):
