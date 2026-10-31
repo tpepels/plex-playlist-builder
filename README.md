@@ -335,12 +335,49 @@ submission. A yt-dlp **archive skip** indicates that a source item was recorded
 in the downloader's archive; it does not guarantee Plex currently contains
 that file. Neither is conflated with a duplicate job request.
 
+## Permanent download history and disk-first inventory
+
+The server no longer prunes failed or completed download attempts after 50
+jobs. All attempts remain in persistent `/data/state/jobs.json` (including
+failures and their last error log). If a job card is explicitly removed from
+the active list, its record moves to `archived_jobs` inside that state file.
+Neither a successful nor a failed attempt disappears from
+`GET /api/download-history`, which supports `q`, `status`,
+`offset`, and `limit` filters. The dashboard includes a collapsible
+**Complete download history** panel, initially filtered to failed/partial
+attempts. An HTTP 403 error is recorded immediately and remains searchable.
+`MAX_HISTORY` is deprecated and ignored; it cannot silently delete failures.
+
+`GET /api/disk-inventory` scans **all of `MUSIC_ROOT`**, independently of
+download jobs, and groups audio files by their actual disk album folder.
+Albums under `IMPORT_SUBDIR` use the Artist/Album folder as a group, even
+when there are nested disc subfolders. Other music folders are grouped by
+their immediate parent directory. It separately enumerates unpublished audio
+under `TEMP_DIR/staging`. It does not follow symlink folders or hidden
+publish-in-progress folders. A scan that hits a filesystem error or safety
+limit returns `complete: false` with an error, rather than silently claiming
+all files were checked.
+
+The Plex Playlist Manager's **Downloadcontrole** page compares these disk
+files to Plex's indexed media file paths, ignoring composer and performer
+tags for the match. A file that never downloaded (for example, after HTTP
+403) cannot appear in the disk inventory; the separate permanent history
+records the failed attempt instead. A confirmed file on disk but absent from
+Plex still requires diagnosis of Plex library mounts, scans, access rights,
+or unsupported media. Requesting a Plex scan is not proof that indexing
+succeeded.
+
+Already-pruned or deleted attempts from **older versions** cannot be
+reconstructed from the new history. The disk inventory can still locate
+files left on disk; the yt-dlp archive may also contain successful source
+IDs, but it does not establish that Plex indexed the album.
+
 ## Removing finished or abandoned jobs
 
 Terminal job cards can be removed from the UI:
 
 - **Discard** on failed or metadata-waiting jobs removes the job and cleans its unpublished staging directory when no retry/resolution still shares that staging area.
-- **Remove from list** on succeeded jobs removes only the history card. Published music files are never deleted.
+- **Remove from list** on succeeded jobs hides the active card but keeps its permanent history record. Published music files are never deleted.
 - Queued/running jobs cannot be removed through this action while work is active.
 
 This is useful for album-level failures that are not worth resolving track-by-track, such as a Spotify album where every spotDL match failed.
@@ -412,7 +449,7 @@ Watchtower does not rebuild locally built images, so it cannot update yt-dlp ins
 | `TEMP_DIR` | `/data/tmp` | Persistent staging and temporary files; keep this outside `MUSIC_ROOT` |
 | `COOKIES_FILE` | empty | Optional Netscape-format cookies file |
 | `MAX_QUEUE` | `50` | Maximum waiting jobs |
-| `MAX_HISTORY` | `50` | In-memory UI history |
+| `MAX_HISTORY` | ignored | Deprecated: history is now permanent; this variable cannot prune failed downloads |
 | `PROBE_TIMEOUT` | `30` | Maximum link-inspection time in seconds |
 | `BGUTIL_SERVER_HOME` | `/opt/bgutil-ytdlp-pot-provider/server` | Bundled BgUtils provider scripts |
 | `YOUTUBE_PLAYER_CLIENT` | `mweb` | YouTube client used with automatic PO tokens |
