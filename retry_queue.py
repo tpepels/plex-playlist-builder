@@ -146,7 +146,7 @@ def build_retry(previous, retry_id, *, created_at=None):
         "failed_items": 0, "unidentified_failed_items": 0, "missing_tracks": [],
         "resolution_of": None, "spotify_track_url": None,
         "manual_source_url": None, "download_query": download_query,
-        "staging_owner_id": previous.get("staging_owner_id") or retry_id,
+        "staging_owner_id": previous.get("staging_owner_id") or job_id,
         "source_title": previous.get("source_title"),
         "source_album_artist": previous.get("source_album_artist"),
         "source_thumbnail": previous.get("source_thumbnail"),
