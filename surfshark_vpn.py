@@ -92,7 +92,12 @@ def rotate_if_enabled():
     if os.getenv("SURFSHARK_ROTATE_ON_403") != "1":
         return None
     if os.getenv("VPN_GATEWAY_ENABLED") == "1":
-        key = os.getenv("SURFSHARK_CONTROL_API_KEY", "")
+        try:
+            key = __import__("pathlib").Path(
+                os.getenv("VPN_CONTROL_TOKEN_FILE", "/data/state/.vpn-control-token")
+            ).read_text().strip()
+        except OSError:
+            return {"changed": False, "error": "VPN gateway not ready"}
         req = Request("http://127.0.0.1:8787/rotate",
                       data=b"{}", method="POST",
                       headers={"X-VPN-Key": key, "Content-Type": "application/json"})
