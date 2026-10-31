@@ -287,7 +287,21 @@
         // user can see what the Connect request returned beside the button.
         const row = [...list.querySelectorAll(".vpn-profile")].find(
           node => node.dataset.profileId === profileId);
-        if (row) showProfileResult(row, lastProfileResult);
+        if (row) {
+          const status = [...row.children].find(
+            child => child.className?.includes("vpn-profile-result"));
+          if (status) {
+            status.textContent = err.message;
+            status.classList.add("vpn-error");
+            if (err.diagnostics) {
+              const box = element("div", undefined, "vpn-profile-diagnostics");
+              showHandshakeDiagnostics(box, err.diagnostics);
+              row.append(box);
+            }
+          } else {
+            showProfileResult(row, lastProfileResult);
+          }
+        }
       }
     } finally {
       pendingProfile = null;
