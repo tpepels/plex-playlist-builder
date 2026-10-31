@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
 
 import staging as library_staging
+from disk_inventory import inventory_music, inventory_staging
 from album_submission import clean_match_audit, submission_key
 from job_diagnostics import explain_job
 
@@ -26,7 +27,8 @@ STATE_DIR = Path(os.getenv("STATE_DIR", "/data/state"))
 TEMP_DIR = Path(os.getenv("TEMP_DIR", "/data/tmp"))
 COOKIES_FILE = os.getenv("COOKIES_FILE", "").strip()
 MAX_QUEUE = int(os.getenv("MAX_QUEUE", "50"))
-MAX_HISTORY = int(os.getenv("MAX_HISTORY", "50"))
+# No automatic history deletion; old MAX_HISTORY values no longer prune jobs.
+MAX_HISTORY = 0
 PROBE_TIMEOUT = int(os.getenv("PROBE_TIMEOUT", "30"))
 FALLBACK_TRACK_TIMEOUT = int(os.getenv("FALLBACK_TRACK_TIMEOUT", "600"))
 PLEX_RESCAN_NUDGE_SECONDS = float(os.getenv("PLEX_RESCAN_NUDGE_SECONDS", "90"))
@@ -52,6 +54,8 @@ for directory in (IMPORT_ROOT, STATE_DIR, TEMP_DIR):
 OUTPUT_TEMPLATE = library_staging.staged_ytdlp_output_template()
 
 jobs = {}
+# Explicitly removed UI cards remain in a durable, searchable history.
+archived_jobs = {}
 # Stable album-ID claims survive restarts and job-history pruning.
 album_submissions = {}
 jobs_lock = threading.Lock()
@@ -175,6 +179,7 @@ def persist_jobs_locked():
         "version": 1,
         "saved_at": time.time(),
         "jobs": list(jobs.values()),
+        "archived_jobs": list(archived_jobs.values()),
         "album_submissions": album_submissions,
     }
     tmp_path = JOBS_STATE_FILE.with_suffix(".json.tmp")
@@ -413,17 +418,14 @@ def load_persisted_jobs():
             restored.append(job)
 
     restored.sort(key=lambda item: item["created_at"])
-    # Do not drop queued work on restore. Runtime history pruning only removes
-    # terminal jobs, so the persisted loader must preserve the same guarantee.
-    if len(restored) > MAX_HISTORY:
-        queued = [item for item in restored if item["status"] == "queued"]
-        terminal = [item for item in restored if item["status"] != "queued"]
-        keep_terminal = max(0, MAX_HISTORY - len(queued))
-        restored = terminal[-keep_terminal:] + queued if keep_terminal else queued
-        restored.sort(key=lambda item: item["created_at"])
-
+    # Preserve all historical outcomes, including failed 403 downloads.
     with jobs_lock:
         jobs.clear()
+        archived_jobs.clear()
+        if isinstance(raw, dict) and isinstance(raw.get("archived_jobs"), list):
+            for item in raw["archived_jobs"]:
+                if isinstance(item, dict) and item.get("id"):
+                    archived_jobs[str(item["id"])] = item
         album_submissions.clear()
         if isinstance(raw, dict) and isinstance(raw.get("album_submissions"), dict):
             for key, claim in raw["album_submissions"].items():
@@ -1827,13 +1829,6 @@ def download():
                 "last_status": "queued", "duplicate_requests": 0,
             }
         jobs[job_id] = job
-        if len(jobs) > MAX_HISTORY:
-            removable = sorted(
-                (item for item in jobs.values() if item["status"] in {"succeeded", "partial", "failed"}),
-                key=lambda item: item["created_at"],
-            )
-            while len(jobs) > MAX_HISTORY and removable:
-                jobs.pop(removable.pop(0)["id"], None)
         if album_key:
             if not persist_jobs_locked():
                 jobs.pop(job_id, None)
@@ -1961,19 +1956,8 @@ def enqueue_verified_album():
         album_submissions[key] = {"job_id": job_id, "created_at": job["created_at"],
                                   "match_audit": audit, "last_status": "queued",
                                   "duplicate_requests": 0}
-        pruned = {}
-        if len(jobs) > MAX_HISTORY:
-            removable = sorted(
-                (item for item in jobs.values()
-                 if item["id"] != job_id and item["status"] in {"succeeded", "partial", "failed"}),
-                key=lambda item: item["created_at"],
-            )
-            while len(jobs) > MAX_HISTORY and removable:
-                old = removable.pop(0)
-                pruned[old["id"]] = jobs.pop(old["id"])
         if not persist_jobs_locked():
             jobs.pop(job_id, None)
-            jobs.update(pruned)
             album_submissions.pop(key, None)
             return jsonify({"ok": False, "error": "Could not persist the queued job."}), 503
         try:
@@ -2063,7 +2047,14 @@ def remove_job(job_id):
         destructive = representative.get("status") not in {"succeeded", "partial"}
 
         for member_id in member_ids:
-            jobs.pop(member_id, None)
+            removed = jobs.pop(member_id, None)
+            if removed:
+                archived_jobs[member_id] = {
+                    **removed,
+                    "archived_at": time.time(),
+                    "removed_from_queue": True,
+                    "staging_discarded": bool(destructive),
+                }
 
         # A deliberate removal releases the album identity claim. Retaining
         # it would hide a future request behind an invisible deleted job.
