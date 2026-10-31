@@ -352,12 +352,16 @@ def firewall():
     FIREWALL_ENABLED = True  # State becomes blocked immediately, including on partial setup failure.
     run("iptables", "-F", "OUTPUT")
     run("iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT")
-    run("iptables", "-A", "OUTPUT", "-o", "wg0", "-j", "ACCEPT")
-    # Do not allow already-established non-VPN Internet connections to leak
-    # after selecting a profile. Permit responses for the dashboard and local
-    # Docker/LAN clients only, not arbitrary direct Internet egress.
+    # Preserve the separately published web UI even when the tunnel is down.
+    # Docker proxy/NAT can classify the initial server reply as NEW rather
+    # than ESTABLISHED. An explicit SOURCE-port exception is necessary.
+    # Only the web server's RESPONSE port is allowed: new outbound downloader
+    # connections still have ephemeral source ports and remain blocked.
     run("iptables", "-A", "OUTPUT", "-p", "tcp", "--sport", "4545",
-        "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT")
+        "-j", "ACCEPT")
+    run("iptables", "-A", "OUTPUT", "-o", "wg0", "-j", "ACCEPT")
+    # Do not allow already-established non-VPN Internet connections to leak.
+    # Permit replies for local Docker/LAN clients only.
     for private in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"):
         run("iptables", "-A", "OUTPUT", "-d", private,
             "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT")
@@ -367,10 +371,18 @@ def firewall():
     run("ip6tables", "-P", "OUTPUT", "DROP")
     run("ip6tables", "-F", "OUTPUT")
     run("ip6tables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT")
-    # Keep inbound LAN and Docker-client web sessions reachable after
-    # WireGuard installs a default route via wg0.
+    # Docker may publish [::]:4545 and forward IPv6 client connections.
+    # Do not black-hole those response packets.
+    run("ip6tables", "-A", "OUTPUT", "-p", "tcp", "--sport", "4545",
+        "-j", "ACCEPT")
+    # The web interface must be reachable outside private RFC1918 subnets,
+    # including reverse proxies, Tailscale and routed clients, even while
+    # wg-quick's policy rules route downloader traffic through wg0.
+    # Source-port and protocol match only the downloader HTTP listener.
+    run("ip", "-4", "rule", "add", "priority", "50", "ipproto", "tcp",
+        "sport", "4545", "lookup", "main")
     for subnet in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"):
-        run("ip", "rule", "add", "priority", "100", "to", subnet,
+        run("ip", "-4", "rule", "add", "priority", "100", "to", subnet,
             "lookup", "main", check=False)
     FIREWALL_ENABLED = True
 
