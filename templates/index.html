@@ -548,7 +548,7 @@
         if (missingWrap.childElementCount) card.appendChild(missingWrap);
       }
 
-      if (["failed", "partial"].includes(job.status) && !retriedParents.has(job.id) && job.source === "spotify" && job.missing_tracks && job.missing_tracks.length) {
+      if (["failed", "partial"].includes(job.status) && job.source === "spotify" && job.missing_tracks && job.missing_tracks.length) {
         const missingWrap = document.createElement("div");
         missingWrap.className = "missing-tracks";
 
