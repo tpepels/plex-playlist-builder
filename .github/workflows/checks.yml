@@ -3,6 +3,7 @@ name: Playlist builder checks
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   tests:
@@ -33,5 +34,7 @@ jobs:
           node --check /tmp/playlist-builder-ui.js
       - name: Browser import and sync flow tests
         run: node --test tests/test_import_ui.mjs
-      - name: Docker image build
+      # Full Docker build is manually triggered, never waited on for UI edits.
+      - name: Docker image build (manual only)
+        if: github.event_name == 'workflow_dispatch'
         run: docker build --pull -t plex-playlist-builder:ci .
