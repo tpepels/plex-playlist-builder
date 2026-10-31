@@ -4,3 +4,7 @@ __pycache__/
 .env
 .venv/
 state/
+
+# Private Surfshark WireGuard credentials (never check in)
+.env.surfshark
+.env.surfshark.*.local
