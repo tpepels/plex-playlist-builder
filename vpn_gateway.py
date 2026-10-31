@@ -94,24 +94,76 @@ def has_handshake():
 
 
 def endpoint_udp_packets(port):
-    """Outgoing UDP packets accepted by our per-endpoint firewall rule.
+    """Packets accepted by the endpoint firewall rule, if readable.
 
-    This confirms passage through the container's OUTPUT filter only;
-    it does NOT prove the remote server received the packets.
+    iptables-legacy/nft format differently. No command output is returned.
+    This is a local OUTPUT-filter counter, not proof of remote receipt.
     """
     try:
-        status = run("iptables", "-nvxL", "VPN_ENDPOINT", "-n", check=False)
+        status = run("iptables", "-w", "-t", "filter", "-L",
+                     "VPN_ENDPOINT", "-v", "-n", "-x", check=False)
         if status.returncode:
             return None
         for line in status.stdout.splitlines():
             fields = line.split()
-            if (len(fields) >= 10 and fields[0].isdigit()
-                    and fields[1].isdigit() and fields[3] == "udp"
+            if (fields and fields[0].isdigit() and "udp" in fields
                     and "dpt:" + str(port) in line):
                 return int(fields[0])
     except (OSError, RuntimeError, subprocess.TimeoutExpired):
         return None
     return None
+
+
+def wireguard_transfer():
+    """Read WireGuard's own peer transfer counters, excluding all peer keys.
+
+    A positive transmitted byte count proves that the local WireGuard
+    interface tried sending traffic, not that the endpoint received it.
+    """
+    try:
+        state = run("wg", "show", "wg0", "transfer", check=False)
+        if state.returncode:
+            return None
+        received = transmitted = 0
+        seen = False
+        for line in state.stdout.splitlines():
+            columns = line.split()
+            if (len(columns) != 3 or
+                    not columns[1].isdigit() or not columns[2].isdigit()):
+                continue
+            seen = True
+            received += int(columns[1])
+            transmitted += int(columns[2])
+        return {"rx_bytes": received, "tx_bytes": transmitted} if seen else None
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def endpoint_route(endpoint):
+    """Check the underlay route selected for the WireGuard-marked UDP socket.
+
+    wg-quick uses an fwmark to keep its UDP transport out of its own tunnel.
+    Return only a bounded classification, never raw routes or local addresses.
+    """
+    try:
+        mark_state = run("wg", "show", "wg0", "fwmark", check=False)
+        if mark_state.returncode:
+            return "unavailable"
+        mark = mark_state.stdout.strip()
+        if not re.fullmatch(r"(?:0x[0-9a-fA-F]+|[0-9]+)", mark):
+            return "unavailable"
+        route = run("ip", "-4", "route", "get", endpoint, "mark", mark,
+                    check=False)
+        if route.returncode:
+            return "unavailable"
+        words = route.stdout.split()
+        if "dev" not in words:
+            return "unavailable"
+        interface = words[words.index("dev") + 1]
+        return "tunnel" if interface == "wg0" else "underlay"
+    except (RuntimeError, ValueError, IndexError, OSError,
+            subprocess.TimeoutExpired):
+        return "unavailable"
 
 
 def client_public_key(profile_text):
@@ -135,10 +187,14 @@ def client_public_key(profile_text):
 
 
 def safe_handshake_diagnostics(candidate):
+    transfer = wireguard_transfer()
     return {
         "endpoint": candidate["endpoint"],
         "port": candidate["port"],
         "udp_packets_allowed": endpoint_udp_packets(candidate["port"]),
+        "wireguard_tx_bytes": transfer["tx_bytes"] if transfer else None,
+        "wireguard_rx_bytes": transfer["rx_bytes"] if transfer else None,
+        "endpoint_route": endpoint_route(candidate["endpoint"]),
         "client_public_key": client_public_key(candidate["text"]),
     }
 
