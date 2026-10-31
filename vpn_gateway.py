@@ -27,6 +27,7 @@ ACTIVE_FILE = ROOT / "wg0.conf"
 META_FILE = ROOT / "profiles.json"
 TOKEN_FILE = Path(os.getenv("VPN_CONTROL_TOKEN_FILE", "/data/state/.vpn-control-token"))
 TOKEN = ""
+FIREWALL_ENABLED = False
 LOCK = threading.RLock()
 TASK = {"running": False, "results": [], "message": "Idle", "done": True}
 COUNTRY_CODES = {
@@ -152,8 +153,9 @@ def save_metadata(value):
 
 
 def firewall():
-    # Configure *before* bringing up the API. Without a VPN, outbound traffic
-    # cannot reach the Internet (except the currently permitted VPN endpoint).
+    global FIREWALL_ENABLED
+    # Once any profile is selected, stay fail-closed until a verified tunnel
+    # connects. Fresh installations without profiles retain direct networking.
     run("iptables", "-P", "OUTPUT", "DROP")
     run("iptables", "-F", "OUTPUT")
     run("iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT")
@@ -166,6 +168,12 @@ def firewall():
     run("ip6tables", "-P", "OUTPUT", "DROP")
     run("ip6tables", "-F", "OUTPUT")
     run("ip6tables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT")
+    # Keep inbound LAN and Docker-client web sessions reachable after
+    # WireGuard installs a default route via wg0.
+    for subnet in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"):
+        run("ip", "rule", "add", "priority", "100", "to", subnet,
+            "lookup", "main", check=False)
+    FIREWALL_ENABLED = True
 
 
 def allow_endpoint(ip, port):
@@ -194,6 +202,8 @@ def _activate(profile_id):
     previous = data.get("active")
     previous_text = ACTIVE_FILE.read_text() if ACTIVE_FILE.exists() else None
     candidate = parse_profile((ROOT / (profile_id + ".conf")).read_text())
+    if not FIREWALL_ENABLED:
+        firewall()
     stop_tunnel()
     allow_endpoint(candidate["endpoint"], candidate["port"])
     write_private(ACTIVE_FILE, candidate["text"])
@@ -476,7 +486,10 @@ def main():
     ensure_control_token()
     ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
     ROOT.chmod(0o700)
-    firewall()
+    # Downloads work normally before the user has uploaded any VPN profile.
+    # Once a VPN is configured, restarts always fail closed until it connects.
+    if metadata()["profiles"]:
+        firewall()
     if ACTIVE_FILE.exists() and metadata().get("active"):
         try:
             # Permit the persisted endpoint and restore the VPN on restart.
