@@ -171,6 +171,19 @@
     .vpn-key-setup input:focus { outline:2px solid #6df0c1; outline-offset:2px; }
     .vpn-key-setup p { margin:10px 0 0; color:#a4c9b9; font-size:12px; line-height:1.5; }
     .vpn-key-setup a { color:#90ecd2; text-underline-offset:2px; }
+    .vpn-public-keys { display:grid; gap:8px; padding:12px 14px;
+      margin-top:16px; background:#102720; border:1px solid #3a6753; border-radius:10px; }
+    .vpn-public-keys:empty { display:none; }
+    .vpn-public-keys > strong { font-size:13px; color:#dcf8e9; }
+    .vpn-public-key-input { width:100%; min-width:0; max-width:600px;
+      padding:9px 10px; background:#071b15; color:#d6f8e6;
+      border:1px solid #436c5b; border-radius:7px;
+      font:12px/1.5 ui-monospace,monospace; }
+    .vpn-public-key-input:focus { outline:2px solid #91dab8; outline-offset:1px; }
+    .vpn-profile-key { flex-basis:100%; }
+    .vpn-profile-key > summary { color:#9edcb9; cursor:pointer; font-size:12px; margin:4px 0; }
+    .vpn-profile-key input { margin-top:6px; }
+    .vpn-key-warning { margin:0; color:#f4c388; font-size:12px; }
     .vpn-profiles { display:grid; gap:8px; margin-top:17px; }
     .vpn-profile { display:flex; flex-wrap:wrap; align-items:center; gap:12px; border:1px solid #304840;
       border-radius:10px; background:#141f1d; padding:11px 13px; }
@@ -292,6 +305,7 @@
           Never send it in chat. The browser does not save this field.</p>
       </div>
       <div id="vpn-feedback" class="vpn-feedback" role="status" aria-live="polite">Select your .conf files. If they are templates without a client key, an additional field will appear.</div>
+      <div id="vpn-public-keys" class="vpn-public-keys" aria-label="Surfshark client public keys"></div>
       <div id="vpn-profiles" class="vpn-profiles"></div>
       <div class="vpn-actions">
         <button id="vpn-next-button" class="vpn-secondary" type="button" disabled>Next country</button>
