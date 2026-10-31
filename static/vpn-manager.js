@@ -58,8 +58,7 @@
   }
 
   function showHandshakeDiagnostics(parent, diagnostics) {
-    if (!diagnostics || !diagnostics.client_public_key &&
-        diagnostics.udp_packets_allowed == null) return;
+    if (!diagnostics || Object.keys(diagnostics).length === 0) return;
     const details = element("details", undefined, "vpn-diagnostics");
     const summary = element("summary", "Connection diagnostics (no private keys)");
     details.append(summary);
@@ -72,6 +71,29 @@
         : udp + " UDP packets passed the container firewall. A reply or valid handshake was not observed; check the registered Surfshark key and upstream UDP connectivity.";
     details.append(element("p", info, "vpn-muted"));
 
+    const tx = diagnostics.wireguard_tx_bytes;
+    const rx = diagnostics.wireguard_rx_bytes;
+    if (tx != null && rx != null) {
+      details.append(element("p",
+        "WireGuard peer transfer: " + tx + " bytes sent · " + rx + " bytes received.",
+        "vpn-muted"));
+      details.append(element("p",
+        tx === 0
+          ? "WireGuard has not transmitted a handshake or other tunnel traffic. Check local routing."
+          : rx === 0
+            ? "WireGuard sent traffic but received no authenticated peer data. This cannot distinguish a wrong Surfshark key from a blocked or unreachable UDP response."
+            : "WireGuard recorded incoming peer bytes, but no completed handshake. Check key registration and remote connectivity.",
+        "vpn-muted"));
+    }
+    if (diagnostics.endpoint_route) {
+      const route = diagnostics.endpoint_route;
+      const description = route === "underlay"
+        ? "Endpoint routing: via the Docker network (correct route for WireGuard UDP)."
+        : route === "tunnel"
+          ? "Endpoint routing error: WireGuard's own UDP packets are directed back into wg0."
+          : "Endpoint routing could not be verified.";
+      details.append(element("p", description, route === "tunnel" ? "vpn-error" : "vpn-muted"));
+    }
     if (diagnostics.client_public_key) {
       details.append(element("p",
         "Your derived WireGuard CLIENT PUBLIC KEY (safe to compare with Surfshark's registered key):",
