@@ -497,3 +497,40 @@ def test_handshake_diagnostics_include_transfer_and_route_without_secrets(monkey
     assert diagnostics["udp_packets_allowed"] is None
     assert diagnostics["endpoint_route"] == "underlay"
     assert KEY_A not in str(diagnostics)
+
+
+def test_web_dashboard_survives_fail_closed_firewall(monkeypatch):
+    """Port 4545 responses remain accessible without unblocking downloads.
+
+    This checks both Docker's IPv4/IPv6 port publication and the routing
+    policy used when wg-quick enables a full-tunnel default route.
+    """
+    import vpn_gateway as g
+
+    calls = []
+    monkeypatch.setattr(g, "run", lambda *args, **kwargs: calls.append(args))
+    monkeypatch.setattr(g, "FIREWALL_ENABLED", False)
+    g.firewall()
+
+    assert g.FIREWALL_ENABLED is True
+    # Fail closed for all outbound traffic, including IPv6.
+    assert ("iptables", "-P", "OUTPUT", "DROP") in calls
+    assert ("ip6tables", "-P", "OUTPUT", "DROP") in calls
+    # Only the published web listener can respond directly (IPv4 or IPv6).
+    assert ("iptables", "-A", "OUTPUT", "-p", "tcp",
+            "--sport", "4545", "-j", "ACCEPT") in calls
+    assert ("ip6tables", "-A", "OUTPUT", "-p", "tcp",
+            "--sport", "4545", "-j", "ACCEPT") in calls
+    # The dashboard's replies should not follow wg-quick's default tunnel.
+    assert ("ip", "-4", "rule", "add", "priority", "50",
+            "ipproto", "tcp", "sport", "4545", "lookup", "main") in calls
+    # No general non-VPN outbound bypass is introduced.
+    assert ("iptables", "-A", "OUTPUT", "-j", "ACCEPT") not in calls
+    assert ("ip6tables", "-A", "OUTPUT", "-j", "ACCEPT") not in calls
+    assert all(
+        not ("-j" in args and args[args.index("-j") + 1] == "ACCEPT"
+             and "--sport" not in args
+             and "-o" not in args
+             and "-d" not in args)
+        for args in calls if args[0] in {"iptables", "ip6tables"}
+    )
