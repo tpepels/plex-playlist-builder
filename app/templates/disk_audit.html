@@ -35,10 +35,10 @@ input{min-width:180px;flex:1}
 </head>
 <body><main>
 <a href="/">← Playlist Manager</a>
-<h1>Muziekcontrole op schijfniveau</h1>
-<p>Alle albumfolders onder de ingestelde muziekmap worden rechtstreeks van schijf gelezen en met de echte Plex-mediapaden vergeleken. De downloadgeschiedenis staat apart, zodat een mislukte HTTP 403-download ook zichtbaar blijft wanneer er nooit bestanden zijn aangemaakt.</p>
+<h1>Bestanden op schijf die ontbreken in Plex</h1>
+<p>Dit overzicht begint bij de bestanden op je muziekvolume, ook als yt-dlp geen enkele downloadjob meer heeft. Standaard zie je uitsluitend albumfolders waarvan één of meer audiobestanden niet in Plex staan. Mislukte downloads kun je afzonderlijk bekijken via Downloadgeschiedenis.</p>
 <div class="tabs" role="tablist" aria-label="Soort controle">
-  <button id="disk-tab" role="tab" aria-selected="true" type="button">Albumfolders op schijf</button>
+  <button id="disk-tab" role="tab" aria-selected="true" type="button">Op schijf, niet in Plex</button>
   <button id="history-tab" role="tab" aria-selected="false" type="button">Downloadgeschiedenis en fouten</button>
 </div>
 <form id="filter-form" class="toolbar">
@@ -61,7 +61,7 @@ input{min-width:180px;flex:1}
   let tab = "disk", offset = 0, total = 0, loading = false, requestSerial = 0;
   const limit = 100;
   const opts = {
-    disk: [["all","Alle statussen"],["missing","Niet in Plex"],["partial","Gedeeltelijk"],["ambiguous","Ambigue locatie"],["indexed","In Plex"]],
+    disk: [["unindexed","Niet in Plex (ook gedeeltelijk)"],["missing","Hele album niet in Plex"],["partial","Gedeeltelijk in Plex"],["ambiguous","Onzekere match"],["all","Alle albumfolders"],["indexed","Volledig in Plex"]],
     history: [["all","Alle pogingen"],["failed","Mislukt / gedeeltelijk"],["incomplete","Niet voltooid"],["published","Gepubliceerd"]],
   };
   $("query").value = new URLSearchParams(location.search).get("q") || "";
@@ -98,18 +98,19 @@ input{min-width:180px;flex:1}
   function renderDisk(data, append) {
     if (!append) {
       $("summary").replaceChildren();
-      addCount("Albumfolders", data.disk_album_folders);
-      addCount("Audiofiles", data.disk_audio_files);
-      addCount("In Plex", data.disk_status_counts.indexed || 0);
-      addCount("Ontbreekt in Plex", data.disk_status_counts.missing || 0);
-      addCount("Gedeeltelijk", data.disk_status_counts.partial || 0);
+      addCount("Alle gescande albumfolders", data.disk_album_folders);
+      addCount("Alle audiobestanden op schijf", data.disk_audio_files);
+      addCount("Bestanden niet in Plex", data.not_in_plex_audio_files);
+      addCount("Betrokken albumfolders", data.not_in_plex_album_folders);
+      addCount("Geheel afwezig", data.disk_status_counts.missing || 0);
+      addCount("Gedeeltelijk geïndexeerd", data.disk_status_counts.partial || 0);
       addCount("Nog in staging", data.staging.audio_files || 0);
       $("warning").replaceChildren();
       if (!data.disk_scan_complete) {
         $("warning").append(el("div", "notice", "Schijfinventaris is onvolledig: " +
           (data.scan_errors || []).join("; ") + ". Deze resultaten zijn dus niet uitputtend."));
       }
-      if (data.disk_status_counts.missing && data.plex_total_media_files === 0) {
+      if (data.not_in_plex_album_folders && data.plex_total_media_files === 0) {
         $("warning").append(el("div", "notice", "Plex gaf geen mediabestanden terug. Controleer de gekozen Plex Music-bibliotheek, toegangsrechten en de bibliotheekmap."));
       }
       if (data.plex_music_locations?.length)
@@ -124,8 +125,9 @@ input{min-width:180px;flex:1}
         " — " + album.album_folder : album.album_folder));
       line(card,"status " + album.status,labels[album.status] || album.status);
       line(card,"path",album.folder);
-      line(card,"detail",album.files_indexed + " / " + album.files_on_disk +
-        " audiobestanden in de Plex-index · " + album.size_bytes + " bytes op schijf");
+      line(card,"detail",album.files_not_in_plex + " bestand(en) ontbreken in Plex · " +
+        album.files_indexed + " / " + album.files_on_disk +
+        " in de Plex-index · " + album.size_bytes + " bytes op schijf");
       for (const match of album.plex_labels || []) {
         line(card,"detail","Plex toont: " + (match.artist || "(zonder artiest)") +
           " — " + (match.album || "(zonder album)"));
@@ -205,7 +207,10 @@ input{min-width:180px;flex:1}
           (data.disk_scan_complete ? "volledig." : "ONVOLLEDIG.") : "Alle downloadpogingen blijven bewaard.");
       if (!data.items.length && !append) {
         $("records").append(el("p","",
-          "Geen resultaten voor dit filter. Probeer zonder zoekterm of kies een andere status."));
+          tab === "disk"
+            ? "Geen bestanden op schijf gevonden die volgens deze controle in Plex ontbreken. " +
+              "Controleer de scanvolledigheid hierboven, of selecteer Alle albumfolders om de vergelijking te inspecteren."
+            : "Geen downloadpogingen voor deze zoekterm; de schijfcontrole is onafhankelijk van de downloadhistorie."));
       }
     } catch(error) {
       if (serial === requestSerial) {
