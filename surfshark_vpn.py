@@ -99,7 +99,7 @@ def rotate_if_enabled():
         try:
             with urlopen(req, timeout=38) as response:
                 obj = json.load(response)
-            return {"changed": bool(obj.get("changed_profile")),
+            return {"changed": bool(obj.get("changed_ip")),
                     "new_ip": obj.get("ip", ""), "country": obj.get("country", "")}
         except (RuntimeError, URLError, HTTPError, TimeoutError, ValueError, OSError):
             return {"changed": False, "error": "VPN profile rotation failed."}
