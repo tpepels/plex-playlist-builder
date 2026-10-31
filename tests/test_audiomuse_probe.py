@@ -51,3 +51,8 @@ def test_bearer_auth_header_preferred_over_browser_cookie():
 
 def test_browser_cookie_fallback():
     assert module.auth_headers(cookie="session=xyz")["Cookie"] == "session=xyz"
+
+
+def test_plex_ids_from_tsv_text():
+    tsv = "artist\trating_key\nA\t101\nB\t102\nA\t101\n"
+    assert module.plex_ids_from_tsv(tsv) == {"101", "102"}
