@@ -19,7 +19,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 ROOT = Path(os.getenv("VPN_PROFILE_DIR", "/profiles"))
 ACTIVE_FILE = ROOT / "wg0.conf"
@@ -226,7 +226,10 @@ def probe():
     # This public IP-geolocation service can be rate-limited or unavailable.
     for _ in range(3):
         try:
-            with urlopen("https://ipwho.is/", timeout=7) as response:
+            probe_request = Request("https://ipwho.is/",
+                                    headers={"User-Agent": "yt-dlp-wireguard-gateway/1.0",
+                                             "Accept": "application/json"})
+            with urlopen(probe_request, timeout=7) as response:
                 item = json.load(response)
             if item.get("success") and item.get("ip"):
                 return {"ip": str(item["ip"]),
