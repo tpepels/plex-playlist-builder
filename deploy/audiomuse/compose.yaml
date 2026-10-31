@@ -1,0 +1,59 @@
+# Independent AudioMuse stack; no changes to existing media containers.
+name: audiomuse
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Lisbon}
+      POSTGRES_USER: audiomuse
+      POSTGRES_PASSWORD: ${AUDIOMUSE_DB_PASSWORD:?Set AUDIOMUSE_DB_PASSWORD in .env}
+      POSTGRES_DB: audiomusedb
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audiomuse -d audiomusedb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  audiomuse-ai-flask:
+    image: ghcr.io/neptunehub/audiomuse-ai:${AUDIOMUSE_TAG:-v3.7.0}
+    restart: unless-stopped
+    ports:
+      - "${AUDIOMUSE_BIND:-0.0.0.0}:${AUDIOMUSE_PORT:-8098}:8000"
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment: &audiomuse_env
+      SERVICE_TYPE: flask
+      TZ: ${TZ:-Europe/Lisbon}
+      POSTGRES_USER: audiomuse
+      POSTGRES_PASSWORD: ${AUDIOMUSE_DB_PASSWORD:?Set AUDIOMUSE_DB_PASSWORD in .env}
+      POSTGRES_DB: audiomusedb
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      TEMP_DIR: /app/temp_audio
+    volumes:
+      - temp-audio-flask:/app/temp_audio
+      - plugins-flask:/app/plugin/installed
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  audiomuse-ai-worker:
+    image: ghcr.io/neptunehub/audiomuse-ai:${AUDIOMUSE_TAG:-v3.7.0}
+    restart: unless-stopped
+    cpus: ${AUDIOMUSE_WORKER_CPUS:-2.0}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment:
+      <<: *audiomuse_env
+      SERVICE_TYPE: worker
+    volumes:
+      - temp-audio-worker:/app/temp_audio
+      - plugins-worker:/app/plugin/installed
+    depends_on:
+      postgres: {condition: service_healthy}
+
+volumes:
+  postgres-data:
+  temp-audio-flask:
+  temp-audio-worker:
+  plugins-flask:
+  plugins-worker:
