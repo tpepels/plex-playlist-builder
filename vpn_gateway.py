@@ -22,7 +22,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 ROOT = Path(os.getenv("VPN_PROFILE_DIR", "/profiles"))
-ACTIVE_FILE = ROOT / "active.conf"
+ACTIVE_FILE = ROOT / "wg0.conf"
 META_FILE = ROOT / "profiles.json"
 TOKEN = os.environ.get("SURFSHARK_CONTROL_API_KEY", "")
 LOCK = threading.RLock()
