@@ -243,11 +243,18 @@ def firewall():
     # Once any profile is selected, stay fail-closed until a verified tunnel
     # connects. Fresh installations without profiles retain direct networking.
     run("iptables", "-P", "OUTPUT", "DROP")
+    FIREWALL_ENABLED = True  # State becomes blocked immediately, including on partial setup failure.
     run("iptables", "-F", "OUTPUT")
     run("iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT")
     run("iptables", "-A", "OUTPUT", "-o", "wg0", "-j", "ACCEPT")
-    run("iptables", "-A", "OUTPUT", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED",
-        "-j", "ACCEPT")
+    # Do not allow already-established non-VPN Internet connections to leak
+    # after selecting a profile. Permit responses for the dashboard and local
+    # Docker/LAN clients only, not arbitrary direct Internet egress.
+    run("iptables", "-A", "OUTPUT", "-p", "tcp", "--sport", "4545",
+        "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT")
+    for private in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"):
+        run("iptables", "-A", "OUTPUT", "-d", private,
+            "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT")
     run("iptables", "-N", "VPN_ENDPOINT", check=False)
     run("iptables", "-F", "VPN_ENDPOINT")
     run("iptables", "-A", "OUTPUT", "-j", "VPN_ENDPOINT")
@@ -288,11 +295,21 @@ def _activate(profile_id):
     previous = data.get("active")
     previous_text = ACTIVE_FILE.read_text() if ACTIVE_FILE.exists() else None
     candidate = parse_profile((ROOT / (profile_id + ".conf")).read_text())
-    if not FIREWALL_ENABLED:
-        firewall()
-    stop_tunnel()
-    allow_endpoint(candidate["endpoint"], candidate["port"])
-    write_private(ACTIVE_FILE, candidate["text"])
+    try:
+        if not FIREWALL_ENABLED:
+            firewall()
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        raise VPNConnectionError(
+            "firewall", "VPN kill-switch rules could not be installed. "
+            "Check gateway NET_ADMIN and host firewall support.") from None
+    try:
+        stop_tunnel()
+        allow_endpoint(candidate["endpoint"], candidate["port"])
+        write_private(ACTIVE_FILE, candidate["text"])
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        raise VPNConnectionError(
+            "preparation", "Gateway could not prepare WireGuard's interface "
+            "or permit the Surfshark server endpoint.") from None
     failure = None
     try:
         startup = run("wg-quick", "up", str(ACTIVE_FILE), check=False)
