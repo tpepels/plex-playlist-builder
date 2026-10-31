@@ -460,7 +460,7 @@ def ensure_control_token():
             token = TOKEN_FILE.read_text().strip()
         else:
             with os.fdopen(fd, "w") as f:
-                f.write(token + "\\n")
+                f.write(token + "\n")
     if len(token) < 32:
         raise RuntimeError("VPN control token could not be initialized")
     os.chmod(TOKEN_FILE, 0o600)
