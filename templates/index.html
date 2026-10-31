@@ -95,6 +95,7 @@
     .metadata-grid button { min-height:36px; padding:7px 12px; font-size:12px; }
     details { min-width:0; max-width:100%; margin-top:9px; color:var(--muted); } summary { cursor:pointer; }
     pre { width:100%; min-width:0; max-width:100%; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; margin:8px 0 0; padding:10px; background:#0e1012; border-radius:8px; color:#b7bec4; font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; max-height:260px; overflow:auto; }
+    .history-divider { border-top:1px solid var(--line); margin:20px 0 13px; }
     .history-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:15px 0 8px; }
     .history-toolbar label { color:var(--muted); font-size:12px; }
     .history-toolbar select, .history-toolbar input { border:1px solid #535c63; border-radius:8px; background:#121619; color:var(--text); padding:9px 11px; font:13px system-ui,sans-serif; }
@@ -171,28 +172,6 @@
       </div>
     </div>
   </section>
-  <section class="panel" id="history-panel">
-    <div class="section-head">
-      <h2>Download history — all attempts</h2>
-      <span id="history-summary" class="versions" role="status" aria-live="polite">Loading saved downloads…</span>
-    </div>
-    <p class="sources-note">Every retained album and its result is shown below. Failed attempts are listed first. Search and status filters are optional; Ctrl+F also works across all loaded rows.</p>
-    <div class="history-toolbar">
-      <label for="history-filter">Show</label>
-      <select id="history-filter" aria-label="Filter download history">
-        <option value="all" selected>All attempts</option>
-        <option value="failed">Failed and partial</option>
-        <option value="incomplete">Incomplete</option>
-        <option value="published">Published albums</option>
-      </select>
-      <input id="history-query" type="search" placeholder="Optional: album, artist, source, job ID, 403"
-        aria-label="Filter visible download attempts">
-      <button id="history-search" type="button">Refresh history</button>
-    </div>
-    <p id="history-status" class="job-meta" role="status" aria-live="polite">Fetching saved attempts…</p>
-    <div id="history-results" class="history-list" aria-live="polite"></div>
-    <p class="sources-note">Historical jobs already erased by older versions cannot be recovered from the job database. Failed entries that remain are never silently omitted by a search field.</p>
-  </section>
   <section class="panel">
     <div class="section-head">
       <h2>Downloads</h2>
@@ -200,11 +179,31 @@
     </div>
     <div id="job-overview" class="job-overview" role="status" aria-live="polite"></div>
     <div id="job-notice" class="job-notice" hidden role="status" aria-live="polite"></div>
-    <div id="jobs" class="jobs">{% if not jobs %}<div class="empty">No downloads yet.</div>{% endif %}</div>
+    <h3 class="history-group-title">In progress / requires action</h3>
+    <div id="jobs" class="jobs"></div>
+    <div class="history-divider"></div>
+    <div class="section-head">
+      <h3 class="history-group-title">Finished and failed downloads</h3>
+      <span id="history-summary" class="versions" role="status" aria-live="polite">Loading history…</span>
+    </div>
+    <div class="history-toolbar">
+      <label for="history-filter">Show</label>
+      <select id="history-filter" aria-label="Filter past downloads">
+        <option value="all" selected>All results</option>
+        <option value="failed">Failed and partial</option>
+        <option value="published">Published albums</option>
+      </select>
+      <input id="history-query" type="search" placeholder="Filter by album, artist or error (optional)"
+        aria-label="Filter finished and failed downloads">
+      <button id="history-search" type="button">Refresh</button>
+    </div>
+    <p id="history-status" class="job-meta" role="status" aria-live="polite">Loading results…</p>
+    <div id="history-results" class="history-list" aria-live="polite"></div>
   </section>
 </main>
 <script>
   const initialJobs = {{ jobs | tojson }};
+  const ACTIVE_STATES = new Set(["queued", "running", "finalizing", "needs_metadata"]);
   const form = document.getElementById("download-form");
   const urlInput = document.getElementById("url-input");
   const downloadButton = document.getElementById("download-button");
@@ -245,8 +244,7 @@
       const explanation = found
         ? "Job " + focusedJobId + ": " + (found.diagnosis?.heading || found.status) +
           ". " + (found.diagnosis?.explanation || found.message || "")
-        : "Album job " + focusedJobId + " is not visible on this downloader. " +
-          "Check that the playlist manager points to this same yt-dlp service.";
+        : "Job " + focusedJobId + " is not active. Check the finished and failed results below.";
       notice.textContent = requestedResult === "duplicate"
         ? "Duplicate download prevented. The same YouTube album ID already has a job; " +
           "no new download was created. " + explanation
@@ -261,14 +259,15 @@
         .filter(Boolean)
     );
     root.replaceChildren();
-    if (!jobs.length) {
+    const liveJobs = jobs.filter(job => ACTIVE_STATES.has(job.status));
+    if (!liveJobs.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = "No downloads yet.";
+      empty.textContent = "No active downloads. Finished and failed jobs are listed below.";
       root.appendChild(empty);
       return;
     }
-    for (const job of jobs) {
+    for (const job of liveJobs) {
       const card = document.createElement("article");
       card.className = "job";
       card.dataset.jobId = job.id;
@@ -936,6 +935,7 @@
     const text = document.getElementById("history-query").value.trim().toLowerCase();
     list.replaceChildren();
     const rows = historyRows.filter(item => {
+      if (ACTIVE_STATES.has(item.status)) return false;
       if (!historyMatchesFilter(item, selection)) return false;
       if (!text) return true;
       return [item.title, item.artist, item.job_id, item.status, item.reason,
@@ -957,6 +957,14 @@
           group === 0 ? "Failed and partial downloads" : "Other downloads"));
       }
       const entry = historyNode("article", "history-entry history-" + item.status);
+      entry.dataset.jobId = item.job_id;
+      if (focusedJobId === item.job_id) {
+        entry.classList.add("targeted");
+        if (!didScrollToJob) {
+          didScrollToJob = true;
+          requestAnimationFrame(() => entry.scrollIntoView({block:"center", behavior:"smooth"}));
+        }
+      }
       const state = historyNode("div", "history-state", item.status);
       const details = historyNode("div", "history-primary");
       const title = (item.artist ? item.artist + " — " : "") +
@@ -973,11 +981,8 @@
         (item.removed_from_queue ? " · removed from active list" : "")));
 
       const links = historyNode("div", "history-links");
-      if (!item.removed_from_queue) {
-        const openJob = historyNode("a", "", "Open job");
-        openJob.href = "/?job=" + encodeURIComponent(item.job_id);
-        links.append(openJob);
-      }
+      // The full job is not rendered in a second card: this result row is
+      // the single visible representation of completed/failed attempts.
       if (item.url) {
         const source = historyNode("a", "", "Open source");
         source.href = item.url;
@@ -1023,10 +1028,10 @@
     }
     const failed = (historyGlobalCounts.failed || 0) + (historyGlobalCounts.partial || 0);
     document.getElementById("history-summary").textContent =
-      historyGlobalTotal + " saved attempts · " + failed +
-      " failed/partial · " + (historyGlobalCounts.succeeded || 0) + " succeeded";
+      failed + " failed/partial · " +
+      (historyGlobalCounts.succeeded || 0) + " succeeded";
     statusLine.textContent = rows.length + " of " + historyRows.length +
-      " loaded attempts visible. Search and filters are optional.";
+      " saved results shown. Filter only when needed.";
   }
 
   async function refreshHistory() {
@@ -1071,6 +1076,11 @@
   document.getElementById("history-query").addEventListener("input", renderHistory);
   document.getElementById("history-filter").addEventListener("change", renderHistory);
   refreshHistory();
+  // Completed/failed jobs move out of the active cards on the next refresh;
+  // keep the results list current without requiring another button click.
+  setInterval(() => {
+    if (!document.hidden) refreshHistory();
+  }, 30000);
 
 </script>
 </body>
