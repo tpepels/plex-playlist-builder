@@ -23,6 +23,8 @@ def source_key(job):
         return None
     canonical = canonical_album_id(url)
     if canonical:
+        if canonical.startswith("playlist:"):
+            return ("youtube-playlist", canonical.split(":", 1)[1])
         return ("yt-album", canonical)
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
@@ -44,8 +46,8 @@ def source_key(job):
 
 
 def _newest(job):
-    return (int(job.get("attempt") or 1),
-            float(job.get("created_at") or 0),
+    return (float(job.get("created_at") or 0),
+            int(job.get("attempt") or 1),
             str(job.get("id") or ""))
 
 
