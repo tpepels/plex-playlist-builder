@@ -93,6 +93,56 @@ def has_handshake():
     return False
 
 
+def endpoint_udp_packets(port):
+    """Outgoing UDP packets accepted by our per-endpoint firewall rule.
+
+    This confirms passage through the container's OUTPUT filter only;
+    it does NOT prove the remote server received the packets.
+    """
+    try:
+        status = run("iptables", "-nvxL", "VPN_ENDPOINT", "-n", check=False)
+        if status.returncode:
+            return None
+        for line in status.stdout.splitlines():
+            fields = line.split()
+            if (len(fields) >= 10 and fields[0].isdigit()
+                    and fields[1].isdigit() and fields[3] == "udp"
+                    and "dpt:" + str(port) in line):
+                return int(fields[0])
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return None
+    return None
+
+
+def client_public_key(profile_text):
+    """Return only the public half of the uploaded registered keypair."""
+    try:
+        line = next(line for line in profile_text.splitlines()
+                    if line.startswith("PrivateKey = "))
+        secret = line.split("=", 1)[1].strip()
+        public = subprocess.run(
+            ["wg", "pubkey"], input=secret + "\n", text=True,
+            capture_output=True, check=False, timeout=4,
+        )
+        if public.returncode == 0:
+            # Prevent arbitrary command output from being exposed to the UI.
+            result = public.stdout.strip()
+            if re.fullmatch(r"[A-Za-z0-9+/]{43}=", result):
+                return result
+    except (StopIteration, OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def safe_handshake_diagnostics(candidate):
+    return {
+        "endpoint": candidate["endpoint"],
+        "port": candidate["port"],
+        "udp_packets_allowed": endpoint_udp_packets(candidate["port"]),
+        "client_public_key": client_public_key(candidate["text"]),
+    }
+
+
 def wait_for_handshake(seconds=13):
     """Initiate traffic via the tunnel then require an actual WG peer response.
 
@@ -325,6 +375,10 @@ def _activate(profile_id):
         save_metadata(data)
         return check
     except VPNConnectionError as exc:
+        if exc.phase == "handshake":
+            # Capture counters while wg0 and the per-endpoint firewall rule
+            # still exist, before rollback tears down the interface.
+            exc.diagnostics = safe_handshake_diagnostics(candidate)
         failure = exc
     except (OSError, RuntimeError, subprocess.TimeoutExpired):
         failure = VPNConnectionError(
@@ -505,6 +559,7 @@ def test_worker():
                     TASK["results"].append({"filename": entry["filename"],
                                             "country": entry["country"], "ok": False,
                                             "phase": exc.phase if isinstance(exc, VPNConnectionError) else "unknown",
+                                            "diagnostics": getattr(exc, "diagnostics", {}),
                                             "message": str(exc) if isinstance(exc, VPNConnectionError)
                                             else "VPN connection failed during setup."})
         with LOCK:
@@ -581,6 +636,11 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     return self.reply(404, {"error": "Not found"})
                 return self.reply(200, {"ok": True, **result})
+            except VPNConnectionError as exc:
+                return self.reply(400, {
+                    "error": str(exc), "phase": exc.phase,
+                    "diagnostics": getattr(exc, "diagnostics", {}),
+                })
             except (ValueError, KeyError, RuntimeError, TypeError) as exc:
                 return self.reply(400, {"error": str(exc)})
         return self.reply(404, {"error": "Not found"})
