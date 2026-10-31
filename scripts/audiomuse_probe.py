@@ -21,22 +21,30 @@ def plex_ids(path: Path) -> set[str]:
         return {str(row["rating_key"]).strip() for row in reader if row.get("rating_key", "").strip()}
 
 
-def get_manifest(url: str, *, cookie: str = "", all_pages: bool = False) -> dict:
+def auth_headers(*, token: str = "", cookie: str = "") -> dict[str, str]:
+    """Use AudioMuse's documented machine-to-machine Bearer token when set."""
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    elif cookie:
+        headers["Cookie"] = cookie
+    return headers
+
+
+def get_manifest(url: str, *, token: str = "", cookie: str = "", all_pages: bool = False) -> dict:
     tracks: list[dict] = []
     page = 1
     total = 0
     provider = None
     while True:
         endpoint = url.rstrip("/") + "/api/sync?" + urlencode({"fields": "index", "page": page, "limit": 1000})
-        headers = {"Accept": "application/json"}
-        if cookie:
-            headers["Cookie"] = cookie
+        headers = auth_headers(token=token, cookie=cookie)
         try:
             with urlopen(Request(endpoint, headers=headers), timeout=15) as response:
                 result = json.load(response)
         except HTTPError as exc:
             if exc.code in (401, 403):
-                raise RuntimeError("Authentication required: set AUDIOMUSE_COOKIE locally (never share it)") from exc
+                raise RuntimeError("Authentication required: configure AUDIOMUSE_API_TOKEN locally (never share it)") from exc
             raise RuntimeError(f"AudioMuse HTTP {exc.code} on /api/sync") from exc
         except URLError as exc:
             raise RuntimeError(f"Cannot reach AudioMuse at {url}: {exc.reason}") from exc
@@ -84,7 +92,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--all", action="store_true", help="Fetch all pages, not just the first")
     args = parser.parse_args(argv)
     try:
-        manifest = get_manifest(args.url, cookie=os.environ.get("AUDIOMUSE_COOKIE", ""), all_pages=args.all)
+        manifest = get_manifest(
+            args.url,
+            token=os.environ.get("AUDIOMUSE_API_TOKEN", ""),
+            cookie=os.environ.get("AUDIOMUSE_COOKIE", ""),
+            all_pages=args.all,
+        )
         print(json.dumps(compare(manifest, plex_ids(args.plex_tsv) if args.plex_tsv else None), indent=2))
         return 0
     except (ValueError, OSError, RuntimeError) as exc:
