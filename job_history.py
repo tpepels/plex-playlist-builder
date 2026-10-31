@@ -1,6 +1,8 @@
 """Searchable, durable download-attempt summaries (including removed UI cards)."""
 from __future__ import annotations
 
+from collections import Counter
+
 
 def _reason(job):
     for line in reversed(job.get("log") or []):
@@ -20,6 +22,12 @@ def history_records(current, archived, *, query="", status="all", offset=0, limi
         (job, True) for job in archived.values()
     ]
     entries = []
+    # Summary must describe the entire retained history, not only this page or
+    # the currently selected status/search filter.
+    status_counts = Counter(str(item.get("status") or "unknown")
+                            for item, _ in raw)
+    retried_ids = {str(item.get("retry_of")) for item, _ in raw
+                   if item.get("retry_of")}
     for job, removed in raw:
         state = str(job.get("status") or "unknown")
         if status == "failed" and state not in {"failed", "partial"}:
@@ -59,12 +67,19 @@ def history_records(current, archived, *, query="", status="all", offset=0, limi
             "returncode": job.get("returncode"),
             "retry_of": job.get("retry_of"),
             "match_type": match.get("match_type") or "",
+            "source": str(job.get("source") or "yt-dlp"),
+            "attempt": int(job.get("attempt") or 1),
+            "title_known": bool(title),
+            "has_retried": str(job.get("id")) in retried_ids,
         })
     entries.sort(key=lambda item: (float(item["created_at"] or 0),
                                    item["job_id"]), reverse=True)
     count = len(entries)
     return {"total": count, "offset": offset, "limit": limit,
             "items": entries[offset:offset + limit],
+            "all_attempts": len(raw),
+            "all_status_counts": dict(status_counts),
+            "failed_or_partial_total": status_counts["failed"] + status_counts["partial"],
             "complete_history_since_update": True,
             "limitation": ("History begins with still-retained records at upgrade. "
                            "Jobs already pruned/deleted by older builds cannot "
