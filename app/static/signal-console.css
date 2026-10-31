@@ -183,3 +183,43 @@ pre {border:1px solid var(--signal-line);background:#0a141c!important}
   *,*::before,*::after {scroll-behavior:auto!important;animation-duration:.01ms!important;
     animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+/* Playlist manager details: curated collections, not generic admin rows. */
+#health.status {margin-bottom:12px;border-color:var(--signal-line);background:var(--signal-panel)}
+.version-name {letter-spacing:-.02em}
+#versionMetrics {gap:9px}
+#versionMetrics .metric {padding:9px 12px;border:1px solid var(--signal-line);
+  border-radius:10px;background:rgba(28,50,60,.54);white-space:normal}
+#versionMetrics .metric strong {font-size:17px;color:var(--signal-accent)}
+.playlist>summary {min-height:67px;padding:13px 16px}
+.playlist>summary:hover {box-shadow:inset 3px 0 0 var(--signal-accent)}
+.playlist-name {font-size:15px}
+.playlist .chip.needs_sync {background:#3b2f22!important;color:#e9c18d!important;border-color:#66523a}
+.playlist .chip.synced {background:#19382e!important;color:#9ce9bb!important;border-color:#32644c}
+.playlist[open] {border-color:#487b73!important}
+.playlist[open]>summary {background:rgba(52,116,97,.1)}
+.playlist-body {border-top-color:var(--signal-line)}
+.discovery-record {transition:transform .16s ease,border-color .16s ease}
+.discovery-record:hover {transform:translateY(-2px)}
+.album-card:hover {border-color:#4e7778!important}
+.album-card[open] {border-color:#467d73!important}
+.insight-table th {color:var(--signal-cyan);font:650 11px ui-monospace,Consolas,monospace;letter-spacing:.035em}
+.insight-table td {border-bottom-color:var(--signal-line)}
+.data-strip strong {color:var(--signal-accent)}
+#bulkBar {accent-color:var(--signal-accent)}
+.signal-back {display:inline-block;margin-top:4px;color:var(--signal-muted)!important;
+  font-size:12px;text-decoration:none}
+.signal-back:hover {color:var(--signal-cyan)!important;text-decoration:underline}
+.signal-resolver-body {max-width:720px!important;margin:0 auto!important;padding:0 15px!important}
+.signal-resolver-body .signal-album-page {margin:5vh auto!important;max-width:680px;padding:21px}
+.signal-album-page .signal-header {padding:11px 14px;margin-bottom:18px;border-radius:12px}
+.signal-album-page .signal-mark {width:44px;height:44px;flex-basis:44px}
+.signal-album-page #heading {font-size:clamp(22px,4vw,29px);margin:8px 0}
+.signal-album-page .working {margin:17px 0 10px;padding:12px;
+  border:1px solid var(--signal-line);background:var(--signal-surface);border-radius:10px}
+.signal-album-page .spinner {border-top-color:var(--signal-accent)}
+@media(max-width:720px) {
+  #versionMetrics .metric {flex:1 1 125px}
+  .signal-resolver-body .signal-header {flex-wrap:wrap}
+  .signal-resolver-body .signal-header button {min-height:34px}
+}
