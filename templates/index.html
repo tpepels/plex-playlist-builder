@@ -130,6 +130,58 @@
       .history-toolbar input { flex-basis:100%; } }
     .empty { color:var(--muted); padding:8px 0; }
     @media (max-width:620px) { main{width:calc(100% - 20px);margin-top:16px}.page-head{display:block;margin-bottom:20px}.extension-download{margin-top:12px}.panel{padding:14px}.url-row{grid-template-columns:minmax(0,1fr)}button{min-height:44px}.section-head{display:block}.versions{margin-bottom:10px}.track-progress-head{display:grid;grid-template-columns:1fr}.source-chip{white-space:normal}.resolver-row,.metadata-grid{grid-template-columns:minmax(0,1fr)}.job-cover{width:46px;height:46px}.job-top{gap:8px} }
+
+    /* WireGuard profile console: compact, intentionally lower than downloads. */
+    .vpn-panel { padding:0; overflow:hidden; border-color:#2d5248;
+      background:linear-gradient(145deg,#121c1c,#15191c 45%,#181c1e); }
+    .vpn-panel > summary { margin:0; padding:19px 21px; list-style:none;
+      display:flex; justify-content:space-between; align-items:center;
+      gap:12px; color:#e4fff3; font-size:15px; font-weight:730; cursor:pointer; }
+    .vpn-panel > summary::-webkit-details-marker { display:none; }
+    .vpn-panel > summary::before { content:"◈"; color:#75efb4; font-size:22px;
+      text-shadow:0 0 15px #55ffc074; animation:vpnPulse 3s ease-in-out infinite; }
+    .vpn-panel > summary span:first-child { margin-right:auto; }
+    .vpn-panel > summary .vpn-count { color:#94b9aa; font-size:12px; font-weight:450; }
+    .vpn-panel[open] > summary { border-bottom:1px solid #2d5248; }
+    .vpn-body { padding:18px 21px 21px; }
+    .vpn-intro { font-size:13px; color:#9cbaaf; margin:0 0 16px; }
+    .vpn-statusbar { display:flex; flex-wrap:wrap; gap:9px; align-items:center;
+      justify-content:space-between; margin-bottom:16px; }
+    .vpn-status-pill { border:1px solid #36644f; background:#13271e; padding:7px 12px;
+      color:#80e1ab; font:650 12px ui-monospace,monospace; border-radius:100px; }
+    .vpn-status-pill.vpn-disconnected { color:#eac48e; border-color:#695836; background:#29241b; }
+    .vpn-fields { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; }
+    .vpn-fields input, .vpn-auth input { min-width:0; width:100%; font:13px/1.4 system-ui,sans-serif;
+      color:#eefdf7; background:#0d1515; border:1px solid #395249; border-radius:9px;
+      padding:10px 12px; }
+    .vpn-fields input[type=file] { padding:9px; }
+    .vpn-auth { display:grid; grid-template-columns:1fr auto; align-items:end; gap:10px; margin:0 0 14px; }
+    .vpn-auth label { display:grid; gap:5px; color:#97b3a9; font-size:12px; }
+    .vpn-panel button { min-height:36px; padding:8px 13px; border:1px solid #79dcab; background:#93f5c1;
+      color:#0d2016; font-size:12px; }
+    .vpn-panel .vpn-secondary { background:#1d302b; color:#b9f4d6; border-color:#406958; }
+    .vpn-panel .vpn-danger { background:transparent; border-color:#544049; color:#d9a7ad; }
+    .vpn-actions { display:flex; flex-wrap:wrap; gap:9px; margin-top:12px; }
+    .vpn-profiles { display:grid; gap:8px; margin-top:17px; }
+    .vpn-profile { display:flex; flex-wrap:wrap; align-items:center; gap:12px; border:1px solid #304840;
+      border-radius:10px; background:#141f1d; padding:11px 13px; }
+    .vpn-profile-description { min-width:120px; flex:1; display:grid; gap:1px; }
+    .vpn-profile-description strong { color:#e2f7ec; font-size:13px; }
+    .vpn-profile-description small { color:#8ca99b; font-size:12px; overflow-wrap:anywhere; }
+    .vpn-active-tag { font:650 10px ui-monospace,monospace; color:#81ecc0; }
+    .vpn-row-actions { display:flex; gap:7px; }
+    .vpn-muted { font-size:12px; color:#8ca99b; margin:0; }
+    .vpn-feedback, .vpn-test-progress { font-size:12px; color:#a6d9c4; margin-top:12px; overflow-wrap:anywhere; }
+    .vpn-error { color:#ff9389; }
+    .vpn-test-results { display:grid; gap:5px; margin-top:7px; }
+    .vpn-test-row { display:flex; gap:12px; padding:8px 10px; border:1px solid #32463e;
+      border-radius:8px; background:#101c1a; font:12px ui-monospace,monospace; }
+    .vpn-pass { color:#82eab1; } .vpn-fail { color:#ff988c; }
+    .vpn-working > summary::before { animation-duration:.7s; }
+    @keyframes vpnPulse { 50% { opacity:.45; text-shadow:0 0 3px #75efb4; } }
+    @media (prefers-reduced-motion:reduce) { .vpn-panel > summary::before { animation:none; } }
+    @media(max-width:620px) { .vpn-auth,.vpn-fields { grid-template-columns:1fr; }
+      .vpn-panel > summary { padding:14px; } .vpn-body { padding:14px; } }
   </style>
 </head>
 <body>
@@ -184,6 +236,38 @@
       </div>
     </details>
   </section>
+  <details class="panel vpn-panel" id="vpn-panel">
+    <summary><span>WireGuard VPN · country rotation</span><span class="vpn-count" id="vpn-count">Manage profiles</span></summary>
+    <div class="vpn-body">
+      <p class="vpn-intro">Upload Surfshark WireGuard .conf profiles from different countries, connect to one, or run a one-cycle test to check each public exit IP. Downloads pause during testing; private keys are never displayed.</p>
+      <div class="vpn-auth">
+        <label>VPN administrator token
+          <input id="vpn-admin-key" type="password" autocomplete="off" placeholder="From .env.surfshark">
+        </label>
+        <button id="vpn-refresh" class="vpn-secondary" type="button">Connect to manager</button>
+      </div>
+      <div class="vpn-statusbar">
+        <span id="vpn-connection" class="vpn-status-pill vpn-disconnected">NOT CONNECTED TO MANAGER</span>
+        <span class="vpn-muted">Private config storage · authenticated local control</span>
+      </div>
+      <div class="vpn-fields">
+        <input id="vpn-upload-input" type="file" accept=".conf" multiple aria-label="Select WireGuard configuration files">
+        <button id="vpn-upload" type="button">Upload profiles</button>
+      </div>
+      <div class="vpn-fields" style="margin-top:8px">
+        <input id="vpn-country" type="text" maxlength="60" placeholder="Country label (optional when uploading one file)" aria-label="Country label">
+        <span class="vpn-muted">For bulk uploads, countries use the file names.</span>
+      </div>
+      <div id="vpn-feedback" class="vpn-feedback" role="status" aria-live="polite">Enter the administrator token to inspect configured countries.</div>
+      <div id="vpn-profiles" class="vpn-profiles"></div>
+      <div class="vpn-actions">
+        <button id="vpn-next-button" class="vpn-secondary" type="button" disabled>Next country</button>
+        <button id="vpn-test-button" type="button" disabled>Test all countries once</button>
+      </div>
+      <div id="vpn-test-progress" class="vpn-test-progress" role="status" aria-live="polite"></div>
+      <div id="vpn-test-results" class="vpn-test-results"></div>
+    </div>
+  </details>
   <section class="panel">
     <div class="section-head">
       <h2>Downloads</h2>
@@ -1264,5 +1348,6 @@
   }, 30000);
 
 </script>
+<script src="{{ url_for('static', filename='vpn-manager.js') }}" defer></script>
 </body>
 </html>
