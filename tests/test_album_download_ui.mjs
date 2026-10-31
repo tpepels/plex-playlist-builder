@@ -109,7 +109,7 @@ test("exact match transitions to download status before slow POST acknowledgemen
     downloader_url:"http://media-server:4545/?job=job123",
   }));
   await settle();
-  assert.equal(h.byId("heading").textContent, "Added to the download queue");
+  assert.equal(h.byId("heading").textContent, "New album job added");
   assert.match(h.byId("status").textContent, /Job job123 · queued/);
   assert.equal(h.navigation.length, 0);
   h.timers[0]();
@@ -126,7 +126,7 @@ test("completed historical job is explained without redirecting to empty queue",
       : found
   )));
   await settle();
-  assert.equal(h.byId("heading").textContent, "Album was downloaded previously");
+  assert.equal(h.byId("heading").textContent, "Album downloaded previously");
   assert.equal(h.calls.length, 2);
   assert.match(h.byId("status").textContent, /oldJob · succeeded/);
   assert.equal(h.byId("downloader-link").hidden, false);
@@ -166,9 +166,9 @@ test("edition match waits for explicit manual button and reports errors", async 
   await h.byId("queue-album-form").handlers.submit(event);
   assert.equal(event.prevented, true);
   assert.equal(h.calls.length, 2);
-  assert.equal(h.byId("heading").textContent, "Download not started");
+  assert.equal(h.byId("heading").textContent, "Album already in Plex");
   assert.equal(h.byId("status").textContent, "This exact album is already in Plex.");
-  assert.equal(h.byId("retry-button").hidden, false);
+  assert.equal(h.byId("retry-button").hidden, true);
   assert.equal(h.navigation.length, 0);
 });
 
@@ -183,4 +183,23 @@ test("ambiguous catalog matches never submit or download", async () => {
   assert.equal(h.byId("candidates").children.length, 1);
   assert.equal(h.calls.length, 1);
   assert.equal(h.navigation.length, 0);
+});
+
+test("duplicate active job is explained without redirect or second queue entry", async () => {
+  const h = harness((url, options) => Promise.resolve(answer(
+    options?.method === "POST"
+      ? {ok:true, duplicate:true, duplicate_reason:"same_youtube_album_id",
+         duplicate_requests:3, job_id:"original", latest_job_id:"original",
+         status:"running", active:true, visible:true,
+         downloader_url:"http://media-server:4545/?job=original"}
+      : found
+  )));
+  await settle();
+  assert.equal(h.byId("heading").textContent, "Duplicate download prevented");
+  assert.match(h.byId("detail").textContent, /same YouTube album ID/);
+  assert.match(h.byId("detail").textContent, /no second download was added/);
+  assert.equal(h.byId("downloader-link").hidden, false);
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.navigation.length, 0);
+  assert.equal(h.timers.length, 0);
 });
