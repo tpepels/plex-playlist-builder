@@ -155,25 +155,31 @@ VERSIONS = {
 
 def persist_jobs_locked():
     """Persist the complete UI/job state atomically. Caller must hold jobs_lock."""
+    # Build retry ancestry once. The old algorithm compared every claim
+    # against every historical job, making persistence quadratic as history
+    # grew. Retaining all jobs requires linear-ish persistence work.
+    latest_by_ancestor = {}
+    for job in jobs.values():
+        ident = job.get("id")
+        if not ident:
+            continue
+        current_id = ident
+        seen = set()
+        while current_id and current_id not in seen:
+            seen.add(current_id)
+            existing = latest_by_ancestor.get(current_id)
+            if existing is None or (
+                job.get("attempt", 1), job.get("created_at", 0)
+            ) > (
+                existing.get("attempt", 1), existing.get("created_at", 0)
+            ):
+                latest_by_ancestor[current_id] = job
+            ancestor = jobs.get(current_id)
+            current_id = ancestor.get("retry_of") if ancestor else None
+
     for claim in album_submissions.values():
-        root_id = claim.get("job_id")
-        related = []
-        for job in jobs.values():
-            ancestor = job
-            seen = set()
-            while ancestor and ancestor.get("id") not in seen:
-                if ancestor.get("id") == root_id or ancestor.get("retry_of") == root_id:
-                    related.append(job)
-                    break
-                seen.add(ancestor.get("id"))
-                parent_id = ancestor.get("retry_of")
-                ancestor = jobs.get(parent_id) if parent_id else None
-            # A pruned original still has its ID on a direct retry.
-            if job.get("retry_of") == root_id and job not in related:
-                related.append(job)
-        if related:
-            current = max(related, key=lambda item: (
-                item.get("attempt", 1), item.get("created_at", 0)))
+        current = latest_by_ancestor.get(claim.get("job_id"))
+        if current:
             claim["last_status"] = current["status"]
             claim["latest_job_id"] = current["id"]
     payload = {
