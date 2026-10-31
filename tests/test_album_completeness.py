@@ -39,6 +39,15 @@ def test_spotify_album_is_guarded_even_without_youtube_album_mode():
     assert not is_album_job(album(album_mode=False, url="https://example.com/watch"))
 
 
+def test_manual_spotify_recovery_can_publish_only_after_every_missing_track_is_resolved():
+    spotify = album(source="spotify", album_mode=False,
+                    url="https://open.spotify.com/album/1example",
+                    returncode=1, missing_tracks=[{"resolved": True}])
+    assert album_hold_reason(spotify, 6) is None
+    spotify["missing_tracks"].append({"resolved": False})
+    assert album_hold_reason(spotify, 6)
+
+
 def test_finalize_never_calls_publish_when_album_is_incomplete(tmp_path, monkeypatch):
     import app as service
 
