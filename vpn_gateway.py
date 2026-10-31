@@ -27,6 +27,19 @@ META_FILE = ROOT / "profiles.json"
 TOKEN = os.environ.get("SURFSHARK_CONTROL_API_KEY", "")
 LOCK = threading.RLock()
 TASK = {"running": False, "results": [], "message": "Idle", "done": True}
+COUNTRY_CODES = {
+    "netherlands": "NL", "germany": "DE", "portugal": "PT", "france": "FR",
+    "united states": "US", "usa": "US", "united kingdom": "GB", "uk": "GB",
+    "belgium": "BE", "spain": "ES", "italy": "IT", "poland": "PL",
+    "switzerland": "CH", "sweden": "SE", "norway": "NO", "austria": "AT",
+    "finland": "FI", "denmark": "DK", "canada": "CA", "japan": "JP",
+    "australia": "AU", "singapore": "SG", "ireland": "IE",
+    "greece": "GR", "czech republic": "CZ", "brazil": "BR",
+    "romania": "RO", "bulgaria": "BG", "turkey": "TR",
+    "south africa": "ZA", "south korea": "KR", "iceland": "IS",
+    "new zealand": "NZ", "india": "IN", "indonesia": "ID",
+    "hong kong": "HK", "taiwan": "TW",
+}
 MAX_PROFILES = 20
 MAX_BYTES = 8192
 
@@ -224,6 +237,18 @@ def probe():
     raise RuntimeError("VPN external IP test failed (network or geolocation unavailable)")
 
 
+def expected_country_code(label):
+    value = label.strip().lower()
+    if value in COUNTRY_CODES:
+        return COUNTRY_CODES[value]
+    if re.fullmatch(r"[a-z]{2}", value):
+        return value.upper()
+    match = re.match(r"([a-z]{2})[-_.]", value)
+    if match:
+        return match.group(1).upper()
+    return None
+
+
 def list_profiles():
     with LOCK:
         value = metadata()
@@ -295,9 +320,19 @@ def test_worker():
                 with LOCK:
                     result = _activate(entry["id"])
                     changed_ip = previous_ip is None or previous_ip != result["ip"]
+                    expected = expected_country_code(entry["country"])
+                    country_match = expected is not None and expected == result.get("country_code")
+                    ok = changed_ip and country_match
+                    if not changed_ip:
+                        note = "Exit IP did not change"
+                    elif expected is None:
+                        note = "Unknown expected country; use a country name or ISO code"
+                    elif not country_match:
+                        note = "Expected " + expected + "; observed " + str(result.get("country_code") or "?")
+                    else:
+                        note = "Verified country and exit IP"
                     item = {"filename": entry["filename"], "country": entry["country"],
-                            **result, "ok": changed_ip,
-                            "message": "Connected" if changed_ip else "Exit IP did not change"}
+                            **result, "ok": ok, "message": note}
                     previous_ip = result["ip"]
                     TASK["results"].append(item)
                     TASK["message"] = "Tested " + entry["filename"]
@@ -306,10 +341,17 @@ def test_worker():
                     TASK["results"].append({"filename": entry["filename"],
                                             "country": entry["country"], "ok": False,
                                             "message": str(exc)})
-        if original:
-            with LOCK:
-                TASK["message"] = "Restoring previous VPN profile"
+        with LOCK:
+            TASK["message"] = "Restoring previous VPN state"
+            if original:
                 _activate(original)
+            else:
+                stop_tunnel()
+                data = metadata()
+                data["active"] = None
+                save_metadata(data)
+                ACTIVE_FILE.unlink(missing_ok=True)
+                run("iptables", "-F", "VPN_ENDPOINT")
     except Exception:
         with LOCK:
             TASK["message"] = "Could not restore the previous VPN profile"
