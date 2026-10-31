@@ -15,6 +15,7 @@ def test_rotation_refuses_active_or_queued_downloads():
 
 
 def test_disabled_automatic_rotation_does_nothing(monkeypatch):
+    monkeypatch.delenv("VPN_GATEWAY_ENABLED", raising=False)
     monkeypatch.delenv("SURFSHARK_VPN_ENABLED", raising=False)
     monkeypatch.setenv("SURFSHARK_ROTATE_ON_403", "1")
     assert vpn.rotate_if_enabled() is None
@@ -69,3 +70,50 @@ def test_compose_opt_in_and_control_server_not_public():
     assert "8000:8000" not in overlay
     assert 'SURFSHARK_ROTATE_ON_403' in overlay
     assert "SURFSHARK_WIREGUARD_PRIVATE_KEY" in overlay
+
+
+def test_gateway_403_rotation_enabled_by_default(monkeypatch, tmp_path):
+    import io
+
+    monkeypatch.delenv("SURFSHARK_ROTATE_ON_403", raising=False)
+    monkeypatch.setenv("VPN_GATEWAY_ENABLED", "1")
+    monkeypatch.delenv("SURFSHARK_VPN_ENABLED", raising=False)
+    token = tmp_path / "control-token"
+    token.write_text("test-control-token")
+    monkeypatch.setenv("VPN_CONTROL_TOKEN_FILE", str(token))
+
+    calls = []
+    class Reply:
+        def __enter__(self): return io.BytesIO(
+            b'{"ok":true,"changed_ip":true,"country":"Sweden","ip":"198.51.100.6"}'
+        )
+        def __exit__(self, *args): return False
+
+    def fake_urlopen(request, timeout):
+        calls.append((request.full_url, request.get_method(), timeout))
+        return Reply()
+
+    monkeypatch.setattr(vpn, "urlopen", fake_urlopen)
+    result = vpn.rotate_if_enabled()
+    assert result == {"changed": True, "new_ip": "198.51.100.6",
+                      "country": "Sweden"}
+    assert calls == [("http://127.0.0.1:8787/rotate", "POST", 38)]
+
+
+def test_explicit_zero_disables_default_rotation(monkeypatch):
+    monkeypatch.setenv("SURFSHARK_ROTATE_ON_403", "0")
+    monkeypatch.setenv("VPN_GATEWAY_ENABLED", "1")
+    def no_network(*args, **kwargs):
+        raise AssertionError("rotation network call attempted despite 0")
+    monkeypatch.setattr(vpn, "urlopen", no_network)
+    assert vpn.rotate_if_enabled() is None
+
+
+def test_compose_managed_gateway_defaults_to_rotation_without_env_override():
+    root = Path(__file__).parents[1]
+    for path in ("compose.yaml", "compose.parent-vpn.yaml",
+                 "compose.surfshark.yaml"):
+        source = (root / path).read_text()
+        assert "SURFSHARK_ROTATE_ON_403: ${SURFSHARK_ROTATE_ON_403:-1}" in source
+    assert 'os.getenv("SURFSHARK_ROTATE_ON_403", "1")' in Path(
+        vpn.__file__).read_text()
