@@ -131,6 +131,23 @@ After the normal downloader update above:
 5. Use **Next country** to manually change your download IP between jobs.
    You can also connect/remove individual profiles through the UI.
 
+### Diagnosing a failed connection
+
+If all countries fail with the same result, keep the uploaded profiles;
+do not upload or share your private key again. Update both downloader and
+VPN gateway containers to get specific, non-sensitive error messages:
+`permissions` (NET_ADMIN), `kernel` (WireGuard unavailable),
+`tunnel_setup` (wg-quick/routing), `handshake` (no reply from
+Surfshark; key registration or UDP reachability), `dns` (name resolution
+failed after a successful handshake), and `exit_ip` (HTTPS verification
+failed after a successful handshake and DNS).
+
+The test checks for a real WireGuard handshake before looking up the
+public exit IP, and can fall back to a second HTTPS geolocation service.
+If all profiles fail, the dashboard shows **VPN NOT CONNECTED · DOWNLOADS
+BLOCKED** whenever the outbound kill switch is engaged. Do not interpret
+an absent active profile as proof that normal downloads work.
+
 Before the first profile is uploaded, downloads still use the usual
 **direct connection**. Once a VPN profile is selected, the gateway
 installs an outbound-deny kill switch; if VPN connection or verification
