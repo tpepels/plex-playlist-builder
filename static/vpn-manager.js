@@ -282,6 +282,13 @@
         : null;
       failedDiagnostics = err.diagnostics;
       message(err.message, true);
+      if (profileId) {
+        // Show the failure immediately; even if the follow-up GET fails the
+        // user can see what the Connect request returned beside the button.
+        const row = [...list.querySelectorAll(".vpn-profile")].find(
+          node => node.dataset.profileId === profileId);
+        if (row) showProfileResult(row, lastProfileResult);
+      }
     } finally {
       pendingProfile = null;
       setBusy(false);
