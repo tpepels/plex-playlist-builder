@@ -130,6 +130,8 @@ def queue_album(url: str, audit: dict | None = None) -> dict:
         "visible": actual.get("visible", not actual.get("historical", False)),
         "latest_job_id": actual.get("latest_job_id", result.get("latest_job_id", result["job_id"])),
         "message": actual.get("message", result.get("message", "")),
+        "duplicate_reason": result.get("duplicate_reason"),
+        "duplicate_requests": result.get("duplicate_requests", 0),
     }
 
 
