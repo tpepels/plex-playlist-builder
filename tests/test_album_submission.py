@@ -69,6 +69,10 @@ def test_api_creates_one_job_and_returns_same_id_after_repeated_requests(server)
     assert second.get_json()["duplicate"] is True
     assert second.get_json()["job_id"] == job_id
     assert second.get_json()["visible"] is True
+    assert second.get_json()["duplicate_reason"] == "same_youtube_album_id"
+    assert second.get_json()["duplicate_requests"] == 1
+    assert server.album_submissions[submission_key(URL)]["duplicate_requests"] == 1
+    assert server.public_jobs()[0]["diagnosis"]["duplicate_requests"] == 1
     assert server.download_queue.qsize() == 1
 
     detail = client.get(f"/api/albums/{job_id}")
