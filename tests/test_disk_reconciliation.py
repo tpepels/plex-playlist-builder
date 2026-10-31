@@ -88,3 +88,34 @@ def test_incomplete_scan_is_obvious_to_client():
     report = reconcile_inventory(incomplete, [])
     assert report["disk_scan_complete"] is False
     assert report["scan_errors"]
+
+
+def test_primary_unindexed_view_shows_only_physical_files_missing_from_plex():
+    # One fully indexed album should disappear from the default results.
+    tracks = [music_track("/plex/music/Other/Recording/03.mp3")]
+    report = reconcile_inventory(inventory(), tracks, status="unindexed")
+    assert report["disk_album_folders"] == 2
+    assert report["total_matches"] == 1
+    assert report["items"][0]["folder"] == "YT-DLP Imports/Pianist/Beethoven Sonatas"
+    assert report["items"][0]["files_not_in_plex"] == 2
+    assert report["not_in_plex_audio_files"] == 2
+    assert report["not_in_plex_album_folders"] == 1
+
+
+def test_partially_indexed_albums_appear_in_primary_unindexed_view():
+    track = music_track("/plex/music/YT-DLP Imports/Pianist/Beethoven Sonatas/01.opus")
+    report = reconcile_inventory(inventory(), [track], status="unindexed")
+    assert report["total_matches"] == 2
+    beethoven = next(i for i in report["items"] if "Beethoven" in i["folder"])
+    assert beethoven["status"] == "partial"
+    assert beethoven["files_not_in_plex"] == 1
+    assert beethoven["missing_files"] == [
+        "YT-DLP Imports/Pianist/Beethoven Sonatas/02.opus"
+    ]
+
+
+def test_unindexed_counts_are_global_even_when_search_filters_the_visible_rows():
+    report = reconcile_inventory(inventory(), [], status="unindexed", query="Beethoven")
+    assert report["total_matches"] == 1
+    assert report["not_in_plex_audio_files"] == 3
+    assert report["not_in_plex_album_folders"] == 2
