@@ -155,3 +155,80 @@ def test_shared_parent_compose_override_and_safe_installer():
     assert "stop yt-dlp-server" in script
     assert "up -d --build --force-recreate wireguard-gateway yt-dlp-server" in script
     assert "will not be overwritten" in script
+
+
+def test_surfshark_template_requires_registered_client_private_key():
+    from vpn_ui import MissingClientKey, complete_wireguard_template
+
+    missing = PROFILE.replace(KEY_A, "<insert_your_private_key_here>")
+    with pytest.raises(MissingClientKey, match="Surfshark"):
+        complete_wireguard_template(missing)
+    result = complete_wireguard_template(missing, KEY_A)
+    assert "PrivateKey = " + KEY_A in result
+    assert "<insert_your_private_key_here>" not in result
+    assert gateway.parse_profile(result)["endpoint"] == "203.0.113.11"
+
+
+def test_invalid_shared_key_error_does_not_echo_secret():
+    from vpn_ui import complete_wireguard_template
+    missing = PROFILE.replace(KEY_A, "<insert_your_private_key_here>")
+    fake_key = "NOT-AN-ACTUAL-WIREGUARD-PRIVATE-KEY"
+    with pytest.raises(ValueError) as exc:
+        complete_wireguard_template(missing, fake_key)
+    assert fake_key not in str(exc.value)
+    # Already-complete profiles are unchanged and must never be overwritten.
+    assert complete_wireguard_template(PROFILE, KEY_B) == PROFILE
+
+
+def test_five_template_uploads_need_only_one_shared_key(monkeypatch):
+    import io
+    from flask import Flask
+    from threading import Lock
+
+    monkeypatch.setenv("VPN_GATEWAY_ENABLED", "1")
+    app = Flask(__name__)
+    vpn_ui.register(app, {}, Lock())
+    calls = []
+
+    def fake_gateway(path, payload=None):
+        calls.append((path, payload))
+        if path == "/profiles" and payload is not None:
+            assert "PrivateKey = " + KEY_A in payload["content"]
+            assert "<insert_your_private_key_here>" not in payload["content"]
+            return {"id": str(len(calls)).zfill(32), "filename": payload["filename"],
+                    "country": payload["country"]}, 200
+        if path == "/profiles":
+            return {"profiles": [], "active": "an-existing-profile"}, 200
+        raise AssertionError("Unexpected VPN gateway call")
+
+    monkeypatch.setattr(vpn_ui, "gateway_call", fake_gateway)
+    templates = PROFILE.replace(KEY_A, "<insert_your_private_key_here>")
+    names = ("us-nyc.conf", "nl-ams.conf", "de-fra.conf",
+             "pt-lis.conf", "uk-lon.conf")
+
+    def upload(client, supplied_key=None):
+        files = [(io.BytesIO(templates.encode()), name) for name in names]
+        data = {"configs": files}
+        if supplied_key is not None:
+            data["private_key"] = supplied_key
+        return client.post("/api/vpn/profiles", data=data,
+                           headers={"X-Requested-With": "XMLHttpRequest"},
+                           content_type="multipart/form-data")
+
+    with app.test_client() as client:
+        no_key = upload(client)
+        assert no_key.status_code == 422
+        assert no_key.json["needs_private_key"] is True
+        assert calls == []   # preflight refuses all five, no partial import
+
+        with_key = upload(client, KEY_A)
+        assert with_key.status_code == 200
+        assert len(with_key.json["uploaded"]) == 5
+        assert len(calls) == 6  # 5 uploads + status check
+        assert KEY_A not in with_key.get_data(as_text=True)
+
+
+def test_gateway_explains_missing_private_key_instead_of_generic_error():
+    template = PROFILE.replace(KEY_A, "<insert_your_private_key_here>")
+    with pytest.raises(ValueError, match="template"):
+        gateway.parse_profile(template)
