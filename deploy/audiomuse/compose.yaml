@@ -17,7 +17,7 @@ services:
       retries: 10
 
   audiomuse-ai-flask:
-    image: ghcr.io/neptunehub/audiomuse-ai:${AUDIOMUSE_TAG:-v3.7.0}
+    image: ghcr.io/neptunehub/audiomuse-ai:${AUDIOMUSE_TAG:-3.7.0}
     restart: unless-stopped
     ports:
       - "${AUDIOMUSE_BIND:-0.0.0.0}:${AUDIOMUSE_PORT:-8098}:8000"
@@ -38,7 +38,7 @@ services:
       postgres: {condition: service_healthy}
 
   audiomuse-ai-worker:
-    image: ghcr.io/neptunehub/audiomuse-ai:${AUDIOMUSE_TAG:-v3.7.0}
+    image: ghcr.io/neptunehub/audiomuse-ai:${AUDIOMUSE_TAG:-3.7.0}
     restart: unless-stopped
     cpus: ${AUDIOMUSE_WORKER_CPUS:-2.0}
     extra_hosts: ["host.docker.internal:host-gateway"]
