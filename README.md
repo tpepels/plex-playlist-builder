@@ -117,11 +117,15 @@ Gluetun. Inside the same Compose network, Gluetun aliases the name
    ```sh
    docker compose --env-file .env.surfshark \
      -f compose.yaml -f compose.surfshark.yaml config -q
+   # Stop only the old downloader first: it currently owns host port 4545.
+   docker compose -f compose.yaml stop yt-dlp-server
    docker compose --env-file .env.surfshark \
-     -f compose.yaml -f compose.surfshark.yaml up -d --build
+     -f compose.yaml -f compose.surfshark.yaml \
+     up -d --build --force-recreate surfshark-vpn yt-dlp-server
    ```
 
-   Do this only when no downloader job is running. If using a parent Compose
+   Do this only when no downloader job is running. The explicit service
+   names prevent rebuilding or restarting unrelated media services. If using a parent Compose
    project containing other media services, apply the
    `yt-dlp-server/compose.surfshark.yaml` override **to that same parent
    Compose file** and use its existing project name/network. Do not start
