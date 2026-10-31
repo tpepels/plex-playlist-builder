@@ -231,13 +231,10 @@
       const data = await api("/profiles");
       render(data);
     } catch (err) {
-      if (timer) {
-        window.clearInterval(timer);
-        timer = null;
-        if (testing && !testStarting) {
-          testing = false;
-          setBusy(false);
-        }
+      if (testing && !testStarting) {
+        // Do not silently unlock a rotation test when status polling fails.
+        // Continue polling for an authoritative finished state.
+        if (!timer) timer = window.setInterval(refresh, 1800);
       }
       message(err.message, true);
     }
