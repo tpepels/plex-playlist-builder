@@ -5,8 +5,11 @@ Only the isolated gateway can modify the VPN network namespace.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
+import re
 import threading
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -17,6 +20,48 @@ from flask import Blueprint, jsonify, request
 GATEWAY = "http://127.0.0.1:8787"
 TEST_LOCK = threading.Lock()
 test_active = False
+_PRIVATE_KEY_DIRECTIVE = re.compile(r"(?m)^([ \\t]*PrivateKey[ \\t]*=[ \\t]*)([^\\r\\n]*)(\\r?)$")
+_SURFSHARK_PLACEHOLDER = "<insert_your_private_key_here>"
+
+
+class MissingClientKey(ValueError):
+    """A Surfshark location template needs the registered client private key."""
+
+
+def complete_wireguard_template(content, private_key=""):
+    """Fill only Surfshark's client-key placeholder, never overwrite real keys.
+
+    Neither the supplied key nor the resulting configuration is logged or
+    returned in a response. The gateway already saves sanitized configs
+    under owner-only permissions.
+    """
+    matches = list(_PRIVATE_KEY_DIRECTIVE.finditer(content))
+    if len(matches) != 1:
+        raise ValueError("WireGuard config must contain one PrivateKey directive")
+    match = matches[0]
+    current = match.group(2).strip()
+    if current != _SURFSHARK_PLACEHOLDER:
+        return content
+    supplied = private_key.strip()
+    if not supplied:
+        raise MissingClientKey(
+            "These Surfshark files are templates without your client private key. "
+            "Generate a WireGuard key pair in Surfshark → VPN → Manual setup → "
+            "WireGuard, then paste its private key once below for all selected files."
+        )
+    try:
+        decoded = base64.b64decode(supplied, validate=True)
+    except (ValueError, binascii.Error):
+        raise ValueError(
+            "The supplied WireGuard private key is invalid. Copy the complete "
+            "private key generated in your Surfshark account."
+        ) from None
+    if len(decoded) != 32:
+        raise ValueError(
+            "The supplied WireGuard private key is invalid. A WireGuard key "
+            "must decode to exactly 32 bytes."
+        )
+    return content[:match.start(2)] + supplied + content[match.end(2):]
 
 
 def configured():
@@ -118,10 +163,13 @@ def register(app, jobs, jobs_lock):
         if not idle(jobs, jobs_lock):
             return jsonify(error="Cannot change VPN profiles with active or queued downloads"), 409
         files = request.files.getlist("configs")
-        country = ""  # country inferred from each Surfshark config filename
         if not files or len(files) > 20:
             return jsonify(error="Select between 1 and 20 WireGuard .conf files"), 400
-        results = []
+
+        # Preflight *every* selected file before saving any profile. A missing
+        # shared private key must not leave a confusing partial batch behind.
+        prepared = []
+        private_key = request.form.get("private_key", "")
         for f in files:
             payload = f.read(8193)
             if len(payload) > 8192:
@@ -130,9 +178,18 @@ def register(app, jobs, jobs_lock):
                 content = payload.decode("utf-8")
             except UnicodeDecodeError:
                 return jsonify(error=f"{f.filename}: configuration must be UTF-8 text"), 400
-            label = f.filename.removesuffix(".conf")
+            try:
+                completed = complete_wireguard_template(content, private_key)
+            except MissingClientKey as exc:
+                return jsonify(error=str(exc), needs_private_key=True), 422
+            except ValueError as exc:
+                return jsonify(error=str(exc)), 400
+            prepared.append((f.filename, f.filename.removesuffix(".conf"), completed))
+
+        results = []
+        for filename, label, content in prepared:
             item, status = gateway_call("/profiles", {
-                "filename": f.filename, "country": label, "content": content})
+                "filename": filename, "country": label, "content": content})
             if status != 200:
                 return jsonify(error=item.get("error", "Upload failed"),
                                uploaded=results), status
