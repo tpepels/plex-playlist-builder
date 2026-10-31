@@ -90,10 +90,15 @@ def explain_job(job, repeated_requests=0):
             action = "Review the final log and metadata."
             tone = "warning"
     elif status == "partial":
-        heading = "Partial download"
-        explanation = (f"Some tracks were processed, but {failed or 'one or more'} "
-                       "item(s) failed.")
-        action = "Review missing tracks or retry the failed items."
+        if str(job.get("message") or "").startswith("Album kept out of Plex:"):
+            heading = "Incomplete album — kept out of Plex"
+            explanation = str(job["message"])
+            action = "Retry the missing tracks; the entire album must complete first."
+        else:
+            heading = "Partial download"
+            explanation = (f"Some tracks were processed, but {failed or 'one or more'} "
+                           "item(s) failed.")
+            action = "Review missing tracks or retry the failed items."
         tone = "warning"
     elif status == "failed":
         heading = "Download failed"
