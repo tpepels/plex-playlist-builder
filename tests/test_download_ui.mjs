@@ -65,20 +65,27 @@ function job(id, status, source) {
   };
 }
 
-test("failed YouTube and Spotify jobs render instead of blanking the queue", () => {
+test("active and metadata jobs appear once as detailed cards, finished jobs do not", () => {
   const jobs = [
     job("beethoven-403", "failed", "yt-dlp"),
     job("spotify-partial", "partial", "spotify"),
     job("completed", "succeeded", "yt-dlp"),
+    job("queued", "queued", "yt-dlp"),
+    job("running", "running", "yt-dlp"),
+    job("metadata", "needs_metadata", "yt-dlp"),
   ];
   const ui = runUI(jobs);
   assert.equal(ui.byId("jobs").children.length, 3);
+  assert.deepEqual(
+    ui.byId("jobs").children.map(card => card.dataset.jobId),
+    ["queued", "running", "metadata"]
+  );
   assert.match(ui.byId("job-overview").textContent, /2 failed\/partial/);
   assert.match(ui.byId("job-overview").textContent, /1 finished/);
 });
 
-test("failed job as first item still produces a visible error card", () => {
+test("terminal jobs do not create a second detailed card", () => {
   const ui = runUI([job("beethoven-403", "failed", "yt-dlp")]);
   assert.equal(ui.byId("jobs").children.length, 1);
-  assert.equal(ui.byId("jobs").children[0].dataset.jobId, "beethoven-403");
+  assert.match(ui.byId("jobs").children[0].textContent, /No active downloads/);
 });
