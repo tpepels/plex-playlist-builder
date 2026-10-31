@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import os
 import sys
@@ -13,12 +14,26 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 
+def plex_ids_from_tsv(content: str) -> set[str]:
+    reader = csv.DictReader(io.StringIO(content), delimiter="\t")
+    if not reader.fieldnames or "rating_key" not in reader.fieldnames:
+        raise ValueError("Plex TSV is missing the rating_key column")
+    return {str(row["rating_key"]).strip() for row in reader if row.get("rating_key", "").strip()}
+
+
 def plex_ids(path: Path) -> set[str]:
-    with path.open("r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f, delimiter="\t")
-        if not reader.fieldnames or "rating_key" not in reader.fieldnames:
-            raise ValueError("Plex TSV is missing the rating_key column")
-        return {str(row["rating_key"]).strip() for row in reader if row.get("rating_key", "").strip()}
+    return plex_ids_from_tsv(path.read_text(encoding="utf-8-sig"))
+
+
+def plex_ids_from_manager(url: str) -> set[str]:
+    """Download current Plex rating keys from our existing read-only endpoint."""
+    endpoint = url.rstrip("/") + "/api/library-export.tsv"
+    try:
+        with urlopen(Request(endpoint, headers={"Accept": "text/tab-separated-values"}), timeout=90) as response:
+            content = response.read().decode("utf-8-sig")
+    except (HTTPError, URLError) as exc:
+        raise RuntimeError(f"Cannot download library export from {url}: {exc}") from exc
+    return plex_ids_from_tsv(content)
 
 
 def auth_headers(*, token: str = "", cookie: str = "") -> dict[str, str]:
@@ -88,7 +103,10 @@ def compare(manifest: dict, plex: set[str] | None) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="http://media-server:8098")
-    parser.add_argument("--plex-tsv", type=Path)
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--plex-tsv", type=Path, help="Local Plex full-library TSV file")
+    source.add_argument("--plex-url", default="http://127.0.0.1:5051",
+                        help="Existing Plex Playlist Manager URL (default: local port 5051)")
     parser.add_argument("--all", action="store_true", help="Fetch all pages, not just the first")
     args = parser.parse_args(argv)
     try:
@@ -98,7 +116,8 @@ def main(argv: list[str] | None = None) -> int:
             cookie=os.environ.get("AUDIOMUSE_COOKIE", ""),
             all_pages=args.all,
         )
-        print(json.dumps(compare(manifest, plex_ids(args.plex_tsv) if args.plex_tsv else None), indent=2))
+        plex = plex_ids(args.plex_tsv) if args.plex_tsv else plex_ids_from_manager(args.plex_url)
+        print(json.dumps(compare(manifest, plex), indent=2))
         return 0
     except (ValueError, OSError, RuntimeError) as exc:
         print(f"AudioMuse probe: {exc}", file=sys.stderr)
