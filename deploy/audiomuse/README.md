@@ -60,7 +60,9 @@ python3 scripts/audiomuse_probe.py \
   --all
 ```
 
-The probe only reads the AudioMuse `/api/sync?fields=index` manifest and the local TSV; it never modifies playlists. If AudioMuse requires a logged-in session, pass the cookie in the `AUDIOMUSE_COOKIE` environment variable; don't print or check it into source control.
+The probe only reads the AudioMuse `/api/sync?fields=index` manifest and the local TSV; it never modifies playlists. When AudioMuse authentication is enabled, configure a separate API token under **Administration → Setup Wizard → AudioMuse Authentication** (the `API_TOKEN` setting). Supply it to the probe through an **unexported shell variable/environment on your own server**, never in Git or chat. The script reads `AUDIOMUSE_API_TOKEN` and sends it in `Authorization: Bearer ...`; `AUDIOMUSE_COOKIE` is an optional fallback for existing setups.
+
+The authenticated scan can also be run directly with `AUDIOMUSE_API_TOKEN` already in your shell environment. Be aware that environment variables are exposed to your own processes and potentially privileged users; keep credentials out of command output and history.
 
 **Inspect `exact_plex_rating_key_matches`** before assuming AudioMuse's returned IDs equal Plex's rating keys. A low number means we need a verified identifier mapping, not a heuristic replacement.
 
