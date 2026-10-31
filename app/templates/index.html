@@ -138,10 +138,24 @@ small{color:var(--muted)}
 .cover-import-details .cover-row:first-child{border-top:0}
 .cover-import-details .cover-bad{color:var(--bad)}
 </style>
+<link rel="stylesheet" href="/static/signal-console.css">
 </head>
 <body>
-<main>
-<h1>Plex Playlist Builder</h1>
+<main class="signal-shell">
+<header class="signal-header signal-transition">
+  <div class="signal-brand">
+    <img class="signal-mark" src="/static/signal-mark.svg" width="61" height="61" alt="" aria-hidden="true">
+    <div>
+      <div class="signal-kicker">SIGNAL CONSOLE / LIBRARY INTELLIGENCE</div>
+      <h1 class="signal-wordmark">PLAYLIST <span>/ CURATION</span></h1>
+      <p class="signal-tagline">Your collection, thoughtfully organised.</p>
+    </div>
+  </div>
+  <div class="signal-tools">
+    <span class="signal-badge">PLEX CONNECTED SERVICE</span>
+    <button id="signal-theme-toggle" type="button" class="signal-theme-button" aria-pressed="true">CYBER: ON</button>
+  </div>
+</header>
 <div id="health" class="status"><span class="dot"></span>Connecting to Plex…</div>
 
 <section class="panel" aria-label="Loaded playlist version" aria-live="polite">
@@ -304,6 +318,7 @@ small{color:var(--muted)}
   </form>
   <div id="ytResult" role="status"></div>
 </section>
+<footer class="signal-footer">SIGNAL CONSOLE / PLAYLIST CURATION · YOUR AUDIO LIBRARY</footer>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -1114,5 +1129,6 @@ for (const b of document.querySelectorAll(".view-tab")) b.onclick = async () => 
 checkHealth();
 loadConfig().catch(e => { $("cards").innerHTML = `<div class="empty">Could not load playlists: ${esc(e.message)}</div>`; });
 </script>
+<script src="/static/signal-console.js" defer></script>
 </body>
 </html>
