@@ -192,6 +192,7 @@
     if (busy) return;
     setBusy(true);
     message(description);
+    let failedDiagnostics = null;
     try {
       const data = await api(path, {method: "POST", body: "{}",
         headers: {"Content-Type": "application/json"}});
@@ -207,14 +208,17 @@
       await refresh();
     } catch (err) {
       message(err.message, true);
-      if (err.diagnostics) {
-        const item = element("div", undefined, "vpn-test-row");
-        showHandshakeDiagnostics(item, err.diagnostics);
-        testResults.replaceChildren(item);
-      }
+      failedDiagnostics = err.diagnostics;
     } finally {
       setBusy(false);
       await refresh();
+      if (failedDiagnostics) {
+        // Refresh replaces historical test results; keep the latest manual
+        // failure's evidence visible at the top, not erased by polling.
+        const item = element("div", undefined, "vpn-test-row");
+        showHandshakeDiagnostics(item, failedDiagnostics);
+        testResults.prepend(item);
+      }
     }
   }
 
