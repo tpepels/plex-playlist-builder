@@ -5,6 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const feedback = $("vpn-feedback");
   const list = $("vpn-profiles");
+  const publicKeysPanel = $("vpn-public-keys");
   const testResults = $("vpn-test-results");
   const progress = $("vpn-test-progress");
   const keySetup = $("vpn-key-setup");
