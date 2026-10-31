@@ -26,6 +26,7 @@ from download_resilience import (
 from album_submission import clean_match_audit, submission_key
 from job_diagnostics import explain_job
 from surfshark_vpn import rotate_if_enabled
+from vpn_ui import register as register_vpn_manager
 
 app = Flask(__name__)
 
@@ -68,6 +69,7 @@ archived_jobs = {}
 # Stable album-ID claims survive restarts and job-history pruning.
 album_submissions = {}
 jobs_lock = threading.Lock()
+register_vpn_manager(app, jobs, jobs_lock)
 probe_cache = {}
 probe_cache_lock = threading.Lock()
 download_queue = queue.Queue(maxsize=MAX_QUEUE)
@@ -167,7 +169,8 @@ def current_software_version():
     for name in ("app.py", "staging.py", "album_completeness.py",
                  "retry_queue.py", "download_resilience.py",
                  "album_submission.py", "job_diagnostics.py",
-                 "surfshark_vpn.py", "templates/index.html"):
+                 "surfshark_vpn.py", "vpn_ui.py", "vpn_gateway.py",
+                 "static/vpn-manager.js", "templates/index.html"):
         path = Path(__file__).resolve().parent / name
         digest.update(name.encode())
         digest.update(path.read_bytes())
