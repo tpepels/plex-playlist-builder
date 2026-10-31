@@ -24,9 +24,19 @@
     .error { color: #c64c4c; }
     [hidden] { display: none !important; }
   </style>
+<link rel="stylesheet" href="/static/signal-console.css">
 </head>
 <body>
-  <main class="panel">
+  <main class="panel signal-album-page">
+    <header class="signal-header signal-transition">
+      <div class="signal-brand">
+        <img class="signal-mark" src="/static/signal-mark.svg" width="48" height="48" alt="" aria-hidden="true">
+        <div><div class="signal-kicker">SIGNAL / ALBUM RESOLVER</div>
+          <a class="signal-back" href="/">← Playlist manager</a>
+        </div>
+      </div>
+      <button id="signal-theme-toggle" type="button" class="signal-theme-button" aria-pressed="true">CYBER: ON</button>
+    </header>
     <h1 id="heading">Opening album…</h1>
     <p id="requested">Requested: <strong>{{ artist }} — {{ album }}</strong></p>
     <div class="working" id="activity" role="status" aria-live="polite">
@@ -236,5 +246,6 @@
     resolveAlbum();
   })();
   </script>
+<script src="/static/signal-console.js" defer></script>
 </body>
 </html>
