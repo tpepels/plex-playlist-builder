@@ -14,7 +14,7 @@
     if (mark) {
       const file = value === "cyber" ? "signal-mark.svg" : "signal-mark-static.svg";
       // Only replace the literal filename in this same-origin asset path.
-      mark.src = mark.src.replace(/signal-mark(?:-static)?\\.svg(?:\\?.*)?$/, file);
+      mark.src = mark.src.replace(/signal-mark(?:-static)?\.svg(?:\?.*)?$/, file);
     }
     toggle.setAttribute("aria-pressed", String(value === "cyber"));
     toggle.textContent = value === "cyber" ? "CYBER: ON" : "CYBER: OFF";
