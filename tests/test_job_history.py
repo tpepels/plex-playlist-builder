@@ -88,3 +88,39 @@ def test_download_history_endpoint_filters_and_reports_403(tmp_path, monkeypatch
             server.jobs.update(original)
             server.archived_jobs.clear()
             server.archived_jobs.update(originals_archive)
+
+
+def test_all_attempts_summary_covers_failures_even_with_pagination_and_optional_filters():
+    jobs = {f"failed-{i}": failure(f"failed-{i}", i) for i in range(39)}
+    jobs.update({f"success-{i}": {
+        **failure(f"success-{i}", 100 + i),
+        "status": "succeeded",
+        "http_403": False,
+        "log": [],
+        "message": "Published to library",
+        "final_dir": f"/music/Artist/Album{i}",
+    } for i in range(11)})
+    all_history = history_records(jobs, {}, status="all", limit=20)
+    assert all_history["total"] == 50
+    assert len(all_history["items"]) == 20
+    assert all_history["all_attempts"] == 50
+    assert all_history["failed_or_partial_total"] == 39
+    assert all_history["all_status_counts"]["failed"] == 39
+    assert all_history["all_status_counts"]["succeeded"] == 11
+
+    failed_only = history_records(jobs, {}, status="failed")
+    assert failed_only["total"] == 39
+    assert failed_only["all_attempts"] == 50
+    assert failed_only["failed_or_partial_total"] == 39
+    assert all(i["title"] == "Beethoven: Piano Sonatas" for i in failed_only["items"])
+
+
+def test_retry_status_in_history_links_to_latest_attempt():
+    original = failure("beethoven-403", 3)
+    retry = {**failure("beethoven-retry", 5),
+             "retry_of": "beethoven-403", "status": "queued"}
+    history = history_records({"beethoven-403": original, "beethoven-retry": retry}, {})
+    items = {row["job_id"]: row for row in history["items"]}
+    assert items["beethoven-403"]["has_retried"] is True
+    assert items["beethoven-retry"]["has_retried"] is False
+    assert items["beethoven-403"]["source"] == "yt-dlp"
