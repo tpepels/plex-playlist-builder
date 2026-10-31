@@ -83,12 +83,15 @@
       activity.setAttribute("aria-busy", working ? "true" : "false");
     }
     function setError(message) {
-      heading.textContent = "Download not started";
-      status.classList.add("error");
-      showStatus(message, "You can retry without creating duplicate jobs.", false);
-      retryButton.hidden = false;
-      queueButton.disabled = false;
-      if (resolved) queueButton.hidden = false;
+      const alreadyOwned = /already in Plex/i.test(message);
+      heading.textContent = alreadyOwned ? "Album already in Plex" : "Download not started";
+      status.classList.add(alreadyOwned ? "quiet" : "error");
+      showStatus(message, alreadyOwned
+        ? "No download was started because this exact album is already in your library."
+        : "No success was confirmed. Check the error before retrying.", false);
+      retryButton.hidden = alreadyOwned;
+      queueButton.disabled = alreadyOwned;
+      if (resolved) queueButton.hidden = alreadyOwned;
       busy = false;
     }
     function elapsedTime() {
@@ -124,25 +127,36 @@
         downloaderLink.hidden = false;
         elapsedTime();
         if (!response.active) {
-          // Failed, completed or pruned jobs are not in the active queue.
+          // Finished and historical jobs do not constitute a new active download.
           heading.textContent = response.status === "succeeded"
-            ? (response.duplicate ? "Album was downloaded previously" : "Album download completed")
-            : "No active download job";
-          showStatus("Job " + response.job_id + " · " + response.status,
-            response.message || (response.visible
-              ? "The job is not queued or running. Inspect it in the downloader."
-              : "This historical job is no longer visible in the download list."), false);
+            ? "Album downloaded previously" : "No active download job";
+          showStatus("Existing job " + response.job_id + " · " + response.status,
+            (response.message || (response.visible
+              ? "This job is not queued or running."
+              : "The original job is no longer visible.")) +
+            " No new download job was created.", false);
           queueButton.hidden = true;
           busy = false;
           return;
         }
-        const result = response.retried ? "Previous download failed — retry queued"
-          : response.duplicate ? "Existing active download found" : "Added to the download queue";
-        heading.textContent = result;
+        if (response.duplicate && !response.retried) {
+          heading.textContent = "Duplicate download prevented";
+          showStatus("Existing job " + response.latest_job_id + " · " + response.status,
+            "The same YouTube album ID was already submitted. yt-dlp reused the " +
+            "existing job; no second download was added. Open the existing job " +
+            "using the link below.", false);
+          queueButton.hidden = true;
+          busy = false;
+          return;
+        }
+        heading.textContent = response.retried
+          ? "Previous attempt failed — retry queued" : "New album job added";
         showStatus("Job " + response.latest_job_id + " · " + response.status,
-          "Confirmed in yt-dlp. Opening this job in the downloader…", false);
-        // Keep the job acknowledgement visible before opening the correct card.
-        setTimeout(() => window.location.assign(response.downloader_url), 1500);
+          response.retried
+            ? "The failed attempt was retried. Opening the job to show progress…"
+            : "Confirmed in yt-dlp. Opening the new job to show progress…", false);
+        // A new or retried job opens its highlighted card after acknowledgement.
+        setTimeout(() => window.location.assign(response.downloader_url), 1800);
       } catch (error) {
         setError(error.message || "Could not submit album.");
       }
