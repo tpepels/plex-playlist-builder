@@ -178,10 +178,18 @@ Internet access. Network access may therefore be interrupted while
 changing profiles. The dashboard rejects manual switches when downloads
 are active or queued. A VPN may not solve YouTube 403/PO-token problems.
 
-Automatic country switching after repeated HTTP 403s remains **disabled
-by default**. An administrator can enable it later through the optional
-Compose environment variable `SURFSHARK_ROTATE_ON_403=1`; this is
-unnecessary for manual upload, switching and testing.
+Automatic country switching after repeated YouTube HTTP 403 failures is
+**enabled by default** when a Surfshark VPN is configured. If both fresh
+yt-dlp attempts encounter an HTTP 403, the downloader switches to the next
+uploaded country once, after the failing yt-dlp process exits, before its
+final retry. It checks the resulting public IP and logs the outcome. It
+does not rotate for ordinary failures, Spotify downloads, or every request.
+A failed VPN change does not bypass the kill switch.
+
+To disable automatic 403 rotation, set `SURFSHARK_ROTATE_ON_403=0` in
+the parent Compose project's `.env` (or the downloader environment), then
+recreate `yt-dlp-server`. Any existing explicit `0` overrides the
+default-on setting.
 
 **Security:** The control API binds to loopback inside the shared
 downloader network namespace and authenticates with a private
