@@ -205,6 +205,47 @@ The `/health` endpoint reports whether the provider directory is available and w
 
 A PO token improves compatibility with current YouTube enforcement but cannot guarantee that every YouTube media request will succeed. If YouTube still returns a 403, the job now reports that it failed despite PO-token support instead of showing only a generic yt-dlp exit code.
 
+## Automatic HTTP 403 recovery and request pacing
+
+YouTube album downloads use the currently recommended `mweb` client with
+BgUtils PO-token generation. The app now also avoids repeated rapid requests
+and recovers automatically when YouTube rejects a media stream:
+
+1. Pause between YouTube track downloads (default 5-10 seconds), and 1 second
+   between extraction requests; yt-dlp HTTP/extractor retries use exponential
+   delay. This reduces request pressure but does not eliminate IP restrictions.
+2. If a process exits nonzero after an actual HTTP 403, wait 30 seconds and
+   restart yt-dlp to **re-extract a fresh stream URL**, keeping staged audio
+   and preserving completed tracks via the download archive.
+3. If the second attempt also fails with a 403, wait 90 seconds and make a
+   final attempt with the `web_safari` player client, which can offer an
+   alternative HLS audio stream. It is not guaranteed to work for every video.
+4. Record the exact number of automatic restarts; show a recovering state
+   during backoff, and keep the job failed with its staging files untouched
+   if all attempts fail. A later manual retry remains possible.
+
+These retries are bounded. They do not run for Spotify, non-YouTube sources,
+non-403 failures, or explicitly forced/overwriting jobs. YouTube downloads
+with many tracks are expected to run slower than before.
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `YOUTUBE_403_RESTARTS` | `2` | Fresh yt-dlp process restarts (0-3) |
+| `YOUTUBE_403_BACKOFF_SECONDS` | `30` | Initial cooldown; second is 3× (5-300) |
+| `YOUTUBE_403_FALLBACK_CLIENT` | `web_safari` | Client for the final restart (empty = keep mweb) |
+| `YOUTUBE_TRACK_PAUSE_MIN` | `5` | Minimum per-track delay (0-30 seconds) |
+| `YOUTUBE_TRACK_PAUSE_MAX` | `10` | Maximum per-track delay (0-45 seconds) |
+| `YOUTUBE_REQUEST_PAUSE` | `1` | Delay between extraction requests (0-10 seconds) |
+
+**Limitations:** A PO-token provider directory existing does not establish
+that a valid token was generated or accepted. The revised error message
+states this explicitly. Run yt-dlp with `-v` for a single failing item to
+verify both the detected provider and a line indicating actual token
+generation; do not share cookies, raw tokens or signed stream URLs in
+public logs. A generated PO token cannot guarantee avoidance of HTTP 403,
+and IP-based restrictions may persist. The original staging data is
+retained when automatic recovery fails.
+
 ## Unavailable YouTube playlist tracks
 
 YouTube playlists can contain hidden or removed videos. yt-dlp normally continues downloading the rest of the playlist, but still exits nonzero when an unavailable video is encountered. The server detects errors such as:
