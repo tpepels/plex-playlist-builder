@@ -2525,6 +2525,36 @@ def api_jobs():
     return jsonify(public_jobs())
 
 
+@app.get("/api/import-audit")
+def api_import_audit():
+    """Read-only file existence check for retained downloader jobs.
+
+    Does not claim Plex has indexed an existing file. Report uses actual
+    filesystem stat in yt-dlp's container, not stale persisted job status.
+    """
+    entries = []
+    for job in public_jobs():
+        paths = [name for name in job.get("files", []) if isinstance(name, str)]
+        present = [name for name in paths if Path(name).is_file()]
+        missing = [name for name in paths if not Path(name).is_file()]
+        final_dir = job.get("final_dir") or ""
+        stage_dir = library_staging.stage_dir(TEMP_DIR, job)
+        entries.append({
+            "job_id": job["id"],
+            "request_member_ids": job.get("request_member_ids") or [],
+            "files_recorded": len(paths),
+            "files_present": len(present),
+            "files_missing": len(missing),
+            "missing_paths": missing[:10],
+            "final_dir": final_dir,
+            "final_dir_exists": bool(final_dir and Path(final_dir).is_dir()),
+            "stage_dir_exists": stage_dir.is_dir(),
+            "staged_audio_count": len(library_staging.media_files(stage_dir))
+                                  if stage_dir.is_dir() else 0,
+        })
+    return jsonify(entries)
+
+
 @app.get("/health")
 def health():
     return jsonify(
