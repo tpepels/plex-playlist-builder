@@ -85,6 +85,93 @@ Then:
 Open `http://YOUR-SERVER-IP:4545`.
 
 
+## Optional Surfshark VPN for downloader only
+
+This feature is **off by default**. Use Gluetun with Surfshark WireGuard to
+route the yt-dlp server's outbound traffic through Surfshark, without
+changing the VPN routing of Plex, Transmission, Caddy or other services.
+The downloader's port 4545 remains published on the Docker host through
+Gluetun. Inside the same Compose network, Gluetun aliases the name
+`yt-dlp-server` for clients that already call that host.
+
+1. Surfshark website: VPN > Manual setup > WireGuard. Generate a fresh
+   WireGuard key pair, then download a server config and copy its IPv4
+   `Address` CIDR field (not the VPN server's public IP).
+2. On the server, inside the yt-dlp-server repository:
+
+   ```sh
+   cp .env.surfshark.example .env.surfshark
+   chmod 600 .env.surfshark
+   # Edit the private key, WireGuard address, region and control key.
+   python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+   ```
+
+   Put the generated random string into `SURFSHARK_CONTROL_API_KEY`. Never
+   commit the completed file, send it in chat, or expose the control server's
+   port 8000 to the LAN. Docker environment inspection by host administrators
+   can reveal these settings; keep Docker access restricted.
+
+3. Use the **same Compose project** and the Surfshark override. For this
+   repository's standalone Compose file:
+
+   ```sh
+   docker compose --env-file .env.surfshark \
+     -f compose.yaml -f compose.surfshark.yaml config -q
+   docker compose --env-file .env.surfshark \
+     -f compose.yaml -f compose.surfshark.yaml up -d --build
+   ```
+
+   Do this only when no downloader job is running. If using a parent Compose
+   project containing other media services, apply the
+   `yt-dlp-server/compose.surfshark.yaml` override **to that same parent
+   Compose file** and use its existing project name/network. Do not start
+   a second downloader against the same staging/state volumes. Paths in
+   Compose overrides resolve relative to the first Compose file.
+
+4. Check VPN status and its reported public IP from the downloader's shared
+   namespace:
+
+   ```sh
+   docker exec yt-dlp-server python /app/surfshark_vpn.py status
+   ```
+
+   Compare this against your usual non-VPN public IP before retrying failed
+   albums. Confirm the downloader web UI remains reachable on port 4545 and
+   any playlist manager that uses `http://yt-dlp-server:4545` can still
+   reach it.
+
+### Exit IP changes
+
+A manual **bounded reconnect** can be requested only while the downloader
+has no queued, running or finalizing jobs:
+
+```sh
+docker exec yt-dlp-server python /app/surfshark_vpn.py rotate
+```
+
+The command prints the old/new public IP and reports `changed: false` if the
+reconnect reused the same Surfshark exit. A WireGuard reconnect can choose
+the same server, so it is **not** a guaranteed IP switch.
+
+For an explicit geographic change, edit
+`SURFSHARK_SERVER_COUNTRIES` in `.env.surfshark` and re-create **both**
+`surfshark-vpn` and `yt-dlp-server` with the Compose command above, only
+while the downloader is idle. Recreating just Gluetun can leave the
+downloader on an obsolete network namespace. Note that other countries
+may have stricter geographic restrictions.
+
+Optionally set `SURFSHARK_ROTATE_ON_403=1` to attempt at most one VPN
+reconnect after repeated YouTube HTTP 403 failures, before the last normal
+yt-dlp retry. This happens only **between** completed yt-dlp subprocesses
+and is disabled by default. A fresh yt-dlp process re-extracts media URLs.
+If the VPN comes back with the same exit IP, the logs say so rather than
+claiming a switch. This never bypasses PO-token checks and is not a
+guaranteed 403 solution. Do not set a short repetitive rotation interval.
+
+The default non-VPN deployment remains unchanged if the override is not
+used. Existing persistent staged files and job history are shared by the
+two configurations; they must never be started simultaneously.
+
 ## Chrome extension
 
 The running web app also exposes the same ZIP directly from the page through the **Chrome extension** button. The download is served by the yt-dlp server itself at `/chrome-extension.zip`, so users do not need GitHub access once the server is running.
