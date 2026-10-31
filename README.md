@@ -111,8 +111,16 @@ After the normal downloader update above:
 2. Download Surfshark **WireGuard** `.conf` configurations for your desired
    locations (Surfshark account > VPN > Manual setup > WireGuard).
 3. Select several `.conf` files in the upload field and choose
-   **Upload .conf files**. No administrator token, country text field or
-   manual VPN configuration is required. Profiles are persisted under
+   **Upload .conf files**. No administrator token or country text field is
+   required. **If Surfshark provided templates**, they contain the literal
+   `PrivateKey = <insert_your_private_key_here>`. The page detects this and
+   asks for your *registered WireGuard client private key once*, filling it
+   into every selected template. Obtain the key from Surfshark account >
+   VPN > Manual setup > WireGuard > Generate a key pair, or retrieve the
+   private key you securely saved when originally generating one. A random
+   unregistered key will not connect. If you lose the private key, generate
+   a new key pair in Surfshark and use its new private key.
+   Profiles are persisted under
    `/srv/yt-dlp-server/wireguard-profiles` and never shown with private
    keys. Country codes are inferred from location filenames
    (for example, `nl-ams.conf`, `de-fra.conf`).
@@ -140,7 +148,12 @@ unnecessary for manual upload, switching and testing.
 downloader network namespace and authenticates with a private
 automatically generated token stored under the persistent downloader
 state directory. Uploaded WireGuard keys are stored only in the
-gateway's protected private volume. The browser sends no secret.
+gateway's protected private volume. For template files, the browser
+**does send your pasted client private key to the downloader backend**
+as part of the local upload request. It is not placed in logs or saved
+in browser storage, but HTTP traffic can be observed on untrusted networks;
+use HTTPS or a trusted private LAN for this upload. Never paste the key
+into a chat or commit it to Git.
 Since the main downloader web UI has no user login, everyone who can
 access it can also submit VPN management actions; keep port 4545
 restricted to your trusted LAN or behind authenticated HTTPS.
