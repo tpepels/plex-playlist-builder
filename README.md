@@ -303,6 +303,38 @@ the playlist manager prefers `OLAK` URLs when available.
 The downloader has **no login** and is intended for a trusted LAN only.
 Do not expose the album API to the public internet.
 
+## Understand download status and duplicates
+
+The **Downloads** overview shows working, waiting, metadata-needed,
+failed/partial, and finished jobs, plus the number of repeated album requests
+prevented. Each job has a plain-language **outcome** and **next action**, using
+the job's actual state and saved evidence. This avoids mistaking a process
+marked `running` for confirmed audio progress:
+
+- **Reading source playlist** means yt-dlp is running, but no tracks have
+  been confirmed; a YouTube Music → YouTube playlist redirect is normal.
+- **Downloading tracks** means actual files were recorded, with confirmed
+  saved/total counts when known.
+- **Action needed: album metadata** means files remain staged until approved.
+- **Album published** appears only after a library publication directory
+  has been recorded.
+- **Finished without new files** does *not* claim a successful publication.
+  Confirmed yt-dlp archive skips are counted and explained separately.
+- **Duplicate download prevented** refers to repeated requests for the
+  **same YouTube album ID**. These reuse the original job, with the count of
+  suppressed extra requests visible on its download card.
+
+The original artist and album query, matched catalog title and applied rule
+also appear on the job card when the request came from the Plex Playlist
+Manager. You can still expand **Log** for raw diagnostic output. During a
+running job, the card reports how long it has received no new yt-dlp output;
+silence is not itself proof that the job has failed.
+
+An album already present in Plex is rejected by the *playlist manager* before
+submission. A yt-dlp **archive skip** indicates that a source item was recorded
+in the downloader's archive; it does not guarantee Plex currently contains
+that file. Neither is conflated with a duplicate job request.
+
 ## Removing finished or abandoned jobs
 
 Terminal job cards can be removed from the UI:
