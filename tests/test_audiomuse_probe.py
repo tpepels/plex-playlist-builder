@@ -116,7 +116,7 @@ def test_plex_export_progress(monkeypatch):
             return False
 
         def read(self, *_args):
-            return b"rating_key\\tartist\\n123\\tArtist\\n"
+            return b"rating_key\tartist\n123\tArtist\n"
 
     monkeypatch.setattr(module, "urlopen", lambda *args, **kwargs: Response())
     updates = []
