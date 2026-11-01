@@ -9,9 +9,17 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+
+Progress = Callable[[str], None]
+
+
+def show_progress(message: str) -> None:
+    print(f"[AudioMuse probe] {message}", file=sys.stderr, flush=True)
 
 
 def plex_ids_from_tsv(content: str) -> set[str]:
@@ -25,15 +33,20 @@ def plex_ids(path: Path) -> set[str]:
     return plex_ids_from_tsv(path.read_text(encoding="utf-8-sig"))
 
 
-def plex_ids_from_manager(url: str) -> set[str]:
+def plex_ids_from_manager(url: str, *, progress: Progress | None = None) -> set[str]:
     """Download current Plex rating keys from our existing read-only endpoint."""
     endpoint = url.rstrip("/") + "/api/library-export.tsv"
+    if progress:
+        progress(f"Requesting Plex full-library TSV from {endpoint} (can be slow)")
     try:
         with urlopen(Request(endpoint, headers={"Accept": "text/tab-separated-values"}), timeout=90) as response:
             content = response.read().decode("utf-8-sig")
-    except (HTTPError, URLError) as exc:
-        raise RuntimeError(f"Cannot download library export from {url}: {exc}") from exc
-    return plex_ids_from_tsv(content)
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise RuntimeError(f"Plex library export failed at {endpoint}: {exc}") from exc
+    ids = plex_ids_from_tsv(content)
+    if progress:
+        progress(f"Plex full-library export completed: {len(ids)} track IDs")
+    return ids
 
 
 def auth_headers(*, token: str = "", cookie: str = "") -> dict[str, str]:
@@ -46,7 +59,7 @@ def auth_headers(*, token: str = "", cookie: str = "") -> dict[str, str]:
     return headers
 
 
-def get_manifest(url: str, *, token: str = "", cookie: str = "", all_pages: bool = False) -> dict:
+def get_manifest(url: str, *, token: str = "", cookie: str = "", all_pages: bool = False, progress: Progress | None = None) -> dict:
     tracks: list[dict] = []
     page = 1
     total = 0
@@ -54,6 +67,8 @@ def get_manifest(url: str, *, token: str = "", cookie: str = "", all_pages: bool
     while True:
         endpoint = url.rstrip("/") + "/api/sync?" + urlencode({"fields": "index", "page": page, "limit": 1000})
         headers = auth_headers(token=token, cookie=cookie)
+        if progress:
+            progress(f"Requesting AudioMuse manifest page {page} (limit=1000)")
         try:
             with urlopen(Request(endpoint, headers=headers), timeout=15) as response:
                 result = json.load(response)
@@ -63,6 +78,8 @@ def get_manifest(url: str, *, token: str = "", cookie: str = "", all_pages: bool
             raise RuntimeError(f"AudioMuse HTTP {exc.code} on /api/sync") from exc
         except URLError as exc:
             raise RuntimeError(f"Cannot reach AudioMuse at {url}: {exc.reason}") from exc
+        except TimeoutError as exc:
+            raise RuntimeError(f"AudioMuse manifest page {page} timed out") from exc
         if not isinstance(result, dict) or not isinstance(result.get("tracks"), list):
             raise RuntimeError("Unexpected AudioMuse response, expected tracks[]")
         if not all(isinstance(t, dict) and t.get("id") is not None and "fp" in t for t in result["tracks"]):
@@ -70,6 +87,8 @@ def get_manifest(url: str, *, token: str = "", cookie: str = "", all_pages: bool
         tracks.extend(result["tracks"])
         total = result.get("total_tracks", total)
         provider = result.get("provider_type", provider)
+        if progress:
+            progress(f"Received AudioMuse page {page}: {len(result['tracks'])} entries; {len(tracks)} total fetched (server reports {total})")
         if not all_pages or not result.get("has_more"):
             break
         next_page = result.get("next_page")
@@ -108,6 +127,8 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--plex-url", default="http://127.0.0.1:5051",
                         help="Existing Plex Playlist Manager URL (default: local port 5051)")
     parser.add_argument("--all", action="store_true", help="Fetch all pages, not just the first")
+    parser.add_argument("--manifest-only", action="store_true",
+                        help="Skip potentially slow Plex export; verify AudioMuse alone")
     args = parser.parse_args(argv)
     try:
         manifest = get_manifest(
@@ -115,9 +136,18 @@ def main(argv: list[str] | None = None) -> int:
             token=os.environ.get("AUDIOMUSE_API_TOKEN", ""),
             cookie=os.environ.get("AUDIOMUSE_COOKIE", ""),
             all_pages=args.all,
+            progress=show_progress,
         )
-        plex = plex_ids(args.plex_tsv) if args.plex_tsv else plex_ids_from_manager(args.plex_url)
-        print(json.dumps(compare(manifest, plex), indent=2))
+        if args.manifest_only:
+            show_progress("Skipping Plex ID comparison (--manifest-only)")
+            plex = None
+        elif args.plex_tsv:
+            show_progress(f"Loading local Plex TSV: {args.plex_tsv}")
+            plex = plex_ids(args.plex_tsv)
+            show_progress(f"Loaded {len(plex)} Plex track IDs")
+        else:
+            plex = plex_ids_from_manager(args.plex_url, progress=show_progress)
+        print(json.dumps(compare(manifest, plex), indent=2), flush=True)
         return 0
     except (ValueError, OSError, RuntimeError) as exc:
         print(f"AudioMuse probe: {exc}", file=sys.stderr)
