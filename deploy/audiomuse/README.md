@@ -59,6 +59,8 @@ git pull --ff-only
 python3 scripts/audiomuse_probe.py --url http://127.0.0.1:8098 --all
 ```
 
+The probe displays a progress message for each manifest page and when the Plex library export starts. If the full comparison appears slow, first run `python3 scripts/audiomuse_probe.py --url http://127.0.0.1:8098 --manifest-only` for a single-page smoke test, then add `--all --manifest-only` for the whole manifest. Both modes avoid hitting the Plex playlist manager. The full comparison can take longer because the existing full-library endpoint asks Plex for every track.
+
 The probe automatically downloads the **current** full Plex library TSV from the existing playlist manager on `http://127.0.0.1:5051/api/library-export.tsv`. It fetches the AudioMuse read-only `/api/sync?fields=index` manifest and compares exact provider IDs with Plex `rating_key` values. Nothing is modified in either system.
 
 If AudioMuse authentication is enabled (default), configure an API token in **Administration → Setup Wizard → AudioMuse Authentication** (`API_TOKEN`). Pass it to the probe via `AUDIOMUSE_API_TOKEN` on the server. Do not paste it into chat, commit it or include it in screenshots. You can also use an existing local browser cookie through `AUDIOMUSE_COOKIE` if needed. The API token takes precedence.
