@@ -56,3 +56,71 @@ def test_browser_cookie_fallback():
 def test_plex_ids_from_tsv_text():
     tsv = "artist\trating_key\nA\t101\nB\t102\nA\t101\n"
     assert module.plex_ids_from_tsv(tsv) == {"101", "102"}
+
+
+def test_manifest_only_skips_live_plex_export(monkeypatch, capsys):
+    def fake_manifest(url, **kwargs):
+        assert kwargs["progress"] is not None
+        return {"tracks": [{"id": "12", "fp": "abc"}],
+                "provider": "plex", "total": 1, "pages": 1}
+
+    monkeypatch.setattr(module, "get_manifest", fake_manifest)
+    monkeypatch.setattr(module, "plex_ids_from_manager",
+                        lambda *args, **kwargs: pytest.fail("Should skip Plex export"))
+    assert module.main(["--manifest-only"]) == 0
+    captured = capsys.readouterr()
+    assert '"manifest_tracks_fetched": 1' in captured.out
+    assert '"plex_library_tracks"' not in captured.out
+    assert "Skipping Plex ID comparison" in captured.err
+
+
+def test_manifest_progress_reports_each_page(monkeypatch):
+    import json
+
+    pages = iter([
+        {"tracks": [{"id": "12", "fp": "a"}], "total_tracks": 2,
+         "provider_type": "plex", "has_more": True, "next_page": 2},
+        {"tracks": [{"id": "13", "fp": "b"}], "total_tracks": 2,
+         "provider_type": "plex", "has_more": False, "next_page": None},
+    ])
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, *_args):
+            return json.dumps(self.payload).encode()
+
+    monkeypatch.setattr(module, "urlopen", lambda *args, **kwargs: Response(next(pages)))
+    updates = []
+    result = module.get_manifest("http://localhost:8098", all_pages=True,
+                                 progress=updates.append)
+    assert [x["id"] for x in result["tracks"]] == ["12", "13"]
+    assert result["pages"] == 2
+    assert any("Requesting AudioMuse manifest page 2" in x for x in updates)
+    assert any("2 total fetched" in x for x in updates)
+
+
+def test_plex_export_progress(monkeypatch):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, *_args):
+            return b"rating_key\\tartist\\n123\\tArtist\\n"
+
+    monkeypatch.setattr(module, "urlopen", lambda *args, **kwargs: Response())
+    updates = []
+    assert module.plex_ids_from_manager("http://localhost:5051",
+                                        progress=updates.append) == {"123"}
+    assert "full-library TSV" in updates[0]
+    assert "completed: 1 track IDs" in updates[-1]
