@@ -196,3 +196,23 @@ def test_sync_state_failure_reports_repair_not_false_success(setup,monkeypatch):
     assert result["sync_state"]=="state_repair_required"
     assert store.get(draft["id"])["status"]=="published"
     assert plex._playlists[0]._keys==["1","2","3"]
+
+
+
+def test_unknown_plex_create_outcome_is_reported_for_manual_reconciliation(
+    setup,monkeypatch
+):
+    config,saved,synced=setup
+    plex=Plex()
+    draft=store.create(record())
+    plan=publication.prepare(plex,draft,"Unknown result",library())
+    def network_dropped(title,items):
+        # A remote service may create a playlist and disconnect before it
+        # returns an ID; never claim rollback without proof.
+        raise ConnectionError("Server disconnected mid-request")
+    monkeypatch.setattr(plex,"createPlaylist",network_dropped)
+    with pytest.raises(RuntimeError,match="outcome unknown"):
+        publication.publish(plex,draft["id"],1,"Unknown result",
+                            plan["plan_id"],True,library())
+    assert "Unknown result" not in config["playlists"]
+    assert store.get(draft["id"])["status"]=="draft"
