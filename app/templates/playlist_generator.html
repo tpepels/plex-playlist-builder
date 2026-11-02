@@ -210,7 +210,7 @@ async function loadDraft(id){
   try{
     const loaded=await api('/api/generation/drafts/'+encodeURIComponent(id));
     draft=loaded;
-    $('name').value=draft.data.name||$('name').value;
+    $('name').value=draft.data.published_name||draft.data.name||$('name').value;
     $('prompt').value=draft.data.request.prompt||$('prompt').value;
     $('count').value=draft.data.request.criteria.count;
     $('minutes').value=draft.data.request.criteria.target_minutes||'';
