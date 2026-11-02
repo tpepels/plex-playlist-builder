@@ -350,7 +350,15 @@ def compute_operations(before: list[str], operations: list[dict], library: dict)
         if kind == "add":
             if replacement not in library or replacement in result:
                 raise CurationConflict("Candidate missing or already in playlist: "+replacement)
-            result.append(replacement)
+            if "after_id" not in op:
+                result.append(replacement)
+            elif op["after_id"] is None:
+                result.insert(0, replacement)
+            else:
+                after=str(op["after_id"])
+                if after not in result:
+                    raise CurationConflict("Insertion anchor missing.")
+                result.insert(result.index(after)+1, replacement)
         elif kind in ("remove","replace","move"):
             if key not in result:
                 raise CurationConflict("Track is absent: "+key)
