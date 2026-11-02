@@ -74,12 +74,20 @@ def revise(identifier,expected_revision,data):
         return get(identifier)
 
 
-def mark_published(identifier,expected_revision,playlist_id):
+def mark_published(identifier,expected_revision,playlist_id,title=None):
     with LOCK, _connect() as db:
+        row=db.execute("""SELECT data FROM generation_drafts
+            WHERE id=? AND revision=? AND status='draft'""",
+            (identifier,expected_revision)).fetchone()
+        if row is None:
+            raise DraftConflict("Draft was changed while publishing.")
+        payload=json.loads(row[0])
+        if title is not None:payload["published_name"]=title
         cursor=db.execute("""UPDATE generation_drafts
-          SET status='published',published_playlist_id=?,updated_at=?
+          SET status='published',published_playlist_id=?,data=?,updated_at=?
           WHERE id=? AND revision=? AND status='draft'""",
-          (str(playlist_id),_now(),identifier,expected_revision))
+          (str(playlist_id),json.dumps(payload,ensure_ascii=False),_now(),
+           identifier,expected_revision))
         if cursor.rowcount!=1:
             raise DraftConflict("Draft was changed while publishing.")
         db.commit()
