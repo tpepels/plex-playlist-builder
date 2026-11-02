@@ -111,6 +111,11 @@ audio{width:100%;height:35px;margin-top:8px}
   </div>
 </section>
 <div id="workspace" hidden>
+  <section class="panel">
+    <div class="row"><h2>Listening validation queue</h2><span id="reviewProgress" class="smalltext"></span></div>
+    <div id="reviewTargets" class="controls"></div>
+    <p class="smalltext">Compare suggested alternatives against representative original tracks. A review never changes Plex.</p>
+  </section>
   <div class="columns">
     <section class="panel">
       <div class="row"><h2>Tracks</h2><div class="controls">
@@ -185,6 +190,8 @@ audio{width:100%;height:35px;margin-top:8px}
 'use strict';
 const $=id=>document.getElementById(id);
 let source=null,actions=[],target=null,chosen={},filteredPage=0,plan=null,busy=false,reviewChoice=null;
+let observedPlayback={original:0,candidate:0};
+let playbackPrevious={original:null,candidate:null};
 const PAGE=35;
 const el=(tag,txt,cls)=>{
   const n=document.createElement(tag);
@@ -374,8 +381,9 @@ async function submitListeningReview(verdict){
   try{
     const result=await post('/api/curation/validation/review',payload);
     $('listeningReview').close();
-    message('Listening feedback saved · '+result.calibration.reviewed+
-      ' reviews for this identity; '+(result.calibration.trained?'ranking recalibrated':'learning requires both accepted and rejected examples'));
+    message('Listening review saved · '+result.calibration.reviewed+
+      ' reviews · '+(result.calibration.trained?'held-out calibration improved':'baseline ranking retained'));
+    await loadReviewQueue();
     await searchCandidates();
   }catch(error){message(error.message,true)}
   finally{
@@ -399,7 +407,8 @@ async function auditExistingPlaylists(){
       if(p.name){
         card.append(el('div',(p.audio_coverage===undefined?'No Plex coverage':
           Math.round(p.audio_coverage*100)+'% analyzed')+
-          ' · '+(p.reviewed||0)+' listened reviews','smalltext'));
+          ' · '+(p.reviewed||0)+' listened reviews'+
+          ' · '+(p.distinct_targets||0)+' targets','smalltext'));
         card.append(button('Open playlist',()=>{
           if(actions.length&&!confirm('Discard staged changes?'))return;
           $('playlist').value=p.name;loadPlaylist();
@@ -408,7 +417,7 @@ async function auditExistingPlaylists(){
       root.append(card);
     }
     if(!results.human_validation_complete)
-      root.append(el('p','Human listening validation incomplete. No recommendations are automatically approved.','smalltext'));
+      root.append(el('p','Auditioning incomplete: 2 playlists per genre, 8 judgments across 4 distinct targets per playlist, with 60% audio coverage. No changes are automatically approved.','smalltext'));
   }catch(error){root.replaceChildren(el('p',error.message,'smalltext'))}
   finally{$('runAudit').disabled=false}
 }
@@ -511,9 +520,36 @@ async function loadPlaylist(){
     $('trackSearch').value='';$('trackFilter').value='all';
     $('candidateSearch').value='';$('candidateList').replaceChildren();
     renderTracks();renderDraft();
+    await loadReviewQueue();
     message('Loaded · Plex playlist #'+source.playlist_id);
   }catch(e){source=null;$('workspace').hidden=true;$('profile').hidden=true;message(e.message,true)}
   finally{busy=false}
+}
+async function loadReviewQueue(){
+  if(!source)return;
+  const name=source.name;
+  const root=$('reviewTargets');
+  root.replaceChildren(el('span','Loading sample…','smalltext'));
+  try{
+    const data=await api('/api/curation/validation/queue?name='+encodeURIComponent(name));
+    if(!source||source.name!==name)return;
+    root.replaceChildren();
+    $('reviewProgress').textContent=data.reviewed+'/'+data.target_review_count+
+      ' reviews · '+data.distinct_targets+'/'+data.target_distinct+' distinct targets';
+    for(const t of data.targets){
+      const label=t.title+(t.reviewed?' · '+t.reviewed+' reviewed':'');
+      const control=button(label,()=>{
+        chooseTarget(t.id);
+        $('candidateList').scrollIntoView({behavior:'smooth',block:'nearest'});
+      },'small');
+      control.title=t.artist+' · '+t.reason;
+      root.append(control);
+    }
+    if(data.audio_coverage<.6)
+      root.append(el('span','Audio coverage below 60%; conclusions remain provisional.','note'));
+  }catch(error){
+    root.replaceChildren(el('span','Validation queue unavailable: '+error.message,'note'));
+  }
 }
 function renderIdentity(){
   const current=source?.identity;
