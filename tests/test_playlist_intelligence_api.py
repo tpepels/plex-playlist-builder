@@ -88,3 +88,50 @@ def test_plan_then_apply_uses_same_payload_and_id(monkeypatch):
     plan=main.curation_plan(body)
     assert plan["after"]==["1","2","3"]
     assert len(plan["plan_id"])==24
+
+
+
+def test_identity_update_and_reset_are_same_origin_protected(monkeypatch):
+    from app.playlist_identity import identity as evaluate, revision
+    monkeypatch.setattr(main,"_configured_playlists",
+        lambda:{"Jazz":{"items":[{"rating_key":"1"}]}})
+    captured=[]
+    monkeypatch.setattr(main,"put_override",
+        lambda name,values,rev: captured.append((name,values,rev)) or values)
+    monkeypatch.setattr(main,"delete_override",
+        lambda name,rev: captured.append(("reset",name,rev)))
+    params={"purpose":"Evening jazz","styles":["jazz"],"moods":["relaxed"],
+            "variation":"balanced","energy":"low","flow":"smooth","live":"prefer"}
+    body=main.IdentityUpdateBody(values=params,revision=revision(None))
+    foreign=SimpleNamespace(headers={"origin":"http://other.example"},
+                             base_url="http://media-server:5051/")
+    trusted=SimpleNamespace(headers={"origin":"http://media-server:5051"},
+                             base_url="http://media-server:5051/")
+    with pytest.raises(HTTPException) as error:
+        main.update_curation_identity("Jazz",body,foreign)
+    assert error.value.status_code==403
+    assert not captured
+    reply=main.update_curation_identity("Jazz",body,trusted)
+    assert reply["values"]==params
+    assert reply["source"]=="manual"
+    assert captured[0][0]=="Jazz"
+    with pytest.raises(HTTPException) as error:
+        main.reset_curation_identity("Jazz",main.IdentityResetBody(revision="x"),foreign)
+    assert error.value.status_code==403
+    assert len(captured)==1
+    reply=main.reset_curation_identity("Jazz",main.IdentityResetBody(revision=reply["revision"]),trusted)
+    assert reply["source"]=="inferred"
+    assert captured[1][0]=="reset"
+
+
+def test_identity_endpoints_do_not_accept_system_playlists(monkeypatch):
+    monkeypatch.setattr(main,"_configured_playlists",
+        lambda:{"All Music":{"items":[{"rating_key":"1"}]}})
+    params={"purpose":"Music","styles":[],"moods":[],"variation":"balanced",
+            "energy":"adaptive","flow":"smooth","live":"neutral"}
+    with pytest.raises(HTTPException) as error:
+        main.update_curation_identity("All Music",main.IdentityUpdateBody(
+            values=params,revision="x"),SimpleNamespace(
+            headers={"origin":"http://media-server:5051"},
+            base_url="http://media-server:5051/"))
+    assert error.value.status_code==404
