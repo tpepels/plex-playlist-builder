@@ -36,6 +36,9 @@ def catalogue(raw_tracks: list) -> dict[str, dict]:
             continue
         raw_genres = getattr(track, "genres", None) or []
         m["duration_ms"] = getattr(track, "duration", None)
+        # Album release year is metadata, not verified performance date.
+        m["year"] = (getattr(track, "parentYear", None)
+                     or getattr(track, "year", None))
         m["genres"] = list(dict.fromkeys(
             str(getattr(genre, "tag", genre) or "").strip()
             for genre in raw_genres
