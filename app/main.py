@@ -1072,11 +1072,12 @@ def get_curation_candidates(name: str, target: str = "", q: str = "",
                                        key: cache[key] for key in before if key in cache
                                    }))
         calibration = validation_calibration(name, intent["values"]["variation"],
-                                             current_identity_revision=intent["revision"])
+                                             current_identity_revision=intent["revision"],
+                                             current_playlist_snapshot=signature(before))
         recommendations = rank_candidates(
             before, library, cache, intent, target=target or None,
             query=q, limit=limit, weights=calibration["weights"],
-            feedback=validation_feedback(name, intent["revision"]))
+            feedback=validation_feedback(name, intent["revision"],signature(before)))
         # Compute the full paired impact for EVERY visible recommendation.
         # Avoid decoding the whole AudioMuse cache separately for each.
         impact_ids = set(before) | {row["id"] for row in recommendations}
@@ -1214,8 +1215,10 @@ def get_curation_validation():
         assessment=assess(name,{"items":[{"rating_key":k} for k in ids]},
                           library,local,intent["values"])
         coverage=assessment["profile"]["coverage"]
-        reviewed=stats[name]["reviewed"]
-        distinct=stats[name]["distinct_targets"]
+        current_stats=validation_summary(
+            [name],{name:(signature(ids),intent["revision"])})[name]
+        reviewed=current_stats["reviewed"]
+        distinct=current_stats["distinct_targets"]
         ready=coverage>=.60 and reviewed>=8 and distinct>=4
         rows.append({
             "category":kind,"name":name,
@@ -1224,7 +1227,7 @@ def get_curation_validation():
             "identity_source":intent["source"],
             "confidence":assessment["profile"]["confidence"],
             "possible_outliers":len(assessment["reviews"]),
-            **stats[name],
+            **current_stats,
         })
     total=sum(row.get("reviewed",0) for row in rows)
     ready=(all(len(samples[cat])>=2 for cat in samples) and
@@ -1264,7 +1267,9 @@ def get_curation_validation_queue(name: str):
         # Keep a mix of suspected errors and ordinary examples; only 8
         # distinct targets are needed for a repeatable review session.
         selected=chosen[:8]
-        past=validation_reviews(name)
+        past=[r for r in validation_reviews(name)
+              if r["playlist_snapshot"]==signature(ids) and
+                 r["identity_revision"]==intent["revision"]]
         targets=[]
         for key in selected:
             track=library[key]
@@ -1290,10 +1295,18 @@ def get_playlist_validation(name: str):
     if name not in _configured_playlists() or name in DEFAULT_HIDDEN_PLAYLIST_TITLES:
         raise HTTPException(status_code=404,detail="Unknown playlist.")
     definitions=_configured_playlists()
+    _, _, library, definitions, _, ids=_curation_context(name)
+    cache,_=cached_features()
+    from .playlist_curator import features_for
+    intent=playlist_identity(name,str(definitions[name].get("description") or ""),
+          ids,library,features_for({k:cache[k] for k in ids if k in cache}))
+    current=(signature(ids),intent["revision"])
     val=validation_reviews(name)
-    setting=get_override(name)
-    return {"playlist":name,"reviews":val,"summary":validation_summary([name])[name],
-            "identity_source":"manual" if setting else "inferred"}
+    for row in val:
+        row["current"]=row["playlist_snapshot"]==current[0] and row["identity_revision"]==current[1]
+    return {"playlist":name,"reviews":val,
+            "summary":validation_summary([name],{name:current})[name],
+            "identity_source":intent["source"]}
 
 
 @app.post("/api/curation/validation/review")
@@ -1341,7 +1354,8 @@ def submit_playlist_validation(body: ValidationBody,request: Request):
                    intent["revision"],body.snapshot,scored["match"],
                    scored.get("factors",{}))
         saved["calibration"]=validation_calibration(body.name,intent["values"]["variation"],
-                            current_identity_revision=intent["revision"])
+                            current_identity_revision=intent["revision"],
+                            current_playlist_snapshot=body.snapshot)
         return saved
     except (CurationConflict,ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
