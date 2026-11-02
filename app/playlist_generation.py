@@ -110,6 +110,13 @@ def parse_prompt(prompt: str, *, count: int | None=None, minutes: int | None=Non
     live_required=bool(LIVE_CUE.search(prompt))
     min_duration=8*60*1000 if LONG_CUE.search(prompt) else None
     # Music only: exclude introductions, interviews, applause etc.
+    if (not intent["styles"] and not intent["moods"] and year_range is None
+        and not live_required and min_duration is None and
+        intent["energy"]=="adaptive" and intent["flow"]=="smooth"):
+        raise GenerationError(
+            "The brief has no verifiable musical criteria. Include a style, "
+            "mood, period, live requirement or musical structure."
+        )
     criteria={
         "years":year_range, "live_required":live_required,
         "minimum_duration_ms":min_duration,
@@ -155,7 +162,10 @@ def _initial_value(info,ff,intent):
         return None
     style=(max(style_scores) if style_scores else .5)
     intrinsic,evidence=_intent_score(ff,info,intent,None)
-    # Melody and ambience features contribute only if actually measured.
+    # With a mood-only brief, do not fall back to alphabetical metadata when
+    # no mood/energy measurements exist for this candidate.
+    if not styles and intent["moods"] and intrinsic is None:
+        return None
     return .68*style+.32*(intrinsic if intrinsic is not None else .5)
 
 
