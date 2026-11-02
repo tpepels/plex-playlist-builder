@@ -28,7 +28,9 @@ jobs:
             tests/test_curation_impact.py \
             tests/test_curation_validation.py \
             tests/test_curation_stages_3_4_api.py \
-            tests/test_curation_real_errors.py
+            tests/test_curation_real_errors.py \
+            tests/test_playlist_generation.py \
+            tests/test_generation_publish.py
       - name: Python tests
         run: python -m pytest -q
       - name: Browser JavaScript syntax
@@ -50,6 +52,9 @@ jobs:
       - name: Playlist Intelligence browser integration
         if: ${{ always() }}
         run: node tests/test_playlist_intelligence_ui.mjs
+      - name: Intelligent generation UI and APIs
+        if: ${{ always() }}
+        run: node tests/test_playlist_generator_ui.mjs
       # Full Docker build is manually triggered, never waited on for UI edits.
       - name: Docker image build (manual only)
         if: github.event_name == 'workflow_dispatch'
