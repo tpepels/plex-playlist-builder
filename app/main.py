@@ -915,6 +915,8 @@ class ValidationBody(BaseModel):
     issue: Literal["none","genre","energy","mood","flow","variety","recording","metadata","other"]
     note: str = ""
     listened: bool = False
+    candidate_played_seconds: float = 0
+    original_played_seconds: float = 0
     identity_revision: str
     snapshot: str
 
@@ -1296,6 +1298,16 @@ def submit_playlist_validation(body: ValidationBody,request: Request):
     if not origin or origin.rstrip("/")!=str(request.base_url).rstrip("/"):
         raise HTTPException(status_code=403,detail="Same-origin browser request required.")
     try:
+        import math
+        if (not body.listened
+            or not math.isfinite(body.candidate_played_seconds)
+            or not math.isfinite(body.original_played_seconds)
+            or body.candidate_played_seconds < 15
+            or (body.target_id and body.original_played_seconds < 15)):
+            raise HTTPException(
+                status_code=422,
+                detail="Audition at least 15 seconds of the candidate and original (if replacing)."
+            )
         _, _, library, definitions, _, before=_curation_context(body.name)
         if signature(before)!=body.snapshot:
             raise CurationConflict("Plex playlist changed since listening. Refresh.")
