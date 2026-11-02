@@ -127,7 +127,7 @@ def _intent(ids,lib,ff,intent,baseline):
     return _mean(scores),len(scores)
 
 
-def measure(ids, library, ff, identity, *, reference=None):
+def measure(ids, library, ff, identity, *, reference=None, pair_cache=None):
     """Return all diagnostic dimensions and honest per-dimension coverage."""
     keys=list(ids)
     if any(k not in library for k in keys):
@@ -137,11 +137,15 @@ def measure(ids, library, ff, identity, *, reference=None):
         ff[k].get("musicnn") is not None or ff[k].get("clap") is not None)]
     sample=_sample(audioids)
     pair_scores=[]
+    pair_cache = pair_cache if pair_cache is not None else {}
     for i,key in enumerate(sample):
         current=[]
         for other in sample:
             if other==key:continue
-            sc=_audio_pair(ff[key],ff[other])
+            pair=tuple(sorted((key,other)))
+            if pair not in pair_cache:
+                pair_cache[pair]=_audio_pair(ff[key],ff[other])
+            sc=pair_cache[pair]
             if sc is not None:current.append(sc)
         current.sort(reverse=True)
         if current:pair_scores.append(_mean(current[:min(3,len(current))]))
@@ -166,7 +170,8 @@ def measure(ids, library, ff, identity, *, reference=None):
                       "energy_analyzed":energy_n,"intent_analyzed":intent_n}}
 
 
-def compare(before, after, library, cache, identity, *, decoded=False):
+def compare(before, after, library, cache, identity, *, decoded=False,
+            pair_cache=None, baseline=None):
     """Compare the same metrics using a fixed energy reference from BEFORE.
 
     Paired scores do not depend on proposal order; a no-op has exact zero
@@ -176,8 +181,10 @@ def compare(before, after, library, cache, identity, *, decoded=False):
     energy_values=[ff[k]["energy"] for k in before if k in ff and
                    ff[k].get("energy") is not None]
     reference=_mean(energy_values)
-    a=measure(before,library,ff,identity,reference=reference)
-    b=measure(after,library,ff,identity,reference=reference)
+    pair_cache = pair_cache if pair_cache is not None else {}
+    a=baseline if baseline is not None else measure(
+        before,library,ff,identity,reference=reference,pair_cache=pair_cache)
+    b=measure(after,library,ff,identity,reference=reference,pair_cache=pair_cache)
     changes={}
     for metric in NAMES:
         old,new=a[metric],b[metric]
