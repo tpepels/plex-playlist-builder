@@ -231,6 +231,15 @@ def assess(name: str, spec: dict, library: dict, cache: dict) -> dict:
     repeats = len(raw_keys) - len(set(raw_keys))
     profile["repeated_tracks"] = repeats
     embedded = [k for k in keys if k in ff and ff[k]["musicnn"] is not None]
+    if profile["confidence"] == "sufficient":
+        vectors=[ff[k]["musicnn"] for k in embedded]
+        common=[v for v in vectors if len(v)==len(vectors[0])]
+        count=len(common)
+        total=[sum(vec[j] for vec in common) for j in range(len(common[0]))]
+        pairwise=(sum(v*v for v in total)-count)/(count*(count-1)) if count>1 else None
+        profile["mean_pairwise_cosine"]=round(pairwise,3) if pairwise is not None else None
+    else:
+        profile["mean_pairwise_cosine"]=None
     reviews = []
     # Relative outliers only when the analysis sample is substantial.
     if profile["confidence"] == "sufficient":
@@ -272,10 +281,18 @@ def assess(name: str, spec: dict, library: dict, cache: dict) -> dict:
     flagged = {i["track_id"]:i for i in reviews}
     for key in keys:
         info=library[key]
+        position=keys.index(key)
+        transition=None
+        if position>0 and key in ff and keys[position-1] in ff:
+            last=ff[keys[position-1]]["energy"]
+            current=ff[key]["energy"]
+            if last is not None and current is not None and abs(current-last)>.35:
+                transition="Energy jump after previous track"
         tracks.append({"id":key, "artist":info["artist"], "album":info["album"],
                        "title":info["title"], "analyzed":key in ff and ff[key]["musicnn"] is not None,
                        "energy":ff[key]["energy"] if key in ff else None,
                        "tempo":ff[key]["tempo"] if key in ff else None,
+                       "transition":transition,
                        "review":flagged.get(key)})
     return {"name":name, "description":spec.get("description",""),
             "keys":keys, "issues":problems, "profile":profile,
