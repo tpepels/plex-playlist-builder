@@ -307,7 +307,14 @@ def audiomuse_coherence():
     """Read the local feature cache and YAML only; never query Plex."""
     try:
         features, state = cached_features()
-        return coherence_report(_configured_playlists(), features, state)
+        definitions = _configured_playlists()
+        thematic = {
+            name: spec for name, spec in definitions.items()
+            if name not in DEFAULT_HIDDEN_PLAYLIST_TITLES
+        }
+        report = coherence_report(thematic, features, state)
+        report["summary"]["excluded_system_playlists"] = len(definitions) - len(thematic)
+        return report
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=503, detail="AudioMuse cache unavailable") from exc
 
