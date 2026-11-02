@@ -60,3 +60,39 @@ def test_invalid_partial_catalogue_is_rejected(tmp_path,monkeypatch):
     with pytest.raises(RuntimeError,match="empty"):
         idx.get_library(server,refresh=True)
     assert idx.metadata()["tracks"]==0
+
+
+
+def test_album_genres_and_release_year_enrich_tracks_without_n_plus_one_queries(
+    tmp_path,monkeypatch
+):
+    monkeypatch.setattr(idx,"FILE",tmp_path/"library.json")
+    monkeypatch.setattr(idx,"_CACHED",{})
+    base=Music()
+    class WithAlbums:
+        def __init__(self):
+            self.track_calls=0
+            self.album_calls=0
+        def searchTracks(self,**kwargs):
+            self.track_calls+=1
+            result=base.searchTracks(**kwargs)
+            for track in result:
+                track.parentRatingKey=12
+                track.parentYear=None
+                track.genres=[]
+            return result
+        def searchAlbums(self,**kwargs):
+            self.album_calls+=1
+            assert kwargs["container_size"]==200
+            return [SimpleNamespace(ratingKey=12,year=1961,
+                                    genres=[SimpleNamespace(tag="Jazz"),
+                                            SimpleNamespace(tag="Cool Jazz")])]
+    plex=WithAlbums()
+    catalogue=idx.get_library(plex,refresh=True)
+    assert all(v["year"]==1961 for v in catalogue.values())
+    assert all(v["genres"]==["Jazz","Cool Jazz"] for v in catalogue.values())
+    assert plex.track_calls==1 and plex.album_calls==1
+    monkeypatch.setattr(idx,"_CACHED",{})
+    persisted=idx.get_library(plex)
+    assert persisted["1"]["year"]==1961
+    assert plex.track_calls==1
