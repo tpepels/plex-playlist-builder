@@ -164,42 +164,113 @@ def _contains(text, cue):
 
 
 def infer(name: str, description: str, keys: list[str], library: dict, features: dict):
-    """Conservative, deterministic defaults and an evidence trail."""
+    """Conservative evidence-backed defaults; do not invent absent metadata."""
     source = normalize(name + " " + description)
     styles = [style for style, cues in STYLE_CUES.items()
               if any(_contains(source, cue) for cue in cues)]
     moods = [mood for mood, cues in MOOD_CUES.items()
              if any(_contains(source, cue) for cue in cues)]
     artists = Counter(library[key]["artist"] for key in keys if key in library)
-    mix = any(_contains(source, k) for k in ("mix","fusion","eclectic","blend","cross genre","same room"))
-    focused = any(_contains(source,k) for k in ("solo","only","unadorned","minimal","minimalist"))
-    variation = "eclectic" if mix or len(styles) >= 3 else "focused" if focused else "balanced"
-    energy = "low" if any(_contains(source,k) for k in ("calm","quiet","slow","gentle","night","still")) else (
-        "high" if any(_contains(source,k) for k in ("energetic","intense","dance","drive","upbeat")) else "adaptive")
-    flow = "arc" if any(_contains(source,k) for k in ("journey","crescendo","build","arc")) else (
-        "varied" if variation == "eclectic" else "smooth")
-    live = "prefer" if any(_contains(source,k) for k in ("live","concert","club","vanguard")) else "neutral"
+
+    # Plex reports explicit genre tags, not genre predictions. Require
+    # repeated observations before inferring a style absent from the title.
+    genres = Counter()
+    genre_tracks = 0
+    for key in keys:
+        observed = {normalize(g) for g in (library.get(key, {}).get("genres") or []) if normalize(g)}
+        if observed:
+            genre_tracks += 1
+            genres.update(observed)
+    observed_styles = []
+    if genre_tracks >= 4:
+        for style, cues in STYLE_CUES.items():
+            count = sum(1 for key in keys if any(
+                any(_contains(normalize(g), cue) for cue in cues)
+                for g in (library.get(key, {}).get("genres") or [])
+            ))
+            if count >= max(3, round(genre_tracks * .30)):
+                observed_styles.append(style)
+                if style not in styles: styles.append(style)
+
+    tracked = [features[k] for k in keys if k in features]
+    analyzed = [f for f in tracked if f.get("musicnn") is not None]
+    energy_values = [f.get("energy") for f in tracked if f.get("energy") is not None]
+    mean_energy = sum(energy_values) / len(energy_values) if energy_values else None
+    measured_moods = {
+        mood: [f.get("mood", {}).get(mood) for f in tracked
+               if f.get("mood", {}).get(mood) is not None]
+        for mood in ("relaxed","happy","sad","danceable","aggressive","party")
+    }
+    if len(tracked) >= 6:
+        for mood, target in (("relaxed","relaxed"),("happy","happy"),
+                             ("sad","melancholic"),("danceable","danceable")):
+            samples = measured_moods[mood]
+            if len(samples) >= 6 and sum(samples)/len(samples) >= .72 and target not in moods:
+                moods.append(target)
+
+    mix = any(_contains(source, k) for k in ("mix","fusion","eclectic","blend",
+                                             "cross genre","same room"))
+    focused = any(_contains(source,k) for k in ("solo","only","unadorned",
+                                                "minimal","minimalist"))
+    # A named-artist collection is not automatically required to be diverse.
+    if len(keys) >= 8 and len(artists) <= max(2, len(keys)//10):
+        focused = True
+    variation = "eclectic" if mix or len(observed_styles) >= 3 or len(styles) >= 3 \
+        else "focused" if focused else "balanced"
+
+    explicit_low = any(_contains(source,k) for k in
+                       ("calm","quiet","slow","gentle","night","still"))
+    explicit_high = any(_contains(source,k) for k in
+                        ("energetic","intense","dance","drive","upbeat"))
+    energy = "low" if explicit_low else "high" if explicit_high else "adaptive"
+    if energy == "adaptive" and len(energy_values) >= 6 and mean_energy is not None:
+        energy = "low" if mean_energy <= .32 else "high" if mean_energy >= .72 else "medium"
+
+    explicit_arc = any(_contains(source,k) for k in ("journey","crescendo","build","arc"))
+    explicit_varied = variation == "eclectic"
+    flow = "arc" if explicit_arc else "varied" if explicit_varied else "smooth"
+    sequence_energies = [features[k]["energy"] if k in features else None for k in keys]
+    if len(energy_values) >= 8 and not explicit_arc and not explicit_varied:
+        windows = [sequence_energies[i] for i in range(len(keys)) if sequence_energies[i] is not None]
+        if len(windows) >= 8:
+            quarter = max(2, len(windows)//4)
+            start_energy = sum(windows[:quarter])/quarter
+            mid = windows[quarter:-quarter]
+            end_energy = sum(windows[-quarter:])/quarter
+            mid_energy = sum(mid)/len(mid) if mid else None
+            transitions = [abs(a-b) for a,b in zip(sequence_energies,sequence_energies[1:])
+                           if a is not None and b is not None]
+            if mid_energy is not None and mid_energy > max(start_energy,end_energy)+.13:
+                flow = "arc"
+            elif transitions and sum(transitions)/len(transitions)>.30:
+                flow = "varied"
+
+    live = "prefer" if any(_contains(source,k) for k in
+                          ("live","concert","club","vanguard")) else "neutral"
+
+    evidence_basis = ["name"]
+    if description.strip(): evidence_basis.append("description")
+    if genre_tracks: evidence_basis.append("Plex genres")
+    if analyzed: evidence_basis.append("AudioMuse")
     default = {
         "purpose": description.strip()[:400] if description.strip() else name[:400],
         "styles": styles[:MAX_STYLES],
         "moods": moods[:MAX_STYLES],
         "variation": variation, "energy": energy, "flow": flow, "live": live,
     }
-    tracks = [features[k] for k in keys if k in features]
-    measured_energy = [f["energy"] for f in tracks if f.get("energy") is not None]
-    mood_counts = {k: sum(k in f.get("mood", {}) for f in tracks) for k in
-                   ("relaxed","happy","sad","danceable","aggressive","party")}
     return default, {
-        "basis": ["name", "description"] if description.strip() else ["name"],
-        "styles_explicit_in_text": styles,
-        "analyzed_tracks": len([f for f in tracks if f.get("musicnn") is not None]),
-        "energy_tracks": len(measured_energy),
-        "mood_track_counts": mood_counts,
+        "basis": evidence_basis,
+        "styles_explicit_in_text": [s for s in styles if s not in observed_styles],
+        "genres_observed": genre_tracks,
+        "dominant_plex_genres": [{"genre":k,"count":v} for k,v in genres.most_common(5)],
+        "analyzed_tracks": len(analyzed),
+        "energy_tracks": len(energy_values),
+        "energy_average": round(mean_energy,3) if mean_energy is not None else None,
+        "mood_track_counts": {k:len(v) for k,v in measured_moods.items()},
         "distinct_artists": len(artists),
         "top_artists": [{"name": k, "count": v} for k,v in artists.most_common(5)],
-        "interpretation": "Rule-based name/description cues; verify manually. Audio features describe observed tracks, not stated intent.",
+        "interpretation": "Explicit name cues and observed Plex/AudioMuse data; inferred intent must be reviewed.",
     }
-
 
 def identity(name, description, keys, library, features, override=None):
     inferred, evidence = infer(name, description, keys, library, features)
