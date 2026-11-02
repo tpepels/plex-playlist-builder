@@ -48,6 +48,11 @@ from .playlist_curator import (
 )
 from .curation_apply import find_live, current_keys, change_plan, apply_approved
 from .curation_library import get_library, metadata as curation_library_metadata
+from .playlist_identity import (
+    IdentityConflict, identity as playlist_identity, get_override,
+    put_override, delete_override, revision as identity_revision,
+)
+from .playlist_ranking import rank_candidates
 from fastapi.responses import StreamingResponse
 from .duplicates import find_duplicates, duplicates_tsv
 from .isc_discovery import fetch_catalog, compare_library
@@ -894,6 +899,15 @@ class CurationPlanBody(BaseModel):
     operations: list[dict]
 
 
+class IdentityUpdateBody(BaseModel):
+    values: dict
+    revision: str
+
+
+class IdentityResetBody(BaseModel):
+    revision: str
+
+
 class CurationApplyBody(CurationPlanBody):
     plan_id: str
     approved: bool = False
@@ -956,6 +970,9 @@ def curation_playlist(name: str):
         ]}
         cached, cache_state = cached_features()
         result = assess(name, live_spec, library, cached)
+        from .playlist_curator import features_for
+        result["identity"] = playlist_identity(name, str(definitions[name].get("description") or ""),
+                                                  before, library, features_for(cached))
         yaml_keys, yaml_issues = resolve_items(definitions[name],library)
         result.update({
             "version": fingerprint(definitions),
@@ -972,17 +989,63 @@ def curation_playlist(name: str):
         raise HTTPException(status_code=503, detail="Cannot inspect the Plex playlist.") from exc
 
 
+@app.get("/api/curation/identity/{name}")
+def get_curation_identity(name: str):
+    try:
+        _, _, library, definitions, _, before = _curation_context(name)
+        cached, _ = cached_features()
+        from .playlist_curator import features_for
+        return playlist_identity(name, str(definitions[name].get("description") or ""),
+                                 before, library, features_for(cached))
+    except IdentityConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.put("/api/curation/identity/{name}")
+def update_curation_identity(name: str, body: IdentityUpdateBody, request: Request):
+    origin = request.headers.get("origin")
+    if not origin or origin.rstrip("/") != str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403, detail="Same-origin browser request required.")
+    if name not in _configured_playlists() or name in DEFAULT_HIDDEN_PLAYLIST_TITLES:
+        raise HTTPException(status_code=404, detail="Unknown playlist.")
+    try:
+        values = put_override(name, body.values, body.revision)
+        return {"values":values, "revision":identity_revision(values),"source":"manual"}
+    except IdentityConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/curation/identity/{name}/reset")
+def reset_curation_identity(name: str, body: IdentityResetBody, request: Request):
+    origin = request.headers.get("origin")
+    if not origin or origin.rstrip("/") != str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403, detail="Same-origin browser request required.")
+    if name not in _configured_playlists() or name in DEFAULT_HIDDEN_PLAYLIST_TITLES:
+        raise HTTPException(status_code=404, detail="Unknown playlist.")
+    try:
+        delete_override(name, body.revision)
+        return {"source":"inferred","revision":identity_revision(None)}
+    except IdentityConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.get("/api/curation/candidates")
 def get_curation_candidates(name: str, target: str = "", q: str = "",
                             limit: int = Query(default=20, ge=1, le=30)):
     if len(q) > 120:
         raise HTTPException(status_code=422, detail="Search query is too long.")
     try:
-        _, _, library, _, _, before = _curation_context(name)
+        _, _, library, definitions, _, before = _curation_context(name)
         cache, _ = cached_features()
-        return {"candidates": curation_candidates(before, library, cache,
-                            target=target or None, query=q, limit=limit),
-                "target":target or None}
+        from .playlist_curator import features_for
+        intent = playlist_identity(name, str(definitions[name].get("description") or ""),
+                                   before, library, features_for(cache))
+        return {"candidates": rank_candidates(before, library, cache, intent,
+                           target=target or None, query=q, limit=limit),
+                "target":target or None, "identity_source":intent["source"],
+                "identity_revision":intent["revision"]}
     except CurationConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
