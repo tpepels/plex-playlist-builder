@@ -195,7 +195,7 @@ def similarity(a: dict, b: dict) -> tuple[float | None, list[str]]:
 
 def _profile(keys, lib, ff):
     artists = Counter(lib[k]["artist"] for k in keys)
-    albums = Counter(lib[k]["album"] for k in keys)
+    albums = Counter(lib[k]["album_key"] for k in keys)
     analyzed = [ff[k] for k in keys if k in ff and ff[k]["musicnn"] is not None]
     energies = [ff[k]["energy"] for k in keys if k in ff and ff[k]["energy"] is not None]
     tempos = [ff[k]["tempo"] for k in keys if k in ff and ff[k]["tempo"] is not None]
