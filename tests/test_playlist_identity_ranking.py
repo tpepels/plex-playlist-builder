@@ -186,3 +186,44 @@ def test_high_confidence_requires_playlist_coverage():
         audio([(i,(1.,0.,0.,0.),.5,100.,.5) for i in (1,2,3,14)]),
         intent(),limit=1)
     assert sparse[0]["confidence"]=="low"
+
+
+def test_inferred_identity_uses_observed_genres_energy_and_arc():
+    library={str(i):{**row(i,"Various "+str(i),"Release "+str(i),"Track "+str(i)),
+                      "genres":["Jazz","Soul"]} for i in range(1,9)}
+    energies=[.20,.22,.75,.80,.80,.78,.19,.20]
+    ff={str(i):{"musicnn":(1.,0.,0.,0.),"energy":energies[i-1],
+                 "mood":{"relaxed":.82},"tempo":90} for i in range(1,9)}
+    inferred,evidence=identity.infer("Evening songs","",list(library),library,ff)
+    assert "jazz" in inferred["styles"] and "soul" in inferred["styles"]
+    assert inferred["flow"]=="arc"
+    assert inferred["energy"]=="medium"
+    assert "relaxed" in inferred["moods"]
+    assert evidence["genres_observed"]==8
+    assert evidence["energy_tracks"]==8
+    assert "AudioMuse" in evidence["basis"]
+
+
+def test_declared_styles_use_only_explicit_plex_genres():
+    library={str(i):row(i,"Artist "+str(i),"Album "+str(i),"Track "+str(i))
+             for i in range(1,9)}
+    library["7"]["genres"]=["Jazz"]
+    library["8"]["genres"]=["Rock"]
+    ff=audio([(i,(1.,0.,0.,0.),.5,100.,.5) for i in range(1,9)])
+    matches=rank_candidates(["1","2","3","4","5","6"],library,ff,
+        intent(styles=["jazz"],moods=[]),limit=2)
+    assert matches[0]["id"]=="7"
+    assert "Plex genre metadata" in matches[0]["evidence"]
+    assert matches[0]["match"]>matches[1]["match"]
+
+
+def test_ranked_add_inserts_after_proposed_track_and_rejects_missing_anchor():
+    library={str(i):row(i,"Artist","Album","Track "+str(i)) for i in range(1,5)}
+    assert compute_operations(["1","2"],
+        [{"type":"add","candidate_id":"3","after_id":"1"}],library)==["1","3","2"]
+    assert compute_operations(["1","2"],
+        [{"type":"add","candidate_id":"3","after_id":None}],library)==["3","1","2"]
+    from app.playlist_curator import CurationConflict
+    with pytest.raises(CurationConflict,match="anchor"):
+        compute_operations(["1","2"],
+            [{"type":"add","candidate_id":"3","after_id":"99"}],library)
