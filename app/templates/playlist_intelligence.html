@@ -313,14 +313,8 @@ async function loadNames(){
     if(result.playlists.includes(was)){sel.value=was;await loadPlaylist()}
   }catch(e){message(e.message,true)}
 }
-async function loadPlaylist(){
-  const name=$('playlist').value;
-  if(!name){source=null;$('workspace').hidden=true;$('profile').hidden=true;return}
-  busy=true;message('Loading Plex playlist…');
-  try{
-    source=await api('/api/curation/playlist/'+encodeURIComponent(name));
-    actions=[];chosen={};target=null;filteredPage=0;plan=null;
-    $('workspace').hidden=false;$('profile').hidden=false;
+function renderSummary(){
+  if(!source)return;
     const m=$('metrics');m.replaceChildren();
     for(const [title,value] of [
       ['tracks',source.profile.tracks],['artists',source.profile.artists],
@@ -337,6 +331,29 @@ async function loadPlaylist(){
     if(source.description)flags.append(el('span',source.description,'pill'));
     if(source.profile.confidence==='limited')flags.append(el('span','Limited audio coverage','pill flag'));
     renderIdentity();
+
+}
+
+async function refreshDiagnostics(){
+  const incoming=await api('/api/curation/playlist/'+encodeURIComponent(source.name));
+  if(incoming.version!==source.version||incoming.snapshot!==source.snapshot){
+    throw new Error('Plex playlist changed. Refresh the playlist before editing.');
+  }
+  for(const k of ['identity','profile','tracks','flags','reviews','description','cache','sources'])
+    source[k]=incoming[k];
+  renderSummary();
+  renderTracks();
+}
+
+async function loadPlaylist(){
+  const name=$('playlist').value;
+  if(!name){source=null;$('workspace').hidden=true;$('profile').hidden=true;return}
+  busy=true;message('Loading Plex playlist…');
+  try{
+    source=await api('/api/curation/playlist/'+encodeURIComponent(name));
+    actions=[];chosen={};target=null;filteredPage=0;plan=null;
+    $('workspace').hidden=false;$('profile').hidden=false;
+    renderSummary();
     $('trackSearch').value='';$('trackFilter').value='all';
     $('candidateSearch').value='';$('candidateList').replaceChildren();
     renderTracks();renderDraft();
@@ -378,9 +395,9 @@ $('saveIdentity').onclick=async()=>{
       body:JSON.stringify({values:editedIdentity(),revision:source.identity.revision})
     });
     source.identity={...source.identity, ...response};
-    renderIdentity();
+    await refreshDiagnostics();
     await searchCandidates();
-    message('Playlist identity saved. Recommendations updated.');
+    message('Playlist identity saved. Analysis and recommendations updated.');
   }catch(e){message(e.message,true)}
   finally{$('saveIdentity').disabled=false}
 };
@@ -390,15 +407,7 @@ $('resetIdentity').onclick=async()=>{
   try{
     await post('/api/curation/identity/'+encodeURIComponent(source.name)+'/reset',
       {revision:source.identity.revision});
-    source.identity={
-      ...source.identity,
-      source:'inferred',
-      values:source.identity.suggested,
-      revision:null
-    };
-    // The server returns the exact reset revision, used by future updates.
-    source.identity=await api('/api/curation/identity/'+encodeURIComponent(source.name));
-    renderIdentity();
+    await refreshDiagnostics();
     await searchCandidates();
     message('Inferred identity restored.');
   }catch(e){message(e.message,true)}
