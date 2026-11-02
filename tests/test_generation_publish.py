@@ -117,6 +117,7 @@ def test_explicit_approval_creates_exactly_one_new_playlist_and_yaml(setup):
     assert [x["rating_key"] for x in created["items"]]==["1","2","3"]
     assert synced[0][0]=="New Jazz"
     assert store.get(draft["id"])["status"]=="published"
+    assert store.get(draft["id"])["data"]["published_name"]=="New Jazz"
     with pytest.raises(store.DraftConflict):
         publication.publish(plex,draft["id"],1,"New Jazz",
                             plan["plan_id"],True,library())
