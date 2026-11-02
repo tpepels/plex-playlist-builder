@@ -969,10 +969,12 @@ def curation_playlist(name: str):
             {"rating_key": key} for key in before
         ]}
         cached, cache_state = cached_features()
-        result = assess(name, live_spec, library, cached)
+        local_cache = {key: cached[key] for key in before if key in cached}
+        result = assess(name, live_spec, library, local_cache)
+        result["sources"]["audiomuse"] = len(cached)
         from .playlist_curator import features_for
         result["identity"] = playlist_identity(name, str(definitions[name].get("description") or ""),
-                                                  before, library, features_for(cached))
+                                                  before, library, features_for(local_cache))
         yaml_keys, yaml_issues = resolve_items(definitions[name],library)
         result.update({
             "version": fingerprint(definitions),
@@ -996,7 +998,9 @@ def get_curation_identity(name: str):
         cached, _ = cached_features()
         from .playlist_curator import features_for
         return playlist_identity(name, str(definitions[name].get("description") or ""),
-                                 before, library, features_for(cached))
+                                 before, library, features_for({
+                                     key: cached[key] for key in before if key in cached
+                                 }))
     except IdentityConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -1041,7 +1045,9 @@ def get_curation_candidates(name: str, target: str = "", q: str = "",
         cache, _ = cached_features()
         from .playlist_curator import features_for
         intent = playlist_identity(name, str(definitions[name].get("description") or ""),
-                                   before, library, features_for(cache))
+                                   before, library, features_for({
+                                       key: cache[key] for key in before if key in cache
+                                   }))
         return {"candidates": rank_candidates(before, library, cache, intent,
                            target=target or None, query=q, limit=limit),
                 "target":target or None, "identity_source":intent["source"],
