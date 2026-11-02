@@ -25,49 +25,81 @@ summary::-webkit-details-marker{display:none}.heading{display:flex;align-items:c
 .summary-note{font-size:12px;color:var(--muted)}.detail-body{border-top:1px solid var(--line);padding:14px}
 table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--line);padding:8px;text-align:left;font-size:13px}th{color:var(--muted)}
 .flag{color:#e8bb63}.dim{color:var(--muted)}.desc{font-size:12px;color:var(--muted)}
+
+/* Compact by default; detailed information only after opening a playlist. */
+body{background:#080f16;color:#eaf5f5;font-size:14px}
+main{max-width:1080px;padding-top:16px}
+h1{font-size:23px;margin:12px 0}
+.panel{padding:12px 14px;margin:10px 0;background:#101c26;border-color:#2a4150}
+.controls{gap:7px}
+button,input,select{padding:7px 10px;background:#172631;border-color:#2a4150}
+button{white-space:nowrap}
+.metrics{margin:9px 0 0;gap:18px}
+.metrics>div{display:inline-flex;align-items:baseline;gap:5px}
+.metrics strong{font-size:16px}
+#analysisStatus,#status{font-size:12px;color:#9bb3c0;margin:6px 0;min-height:0}
+#analysisStatus.error,#status.error{color:#ff9393}
+#analysisProgress{height:7px}
+.list-head{display:flex;align-items:center;gap:10px;margin:16px 0 8px;flex-wrap:wrap}
+.list-head h2{margin-right:auto;font-size:15px}
+.list-head input{max-width:300px;min-width:160px}
+.list-head select{max-width:210px}
+#listCount{font-size:12px;color:var(--muted)}
+details.entry{padding:0;margin:5px 0;border-radius:8px;background:#101c26;border-color:#2a4150}
+.entry>summary{padding:9px 12px;min-height:42px;display:flex;align-items:center;gap:12px}
+.entry>summary::before{content:"›";font-size:20px;color:var(--muted);line-height:1}
+.entry[open]>summary::before{content:"⌄"}
+.entry-name{flex:1;min-width:145px}
+.entry-stats{color:var(--muted);font-size:12px;white-space:nowrap;min-width:88px;text-align:right}
+.entry-score{width:55px;text-align:right;font-size:12px}
+.entry-score.muted{color:var(--muted)}
+.bar{width:82px;height:4px;flex-shrink:0;background:#243340;border-radius:4px;overflow:hidden}
+.bar span{display:block;height:100%;background:#6cf5c2}
+.detail-body{border-top:1px solid #2a4150;padding:10px 15px}
+.detail-body p{margin:0 0 8px;font-size:12px}
+#showMore{display:block;margin:11px auto}
+details.method{font-size:12px;color:var(--muted);margin-top:18px}
+.method summary{cursor:pointer;width:max-content}
+.method p{max-width:650px}
+[hidden]{display:none!important}
+@media(max-width:650px){.entry>summary{flex-wrap:wrap}.entry-name{min-width:calc(100% - 25px)}.entry-stats{text-align:left}.list-head input{order:3;max-width:none;min-width:100%}}
 </style>
 </head>
 <body>
 <main>
-<header><a href="/">← Playlist Manager</a><small>NO PLAYLIST WRITES / AUDIO ANALYSIS</small></header>
+<header><a href="/">← Playlists</a><small>AudioMuse · playlists unchanged</small></header>
 <h1>Musical coherence</h1>
-<p>AudioMuse-AI similarity analysis of tracks in saved YAML playlists. No automatic removal, additions or Plex sync.</p>
-<section class="panel" aria-label="AudioMuse analysis control">
-  <h2>Audio analysis</h2>
-  <p class="desc">Start an AudioMuse analysis task and monitor its progress here. Only audio analysis data changes; Plex playlists remain untouched.</p>
+<section class="panel" aria-label="AudioMuse tools">
   <div class="controls">
-    <label for="analysisScope">Scope</label>
-    <select id="analysisScope">
-      <option value="25">Latest 25 albums</option>
-      <option value="100">Latest 100 albums</option>
-      <option value="0">Entire library (all albums)</option>
+    <select id="analysisScope" aria-label="Analysis scope">
+      <option value="25">25 albums</option><option value="100">100 albums</option>
+      <option value="0">Full library</option>
     </select>
-    <button id="startAnalysis" type="button">Start analysis</button>
-    <button id="refreshAnalysis" type="button">Refresh progress</button>
+    <button id="startAnalysis" type="button">Analyze</button>
+    <button id="refreshAnalysis" type="button">Status</button>
+    <button id="sync">Sync</button>
+    <button id="refresh">Refresh</button>
+    <button id="stopSync" type="button" hidden>Stop after batch</button>
   </div>
-  <p id="analysisStatus" role="status" aria-live="polite">Checking AudioMuse task status…</p>
+  <div id="analysisStatus" role="status" aria-live="polite"></div>
   <progress id="analysisProgress" max="100" value="0" hidden></progress>
-  <p class="desc">Full-library analysis can be resource-intensive. AudioMuse queues it on its own worker; you can close this page after starting it. Already analyzed data remains stored in AudioMuse.</p>
-</section>
-<div class="panel">
-  <div class="controls">
-    <button id="refresh">Refresh cached report</button>
-    <button id="sync">Sync AudioMuse analysis</button>
-    <button id="stopSync" type="button" hidden>Stop after current batch</button>
-  </div>
-  <p id="status" role="status" aria-live="polite">Loading cache…</p>
+  <div id="status" role="status" aria-live="polite" hidden></div>
   <div id="metrics" class="metrics"></div>
-  <p class="desc">A score requires at least six analyzed tracks and 60% playlist coverage, with every item identified by a Plex rating key. Similarity scores are exploratory, not an objective quality rating.</p>
-</div>
-<div class="controls">
-  <input id="filter" type="search" placeholder="Find a playlist…" aria-label="Find a playlist">
-  <select id="visibility" aria-label="Report filter">
-    <option value="all">All playlists</option>
-    <option value="ready">With sufficient coverage</option>
-    <option value="insufficient">Insufficient coverage</option>
+</section>
+<div class="list-head">
+  <h2>Playlists</h2><span id="listCount"></span>
+  <input id="filter" type="search" placeholder="Search playlists" aria-label="Search playlists">
+  <select id="visibility" aria-label="Filter playlists">
+    <option value="covered">With analysis</option>
+    <option value="ready">Scorable</option>
+    <option value="all">All</option>
   </select>
 </div>
 <div id="reports"></div>
+<button id="showMore" type="button" hidden>Show more</button>
+<details class="method"><summary>Method</summary>
+  <p>Scores compare MusiCNN embeddings. At least six tracks and 60% coverage required. Differences are for review only; playlists are never changed here.</p>
+</details>
 </main>
 <script>
 'use strict';
@@ -84,48 +116,53 @@ function metric(label, value) {
   outer.append(element('strong', value), element('span', label));
   return outer;
 }
+let visibleLimit = 20;
 function render() {
   if (!report) return;
   const metrics = $('metrics');
   metrics.replaceChildren(
-    metric('Analyzed tracks cached', report.cache.cached),
-    metric('Embeddings available', report.cache.with_embeddings),
-    metric('Playlists with sufficient coverage', report.summary.scorable + ' / ' + report.summary.playlists),
-    metric('Last sync (UTC)', report.cache.last_sync || 'Not yet synchronized')
+    metric('tracks', report.cache.cached),
+    metric('embeddings', report.cache.with_embeddings),
+    metric('scorable playlists', report.summary.scorable + '/' + report.summary.playlists)
   );
+  metrics.title = report.cache.last_sync ? 'Last synced: ' + report.cache.last_sync + ' UTC' : 'Not yet synced';
   const target = $('reports');
   target.replaceChildren();
   const filter = $('filter').value.trim().toLowerCase();
   const visibility = $('visibility').value;
   const playlists = report.playlists.filter((entry) =>
-    entry.name.toLowerCase().includes(filter) && (visibility === 'all' || entry.status === visibility));
-  for (const playlist of playlists) {
-    const details = element('details');
+    entry.name.toLowerCase().includes(filter) &&
+    (visibility === 'all' || (visibility === 'ready' ? entry.status === 'ready' : entry.embedded_tracks > 0))
+  ).sort((a, b) => Number(b.status === 'ready') - Number(a.status === 'ready') ||
+      b.coverage - a.coverage || b.embedded_tracks - a.embedded_tracks ||
+      a.name.localeCompare(b.name));
+  $('listCount').textContent = playlists.length + '/' + report.summary.playlists;
+  for (const playlist of playlists.slice(0, visibleLimit)) {
+    const details = element('details', undefined, 'entry');
     const summary = element('summary');
-    const heading = element('div', undefined, 'heading');
-    heading.append(element('strong', playlist.name));
-    const coverage = Math.round(100 * playlist.coverage);
-    heading.append(element('span',
-      playlist.embedded_tracks + '/' + playlist.total_explicit_tracks + ' embeddings · ' +
-      coverage + '% · ' + (playlist.status === 'ready' ?
-        'mean cosine ' + playlist.mean_pairwise_cosine : 'insufficient coverage'),
-      'summary-note'));
-    summary.append(heading);
+    summary.append(element('strong', playlist.name, 'entry-name'));
+    const bar = element('span', undefined, 'bar');
+    bar.setAttribute('aria-hidden', 'true');
+    const fill = element('span');
+    fill.style.width = Math.max(0, Math.min(100, playlist.coverage * 100)) + '%';
+    bar.append(fill);
+    summary.append(bar);
+    summary.append(element('span', playlist.embedded_tracks + '/' +
+      playlist.total_explicit_tracks + ' · ' + Math.round(playlist.coverage * 100) + '%',
+      'entry-stats'));
+    summary.append(element('span', playlist.status === 'ready' ?
+      playlist.mean_pairwise_cosine : '—', 'entry-score' + (playlist.status === 'ready' ? '' : ' muted')));
     details.append(summary);
     const body = element('div', undefined, 'detail-body');
-    body.append(element('p', 'Analyzed: ' + playlist.analyzed_tracks +
-      ' · embeddings: ' + playlist.embedded_tracks +
-      ' · unresolved YAML items: ' + playlist.unresolved_items, 'desc'));
     if (playlist.status !== 'ready') {
-      body.append(element('p', 'Not enough analyzed, identifiable music to evaluate this playlist.', 'flag'));
-    } else if (playlist.review_candidates.length === 0) {
-      body.append(element('p', 'No strong relative outliers detected within the analyzed subset. This does not establish musical fit.', 'dim'));
+      body.append(element('p', 'Requires 6 tracks, 60% coverage.' +
+        (playlist.unresolved_items ? ' Unresolved items: ' + playlist.unresolved_items : '')));
+    } else if (!playlist.review_candidates.length) {
+      body.append(element('p', 'No relative outliers in analyzed tracks.'));
     } else {
-      const caption = element('h3', 'Possible outliers — manual review only');
-      body.append(caption);
       const table = element('table');
       const head = element('tr');
-      for (const column of ['Artist', 'Track', 'Similarity to other analyzed tracks', 'Below median']) {
+      for (const column of ['Artist', 'Track', 'Similarity', 'Below median']) {
         head.append(element('th', column));
       }
       const thead = element('thead'); thead.append(head); table.append(thead);
@@ -140,10 +177,11 @@ function render() {
       }
       table.append(tbody); body.append(table);
     }
-    details.append(body);
-    target.append(details);
+    details.append(body); target.append(details);
   }
   if (!playlists.length) target.append(element('p', 'No matching playlists.'));
+  $('showMore').hidden = playlists.length <= visibleLimit;
+  $('showMore').textContent = 'Show more (' + Math.min(20, playlists.length - visibleLimit) + ')';
 }
 async function request(url, options) {
   const response = await fetch(url, options);
@@ -155,10 +193,11 @@ async function load() {
   try {
     report = await request('/api/audiomuse/coherence');
     $('status').className = '';
-    $('status').textContent = report.notice;
+    $('status').hidden = true;
     render();
   } catch (error) {
     $('status').className = 'error';
+    $('status').hidden = false;
     $('status').textContent = error.message;
   }
 }
@@ -179,7 +218,7 @@ async function refreshAnalysisStatus() {
       $('analysisProgress').hidden = !data.active || task.task_type !== 'main_analysis';
       $('analysisProgress').value = task.progress;
     } else {
-      $('analysisStatus').textContent = 'No active analysis task.';
+      $('analysisStatus').textContent = '';
       $('analysisProgress').hidden = true;
     }
   } catch (error) {
@@ -220,32 +259,34 @@ setInterval(() => { if (document.visibilityState === 'visible') refreshAnalysisS
 refreshAnalysisStatus();
 
 $('refresh').addEventListener('click', load);
-$('filter').addEventListener('input', render);
-$('visibility').addEventListener('change', render);
+$('filter').addEventListener('input', () => { visibleLimit = 20; render(); });
+$('visibility').addEventListener('change', () => { visibleLimit = 20; render(); });
+$('showMore').addEventListener('click', () => { visibleLimit += 20; render(); });
 let stopSyncRequested = false;
 $('stopSync').addEventListener('click', () => { stopSyncRequested = true; });
 $('sync').addEventListener('click', async () => {
   $('sync').disabled = true;
   $('stopSync').hidden = false;
-  stopSyncRequested = false;
+  $('status').hidden = false;
   $('status').className = '';
-  $('status').textContent = 'Synchronizing AudioMuse data in batches; no playlists will change…';
+  stopSyncRequested = false;
+  $('status').textContent = 'Syncing…';
   try {
     let data;
     let rounds = 0;
     do {
       data = await request('/api/audiomuse/sync', {method: 'POST'});
       rounds += 1;
-      $('status').textContent = 'Caching AudioMuse: ' + data.cached + ' of ' +
-        data.available + ' analyzed tracks; ' + data.pending + ' pending. Batch ' + rounds + '.';
+      $('status').textContent = 'Sync ' + data.cached + '/' + data.available +
+        ' · ' + data.pending + ' pending';
     } while (!data.complete && !stopSyncRequested && rounds < 120);
     await load();
-    $('status').textContent = (data.complete ? 'Sync complete' :
-      stopSyncRequested ? 'Sync paused' : 'Batch limit reached; click Sync again') +
-      ': ' + data.cached + ' of ' + data.available + ' analyzed tracks cached; ' +
-      data.pending + ' remaining.';
+    $('status').hidden = false;
+    $('status').textContent = (data.complete ? 'Synced' : stopSyncRequested ? 'Paused' : 'Partial') +
+      ' · ' + data.cached + '/' + data.available;
   } catch (error) {
     $('status').className = 'error';
+    $('status').hidden = false;
     $('status').textContent = error.message;
   } finally {
     $('sync').disabled = false;
