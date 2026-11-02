@@ -263,7 +263,7 @@ function move(index,direction){
   if(destination<0||destination>=keys.length)return;
   edit([{type:'move',track_id:id,
          after_id:destination===0?null:direction===1?keys[destination]:
-                   destination===1?null:keys[destination-2]}]);
+                   keys[destination-1]}]);
 }
 $('createForm').onsubmit=async(event)=>{
   event.preventDefault();if(working)return;
