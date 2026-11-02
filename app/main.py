@@ -55,7 +55,8 @@ from .playlist_identity import (
 from .playlist_ranking import rank_candidates
 from .curation_impact import compare as compare_curations
 from .curation_validation import (
-    categories as validation_categories, summary as validation_summary,
+    categories as validation_categories, portfolio as validation_portfolio,
+    summary as validation_summary,
     reviews as validation_reviews, record as record_validation,
     calibration as validation_calibration, feedback_for as validation_feedback,
 )
@@ -1182,7 +1183,7 @@ def get_curation_validation():
     for name in valid:
         setting=get_override(name)
         if setting: styles[name]=setting["styles"]
-    samples=validation_categories(valid.keys(),descriptions,styles)
+    samples=validation_portfolio(valid.keys(),descriptions,styles,per_category=2)
     stats=validation_summary(valid)
     try:
         plex,music=connect()
@@ -1194,11 +1195,8 @@ def get_curation_validation():
         raise HTTPException(status_code=503,detail="Could not read Plex for validation.") from exc
     from .playlist_curator import features_for
     rows=[]
-    for kind,name in samples.items():
-        if not name:
-            rows.append({"category":kind,"status":"no_matching_playlist",
-                         "name":None,"reviewed":0})
-            continue
+    for kind,names in samples.items():
+      for name in names:
         playlist=live.get(name)
         if not playlist:
             rows.append({"category":kind,"name":name,"status":"missing_in_plex",
@@ -1213,24 +1211,30 @@ def get_curation_validation():
         intent=playlist_identity(name,descriptions[name],ids,library,features_for(local))
         assessment=assess(name,{"items":[{"rating_key":k} for k in ids]},
                           library,local,intent["values"])
+        coverage=assessment["profile"]["coverage"]
+        reviewed=stats[name]["reviewed"]
+        distinct=stats[name]["distinct_targets"]
+        ready=coverage>=.60 and reviewed>=8 and distinct>=4
         rows.append({
-            "category":kind,"name":name,"status":"needs_human_review",
-            "tracks":len(ids),"audio_coverage":assessment["profile"]["coverage"],
+            "category":kind,"name":name,
+            "status":"validated" if ready else "needs_human_review",
+            "tracks":len(ids),"audio_coverage":coverage,
             "identity_source":intent["source"],
             "confidence":assessment["profile"]["confidence"],
             "possible_outliers":len(assessment["reviews"]),
             **stats[name],
         })
     total=sum(row.get("reviewed",0) for row in rows)
-    ready=all(row.get("status")=="needs_human_review"
-              and row.get("reviewed",0)>=4
-              and row.get("audio_coverage",0)>=.60 for row in rows)
+    ready=(all(len(samples[cat])>=2 for cat in samples) and
+           len(rows)>=8 and all(r["status"]=="validated" for r in rows))
     return {"categories":rows,"reviewed_total":total,
-            "audited_groups":sum(bool(row.get("name")) for row in rows),
-            "validation_target":{"categories":4,"listened_reviews_per_category":4,
+            "audited_groups":len({r["category"] for r in rows}),
+            "validation_target":{"playlists_per_category":2,
+                                 "listened_reviews_per_playlist":8,
+                                 "distinct_targets_per_playlist":4,
                                  "minimum_audio_coverage":.60},
             "human_validation_complete":ready,
-            "notice":"Programmatic checks are not listening judgments; validate four recommendations per category against real audio."}
+            "notice":"Metadata checks and model rankings are not listening judgments; human reviews on actual audio are required."}
 
 
 @app.get("/api/curation/validation/{name:path}")
