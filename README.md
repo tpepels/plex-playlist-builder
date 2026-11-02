@@ -82,33 +82,61 @@ calibrated probabilities. They cannot alone authorize playlist edits.
 
 ### Step 4 — real-library, listening-grounded validation
 
-In **Playlist Intelligence**, use **Audit jazz / ambient / soul / mixed**.
-It selects four distinct *existing Plex playlist definitions*, preferring
-manually declared genre information where available. It reports actual Plex
-track resolution and audio coverage, not synthetic fixture results, and flags
-missing musical families explicitly. The acceptance threshold is four human
-listening reviews per family with at least 60% audio coverage. An auditable
-status remains incomplete until those requirements are met.
+Open **Playlist Intelligence → Audit jazz / ambient / soul / mixed**.
+The app now selects **two different real Plex playlists per musical family**
+(eight total). The result is marked incomplete if a genre is absent, if its
+playlists are missing in Plex, or if AudioMuse coverage is insufficient.
+The **Listening validation queue** within each playlist provides representative
+track positions plus likely musical outliers and metadata review candidates.
+Click a target to compare replacement options from the full Plex catalogue.
 
-For any candidate, click **Validate** to hear its recording and (for a
-replacement) the original recording. Confirm listening, choose **Accept fit**
-or **Reject fit**, and specify a concrete rejection reason (genre, energy,
-mood, flow, repetition, recording, metadata or other). Optional notes and
-per-factor model evidence are stored durably at
-\`/data/curation-validation.sqlite\` without editing Plex or YAML. Repeated
-reviews of a pair revise rather than double-count its outcome.
+**Validate** plays both the proposed and original tracks. The interface
+requires at least 15 seconds of each recording's real playback (seeking does
+not count), plus an explicit human listening confirmation, before submission.
+This verifies interaction in the normal browser workflow but is not a
+cryptographically secure proof of human auditory judgment. Reviews accept
+or reject a specific pair, with mandatory rejection cause and optional notes.
+Feedback is stored in \`/data/curation-validation.sqlite\` and does not change
+Plex. Previously rejected alternatives are demoted and marked, not erased.
 
-From two accepted and two rejected examples under the same playlist-identity
-revision, the app performs bounded (±25% before renormalization) per-playlist
-factor-weight calibration. Accepted/rejected pair history adds explicit,
-transparent adjustment to its future recommendation ranking. Old feedback
-remains readable but is excluded from recalibrating a subsequently modified
-identity. The algorithm never silently modifies or removes playlist tracks.
+A portfolio is considered **human validated** only after *every* sampled
+playlist reaches at least eight listening reviews from at least four distinct
+original tracks and >=60% analyzed audio coverage. The dashboard exposes
+acceptance rates and Wilson 95% uncertainty intervals. Model factor weights
+are allowed to change only after at least eight reviews (three positive and
+three negative), and only if their leave-one-out discrimination is better
+than the original weights. Weak or contradictory feedback keeps the baseline.
+Even a completed portfolio does **not** prove superiority outside the
+sampled music or listeners; use it to identify further concrete errors.
 
-Automated regression cases exercise jazz, ambient, soul and intentionally
-mixed music. These synthetic tests verify mechanics and guardrails; they do
-not constitute real listening validation. The user's AudioMuse worker and
-real Plex track files are required for genuine acoustic and human tests.
+**Real music metadata failure learned from the owner's historical export:**
+recordings titled "Spoken Introduction" (notably Art Pepper's Village
+Vanguard album) and interviews/applause should not appear in unsolicited
+musical recommendations. They are now excluded from automatic ranking while
+remaining discoverable via explicit search. Short instrumental pieces are
+flagged for consideration, not silently banned (e.g., Supersilent "14.9",
+approximately one minute, in the ambient playlist).
+
+**Offline all-playlist historical check:** run
+
+\`\`\`bash
+python3 scripts/audit-playlist-export.py \
+  --playlists /path/to/plex-playlists.yml \
+  --library /path/to/plex-music-library.tsv \
+  --output /path/to/playlist-validation.json
+\`\`\`
+
+The validator checks **every** playlist entry for missing IDs, duplicates,
+metadata mismatches, speech-like titles, and short candidates for human review.
+It never reads or edits audio/Plex and marks its report as metadata-only.
+On the owner's 31 October 2026 saved export (111 playlists, 7,001
+placements, 17,044 catalogue tracks), metadata matching found zero
+unresolved IDs, duplicates, or metadata mismatches. The 167 placements under
+two minutes are **review prompts**, not failures. This is a historical,
+not an automatically refreshed live-data verification.
+
+The phase cannot be declared musically accepted until the real Plex audio
+reviews exist; tests of the app's behavior are not substitutes for listening.
 
 The phase has no automatic playlist modifications. Every change requires a
 per-playlist review and a distinct explicit approval.
@@ -116,7 +144,7 @@ per-playlist review and a distinct explicit approval.
 Short offline checks:
 
 \`\`\`bash
-python3 -m pytest -q tests/test_playlist_curator.py tests/test_playlist_intelligence_api.py tests/test_curation_library.py tests/test_playlist_identity_ranking.py tests/test_curation_impact.py tests/test_curation_validation.py tests/test_curation_stages_3_4_api.py
+python3 -m pytest -q tests/test_playlist_curator.py tests/test_playlist_intelligence_api.py tests/test_curation_library.py tests/test_playlist_identity_ranking.py tests/test_curation_impact.py tests/test_curation_validation.py tests/test_curation_stages_3_4_api.py tests/test_curation_real_errors.py
 node tests/test_playlist_intelligence_ui.mjs
 \`\`\`
 
