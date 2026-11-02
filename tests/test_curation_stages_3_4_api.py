@@ -161,3 +161,19 @@ def test_merged_routes_support_playlist_titles_containing_slashes():
                   if route.matches(scope)[0] == Match.FULL]
         assert matching, (method,path)
         assert matching[0].matches(scope)[1]["path_params"]["name"]==expected_name
+
+
+
+def test_validation_queue_is_reproducible_and_requests_actual_audio_review(monkeypatch,tmp_path):
+    patch_context(monkeypatch)
+    monkeypatch.setattr(val,"FILE",tmp_path/"queue.sqlite")
+    first=main.get_curation_validation_queue("Jazz")
+    second=main.get_curation_validation_queue("Jazz")
+    assert first==second
+    assert len(first["targets"])>=4
+    assert len({row["id"] for row in first["targets"]})==len(first["targets"])
+    assert all(row["id"] in [str(i) for i in range(1,7)] for row in first["targets"])
+    assert all(row["reason"]=="stratified playlist sample" for row in first["targets"])
+    assert first["reviewed"]==0
+    assert first["target_review_count"]==8
+    assert first["audio_coverage"]==0
