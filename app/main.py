@@ -48,6 +48,10 @@ from .playlist_curator import (
 )
 from .curation_apply import find_live, current_items, current_keys, change_plan, apply_approved
 from .curation_library import get_library, metadata as curation_library_metadata
+from .playlist_generation import parse_prompt, generate as generate_playlist, diagnose as generation_diagnose, GenerationError, _constraints
+from .generation_store import (DraftConflict, create as create_generation_draft,
+                               get as get_generation_draft, revise as revise_generation_draft)
+from .generation_publish import prepare as prepare_generation_publish, publish as publish_generation_draft
 from .playlist_identity import (
     IdentityConflict, identity as playlist_identity, get_override,
     put_override, delete_override, revision as identity_revision,
@@ -967,6 +971,162 @@ def refresh_curation_catalogue(request: Request):
         return {"tracks":len(library),"state":"fresh"}
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Plex catalogue refresh failed; previous snapshot is retained.") from exc
+
+
+
+# Create-only playlist generation: all edits stay in a durable review draft.
+class GenerationCreateBody(BaseModel):
+    prompt: str
+    count: int | None = None
+    minutes: int | None = None
+    identity: dict | None = None
+
+
+class GenerationEditBody(BaseModel):
+    revision: int
+    operations: list[dict]
+
+
+class GenerationPlanBody(BaseModel):
+    draft_id: str
+    revision: int
+    name: str
+
+
+class GenerationPublishBody(GenerationPlanBody):
+    plan_id: str
+    approved: bool = False
+
+
+def _generation_context():
+    plex,music=connect()
+    return plex,get_library(music)
+
+
+def _generation_payload(draft,library):
+    data=draft["data"]
+    keys=data["keys"]
+    rows=[{"id":k,"artist":library[k]["artist"],"album":library[k]["album"],
+           "title":library[k]["title"],"year":library[k].get("year"),
+           "duration_ms":library[k].get("duration_ms"),
+           "genres":library[k].get("genres",[])} for k in keys]
+    return {**draft, "data":{**data,"tracks":rows}}
+
+
+def _generation_origin(request):
+    origin=request.headers.get("origin")
+    if not origin or origin.rstrip("/")!=str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403,detail="Same-origin browser request required.")
+
+
+@app.get("/playlist-generator",response_class=HTMLResponse)
+def playlist_generator_page(request: Request):
+    return templates.TemplateResponse("playlist_generator.html",{"request":request})
+
+
+@app.post("/api/generation/drafts")
+def create_generation(body: GenerationCreateBody,request: Request):
+    _generation_origin(request)
+    try:
+        intent=parse_prompt(body.prompt,count=body.count,minutes=body.minutes,
+                            overrides=body.identity)
+        _,library=_generation_context()
+        cached,_=cached_features()
+        built=generate_playlist(intent,library,cached)
+        data={"request":intent,"keys":built["keys"],
+              "diagnostics":built["diagnostics"],
+              "selection":built["selection"],"warnings":built["warnings"]}
+        return _generation_payload(create_generation_draft(data),library)
+    except (GenerationError,ValueError) as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+
+@app.get("/api/generation/drafts/{draft_id}")
+def get_generation(draft_id: str):
+    try:
+        draft=get_generation_draft(draft_id)
+        _,library=_generation_context()
+        return _generation_payload(draft,library)
+    except (DraftConflict,GenerationError) as exc:
+        raise HTTPException(status_code=404,detail=str(exc)) from exc
+
+
+@app.post("/api/generation/drafts/{draft_id}/edit")
+def edit_generation(draft_id: str,body: GenerationEditBody,request: Request):
+    _generation_origin(request)
+    try:
+        draft=get_generation_draft(draft_id)
+        if draft["status"]!="draft" or draft["revision"]!=body.revision:
+            raise DraftConflict("Draft was changed or already published.")
+        _,library=_generation_context()
+        after=compute_operations(draft["data"]["keys"],body.operations,library)
+        if len(after)>120:
+            raise GenerationError("A generated playlist can contain at most 120 tracks.")
+        for key in after:
+            if key not in library:raise DraftConflict("Track no longer exists in Plex.")
+        data=dict(draft["data"])
+        cached,_=cached_features()
+        data["keys"]=after
+        data["diagnostics"]=generation_diagnose(after,library,cached,data["request"]["identity"],
+                                                 data["request"])
+        violations={key:_constraints(library[key],data["request"])
+                    for key in after if _constraints(library[key],data["request"])}
+        data["warnings"]=list(dict.fromkeys(
+            [w for w in data["warnings"] if not w.startswith("Manual edits")]
+            + ([f"Manual edits include {len(violations)} tracks outside the original criteria."]
+               if violations else [])
+        ))
+        data["manual_violations"]=violations
+        return _generation_payload(revise_generation_draft(draft_id,body.revision,data),
+                                   library)
+    except (DraftConflict,GenerationError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.get("/api/generation/drafts/{draft_id}/candidates")
+def generation_candidates(draft_id: str,target: str="",q: str="",
+                          limit: int=Query(default=20,ge=1,le=30)):
+    try:
+        if len(q)>120:raise GenerationError("Search query too long.")
+        draft=get_generation_draft(draft_id)
+        _,library=_generation_context()
+        cache,_=cached_features()
+        keys=draft["data"]["keys"]
+        recommendations=rank_candidates(keys,library,cache,
+                    draft["data"]["request"]["identity"],target=target or None,
+                    query=q,limit=limit)
+        for row in recommendations:
+            row["criteria_issue"]=_constraints(library[row["id"]],
+                                                draft["data"]["request"])
+        return {"candidates":recommendations,"target":target or None,
+                "revision":draft["revision"]}
+    except (DraftConflict,GenerationError,CurationConflict) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/api/generation/plan")
+def generation_plan(body: GenerationPlanBody):
+    try:
+        plex,library=_generation_context()
+        draft=get_generation_draft(body.draft_id)
+        if draft["revision"]!=body.revision:
+            raise DraftConflict("Draft changed. Reload before reviewing.")
+        return prepare_generation_publish(plex,draft,body.name,library)
+    except (DraftConflict,GenerationError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/api/generation/publish")
+def generation_publish(body: GenerationPublishBody,request: Request):
+    _generation_origin(request)
+    try:
+        plex,library=_generation_context()
+        return publish_generation_draft(plex,body.draft_id,body.revision,body.name,
+                            body.plan_id,body.approved,library)
+    except (DraftConflict,GenerationError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503,detail=str(exc)) from exc
 
 
 @app.get("/api/curation/library/status")
