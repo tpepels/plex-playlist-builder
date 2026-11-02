@@ -18,6 +18,63 @@ A tiny local web service for defining Plex music playlists in YAML, previewing m
 - Exports recently added music directly as TSV: last X hours (new tracks only) or last N added albums (complete albums), with their Plex rating keys and addition timestamps.
 - Exports all current Plex audio playlists as importable YAML, preserving playlist order and exact Plex rating keys so the file can be uploaded in chat to avoid reusing tracks.
 
+## Intelligent Playlist Generation (new playlists)
+
+Open **/playlist-generator** or choose **Create intelligent playlist** from the
+hamburger navigation. The fully connected workflow:
+
+1. Describe the musical goal in plain language, e.g. **Intimate live jazz,
+   1955–1965, long improvisations, warm club atmosphere**. Set a name,
+   track count (1–120), optional minutes target, and optional explicit style,
+   mood, variation, energy, sequence and live-preference settings.
+2. The deterministic interpreter records its actual criteria. It understands
+   common genres/moods, decade or year interval, long-track requirements,
+   track and duration limits and live evidence. **Release years come from Plex
+   album metadata**, not validated recording/performance dates. A title cue is
+   evidence of a live release, not acoustic proof of club ambience. Missing
+   years, style evidence and duration are not fabricated. Users see explicit
+   filter exclusions and unsupported musical requests.
+3. Re-index the complete Plex music catalogue when necessary. The index
+   caches album-derived genre and year together with track durations.
+   Select from the **entire** library, exclude speech/applause and proven
+   mismatches, balance artist/album variety and musical-neighbor scores, and
+   build an ordered sequence for the intended smooth, varied or arc-like flow.
+   Candidate counts, metadata basis, AudioMuse coverage and quality warnings
+   are shown in the result.
+4. Every generated result is saved as a **persistent reviewable draft** in
+   \`/data/playlist-generations.sqlite\`. Play, add, replace, remove and reorder
+   any recording without changing Plex. Search the catalogue for alternatives.
+   The draft can be restored from the generator page after a reload; edits use
+   optimistic revisions so an older browser cannot overwrite newer choices.
+5. **Review & publish** shows the exact title, ordered tracks, duration,
+   five quality dimensions, data coverage and warnings. The user must approve
+   explicitly. Publication rechecks draft revision, YAML version, all track
+   identities, duplicate names and final Plex ordering. It creates **one new**
+   Plex playlist via PlexAPI 4.18.2 and writes the matching ordered YAML
+   definition, with conservative rollback if either operation fails. Existing
+   playlists are never deleted or replaced. Repeated approval of an already
+   published draft is rejected.
+
+AudioMuse continues independently; candidate and final quality scores remain
+*heuristics*, not proven listening quality. Missing analysis remains visible,
+and a brief with zero proven matches fails explicitly instead of silently
+substituting unrelated music. On live jazz briefs, Plex's release year can
+differ from the historical recording year; users should review provenance.
+
+Focused, short tests (all run in CI):
+
+\`\`\`bash
+python3 -m pytest -q tests/test_playlist_generation.py \
+  tests/test_generation_publish.py tests/test_generation_api.py \
+  tests/test_curation_library.py
+node tests/test_playlist_generator_ui.mjs
+\`\`\`
+
+Actual Plex publication requires the user to approve the specific preview
+and cannot be marked live-verified until applied to a test playlist on their
+server. No background workers, new containers or sudo are needed for this
+feature.
+
 ## Playlist Intelligence (curation)
 
 Open **/playlist-intelligence** or use the **Playlist Intelligence** link on
