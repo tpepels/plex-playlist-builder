@@ -110,7 +110,7 @@ def publish(plex,draft_id,revision,title,plan_id,approved,library):
                 raise RuntimeError("New playlist order differs from the approved plan.")
             save_text(yaml.safe_dump(updated,sort_keys=False,allow_unicode=True))
             saved=True
-            result=mark_published(draft_id,revision,created.ratingKey)
+            result=mark_published(draft_id,revision,created.ratingKey,title)
         except Exception as error:
             failures=[]
             if saved or (fingerprint(load().get("playlists",{}))!=
