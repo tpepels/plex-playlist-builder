@@ -152,8 +152,10 @@ $('sync').addEventListener('click', async () => {
   try {
     const data = await request('/api/audiomuse/sync', {method: 'POST'});
     await load();
-    $('status').textContent = 'Sync complete: ' + data.cached + ' analyzed, ' +
-      data.new_or_updated + ' updated, ' + data.removed + ' removed from the feature cache.';
+    $('status').textContent = (data.complete ? 'Sync complete' : 'Partial sync — click Sync again') +
+      ': ' + data.cached + ' of ' + data.available + ' analyzed tracks cached; ' +
+      data.new_or_updated + ' updated, ' + data.removed + ' removed; ' +
+      data.pending + ' still pending.';
   } catch (error) {
     $('status').className = 'error';
     $('status').textContent = error.message;
