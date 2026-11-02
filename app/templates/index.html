@@ -719,6 +719,7 @@ $("importCoverZip").onclick = () => {
 $("coverZipFile").onchange = async () => {
   const file = $("coverZipFile").files[0];
   if (!file) return;
+  setNavigationOpen(false);
   if (syncing || coverUploading) {
     $("coverZipFile").value = "";
     showNotice("Finish the current operation before importing covers.", true);
@@ -1158,6 +1159,7 @@ function setNavigationOpen(open, restoreFocus=false) {
 $("navigationToggle").onclick=()=>setNavigationOpen($("navigationPanel").hidden);
 $("navigationClose").onclick=()=>setNavigationOpen(false,true);
 $("navigationBackdrop").onclick=()=>setNavigationOpen(false,true);
+$("recentForm").onsubmit=()=>setNavigationOpen(false);
 // Only trap focus while the menu is open. Esc and outside click close it.
 document.addEventListener?.("keydown",event=>{
   if($("navigationPanel").hidden)return;
@@ -1172,6 +1174,11 @@ document.addEventListener?.("keydown",event=>{
   )).filter(el=>!el.closest?.("[hidden]") && el.getClientRects?.().length!==0);
   if(!focusables.length)return;
   const first=focusables[0],last=focusables[focusables.length-1];
+  if(!focusables.includes(document.activeElement)) {
+    event.preventDefault();
+    (event.shiftKey?last:first).focus();
+    return;
+  }
   if(event.shiftKey && document.activeElement===first) {
     event.preventDefault();last.focus();
   } else if(!event.shiftKey && document.activeElement===last) {
