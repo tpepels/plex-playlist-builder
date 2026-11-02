@@ -100,7 +100,9 @@ def publish(plex,draft_id,revision,title,plan_id,approved,library):
         updated["playlists"]=defs
         created=None
         saved=False
+        creation_attempted=False
         try:
+            creation_attempted=True
             created=plex.createPlaylist(title=title,items=tracks)
             if not getattr(created,"ratingKey",None):
                 raise RuntimeError("Plex returned no playlist identity.")
@@ -120,6 +122,10 @@ def publish(plex,draft_id,revision,title,plan_id,approved,library):
                 try:created.delete()
                 except Exception as rollback_error:
                     failures.append("Plex removal: "+str(rollback_error))
+            if created is None and creation_attempted:
+                failures.append("Plex creation outcome unknown (no returned playlist identity)")
+            if created is not None and not getattr(created,"ratingKey",None):
+                failures.append("Plex returned no playlist identity; creation outcome unknown")
             if failures:
                 raise RuntimeError("Publication failed. Manual reconciliation required: "+
                                    "; ".join(failures)+"; cause: "+str(error)) from error
