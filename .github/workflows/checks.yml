@@ -18,6 +18,16 @@ jobs:
           node-version: "22"
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pytest
+      - name: Playlist curation phases 1-4 (focused)
+        run: |
+          python -m pytest -q \
+            tests/test_playlist_curator.py \
+            tests/test_playlist_identity_ranking.py \
+            tests/test_playlist_intelligence_api.py \
+            tests/test_curation_library.py \
+            tests/test_curation_impact.py \
+            tests/test_curation_validation.py \
+            tests/test_curation_stages_3_4_api.py
       - name: Python tests
         run: python -m pytest -q
       - name: Browser JavaScript syntax
