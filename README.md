@@ -27,13 +27,22 @@ The full feature workflow is available in one screen:
 
 1. Select a saved playlist. The editor reads the actual ordered Plex playlist;
    it compares its identity and contents against versioned YAML, without writing.
-2. Inspect the descriptive profile, energy/tempo, artist/album diversity,
-   analysis coverage, possible outliers and reasons. Low coverage is explicitly
-   identified, and absence of an embedding is never assigned a fabricated score.
-3. Select a track to search for alternatives, or use **Add** to browse the
-   full Plex library. Search all artist/album/title metadata, compare available
-   MusiCNN, CLAP, energy/tempo and mood features, and listen to Plex audio
-   without exposing the Plex token in the browser.
+2. Open **Musical identity**. The app proposes a purpose, styles, mood,
+   variation (focused/balanced/eclectic), energy target, flow (smooth/arc/varied)
+   and live preference based on *explicit* name/description cues plus observed
+   Plex genres, AudioMuse mood/energy, artist makeup and energy progression.
+   Inference remains marked as such. Edit every field and **Save identity**,
+   or reset to the inferred profile. Overrides persist separately in
+   `/data/playlist-identities.json`; they do not trigger Plex playlist sync.
+3. Select a track to find replacements, or use **Add** to browse the complete
+   Plex catalogue. Candidate ranking evaluates existing musical subgroups
+   (not only the global centroid), artist/album contribution, fit to the saved
+   musical intent and neighboring-track compatibility. It proposes an insertion
+   position for additions, with per-factor evidence and coverage-based confidence.
+   Without comparable embeddings it shows **unscored**, never invented fit.
+   Explicit Plex genres contribute only where available; missing genres are
+   never classified by a fabricated model. Audio can be previewed without
+   exposing the Plex token in the browser.
 4. Stage add, remove, replace or reorder actions. Undo or clear changes.
    **Review changes** is read-only and shows the exact effect before approval.
 5. Only **Apply to Plex** with explicit approval edits the existing playlist
@@ -54,7 +63,7 @@ per-playlist review and a distinct explicit approval.
 Short offline checks:
 
 \`\`\`bash
-python3 -m pytest -q tests/test_playlist_curator.py tests/test_playlist_intelligence_api.py tests/test_curation_library.py
+python3 -m pytest -q tests/test_playlist_curator.py tests/test_playlist_intelligence_api.py tests/test_curation_library.py tests/test_playlist_identity_ranking.py
 node tests/test_playlist_intelligence_ui.mjs
 \`\`\`
 
