@@ -124,6 +124,44 @@ For an explicit TSV export, replace automatic retrieval with `--plex-tsv /path/t
 
 Important results: `provider_type` should be `plex`, `exact_plex_rating_key_matches` should normally equal `manifest_tracks_fetched` for a single Plex server, and `unmatched_sample` should be empty. A small or zero match requires checking the server configuration and mapping before proceeding.
 
+## Start and monitor full-library analysis from the Playlist Manager
+
+The first 336 tracks have been successfully synchronized, but 0/116 YAML
+playlists had sufficient analyzed coverage. The default report now suppresses
+three Plex-wide system playlists (All Music, Recently Added, Recently Played),
+without deleting them from YAML or Plex.
+
+The **Musical coherence** page can now enqueue an AudioMuse background analysis
+and show the active/main-task status:
+
+- Select **Latest 25 albums**, **Latest 100 albums**, or **Entire library**.
+- **Entire library** passes \`num_recent_albums=0\` to the documented
+  \`POST /api/analysis/start\` endpoint and requires an explicit confirmation.
+- The status panel polls the documented \`/api/active_tasks\` and \`/api/last_task\`
+  routes while the page is open. Analysis runs in AudioMuse's own worker and
+  continues if you close the browser.
+- This integration cannot start clustering or touch Plex playlists.
+- Once analysis progresses or completes, press **Sync AudioMuse analysis**
+  to refresh the local feature cache. Each sync transfers at most 500 changed
+  tracks; repeat while \`pending\` remains nonzero.
+- No scheduled execution is enabled. Starting a whole-library analysis requires
+  the deliberate click and confirmation.
+
+Update the existing manager service only after pulling the repository:
+
+\`\`\`bash
+cd ~/media-stack/plex-playlist-manager && git pull --ff-only
+cd ~/media-stack
+sudo docker compose up -d --build --no-deps plex-playlist-manager
+\`\`\`
+
+Then use http://media-server:5051/musical-coherence.
+
+**Security note:** the manager exposes other privileged operations on port
+5051 already. Its new analysis-start endpoint requires a same-origin browser
+POST, but the playlist manager should still be reachable only on your trusted
+LAN or behind authentication. Do not publish 5051 to the public internet.
+
 ## Playlist-manager integration: audio cache and coherence report
 
 The Plex rating-key identity sample passed (12/12). This adds an **independent
