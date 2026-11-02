@@ -205,6 +205,8 @@ def _score_candidate(key, info, f, keys, lib, ff, intent, target, ctx,
             pos=keys.index(target)
             sequence=list(keys);sequence[pos]=key
             flow=_flow(f,pos,sequence,ff,intent,energy)
+    if detailed and target is None and position is None:
+        position=len(base)   # No measured ordering signal: append, never prepend by accident.
     factors={"fit":fit,"diversity":diversity,"flow":flow,"intent":intention}
     weights=SCORE_WEIGHTS[intent["variation"]]
     usable=[(key,value) for key,value in factors.items() if value is not None]
