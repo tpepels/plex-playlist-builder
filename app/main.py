@@ -1237,6 +1237,48 @@ def get_curation_validation():
             "notice":"Metadata checks and model rankings are not listening judgments; human reviews on actual audio are required."}
 
 
+@app.get("/api/curation/validation/queue")
+def get_curation_validation_queue(name: str):
+    """Deterministic diverse listening targets from this *actual* Plex playlist.
+
+    Selecting a target is read-only. Search and listening happen on demand,
+    rather than running thousands of recommendation comparisons during audit.
+    """
+    try:
+        _, _, library, definitions, _, ids = _curation_context(name)
+        cached,_=cached_features()
+        from .playlist_curator import features_for
+        local={key:cached[key] for key in ids if key in cached}
+        intent=playlist_identity(name,str(definitions[name].get("description") or ""),
+                                ids,library,features_for(local))
+        assessed=assess(name,{"items":[{"rating_key":key} for key in ids]},
+                        library,local,intent["values"])
+        priority=[item["track_id"] for item in assessed["reviews"][:3]]
+        spread=[ids[round(i*(len(ids)-1)/7)] for i in range(8)]
+        chosen=list(dict.fromkeys(priority+spread))
+        # Keep a mix of suspected errors and ordinary examples; only 8
+        # distinct targets are needed for a repeatable review session.
+        selected=chosen[:8]
+        past=validation_reviews(name)
+        targets=[]
+        for key in selected:
+            track=library[key]
+            reviewed=sum(item["target_id"]==key for item in past)
+            targets.append({"id":key, "artist":track["artist"],"title":track["title"],
+                            "reviewed":reviewed,
+                            "reason":"contextual outlier" if key in priority else
+                                     "stratified playlist sample"})
+        return {"playlist":name,"targets":targets,
+                "audio_coverage":assessed["profile"]["coverage"],
+                "reviewed":len(past),"distinct_targets":len(
+                    {item["target_id"] for item in past}),
+                "target_review_count":8,"target_distinct":4,
+                "identity_revision":intent["revision"],
+                "note":"Sample positions and candidate choices are deterministic. Listening judgments must be made by a person."}
+    except CurationConflict as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
 @app.get("/api/curation/validation/{name:path}")
 def get_playlist_validation(name: str):
     if name not in _configured_playlists() or name in DEFAULT_HIDDEN_PLAYLIST_TITLES:
