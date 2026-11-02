@@ -120,7 +120,7 @@ def parse_prompt(prompt: str, *, count: int | None=None, minutes: int | None=Non
         uncertain.append("Years use Plex album-release metadata, not verified concert/recording dates.")
     if live_required:
         uncertain.append("Live identity is verified only by explicit album/track title cues.")
-    if any(cue in normalize(prompt) for cue in ("club ambience","clubsfeer","audience atmosphere","audience chatter")):
+    if any(cue in normalize(prompt) for cue in ("club ambience","club atmosphere","clubsfeer","audience atmosphere","audience chatter","club sound")):
         uncertain.append("Club ambience and audience sound are not directly measured.")
     if min_duration:
         uncertain.append("Long track duration does not prove improvisation.")
