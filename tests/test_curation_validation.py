@@ -56,13 +56,14 @@ def test_review_history_and_conservative_weight_calibration(tmp_path,monkeypatch
         validation.record("Jazz",target,candidate,verdict,issue,"Compared by ear",True,
                            "rev","snap",.8,factors)
     c=validation.calibration("Jazz","balanced",current_identity_revision="rev")
-    assert c["trained"] is True
+    assert c["trained"] is False
+    assert c["status"]=="insufficient_reviews"
     assert c["reviewed"]==4
     assert c["accepted"]==2 and c["rejected"]==2
-    assert c["weights"]["flow"]>validation.SCORE_WEIGHTS["balanced"]["flow"]
-    assert c["weights"]["diversity"]<validation.SCORE_WEIGHTS["balanced"]["diversity"]
+    assert c["weights"]==validation.SCORE_WEIGHTS["balanced"]
+    assert c["factor_separation"]["flow"]>0
+    assert c["factor_separation"]["diversity"]<0
     assert sum(c["weights"].values())==pytest.approx(1)
-    assert max(c["weights"].values())<.45
     assert validation.feedback_for("Jazz","rev")[("1","7")]["verdict"]=="accept"
     assert validation.feedback_for("Jazz","other")=={}
     # Re-submission revises an existing judgment, no double-counting.
@@ -83,8 +84,9 @@ def test_stale_identity_feedback_does_not_retrain_new_preferences(tmp_path,monke
             {"intent":.9 if i<2 else .1})
     assert validation.calibration("Mix","eclectic",
            current_identity_revision="new")["trained"] is False
-    assert validation.calibration("Mix","eclectic",
-           current_identity_revision="old")["trained"] is True
+    old=validation.calibration("Mix","eclectic",current_identity_revision="old")
+    assert old["reviewed"]==4 and old["trained"] is False
+    assert old["status"]=="insufficient_reviews"
 
 
 def test_feedback_uses_persistent_database_across_connections(tmp_path,monkeypatch):
@@ -93,3 +95,40 @@ def test_feedback_uses_persistent_database_across_connections(tmp_path,monkeypat
     assert validation.reviews("Soul")[0]["target_id"] is None
     with sqlite3.connect(validation.FILE) as con:
         assert con.execute("select count(*) from reviews").fetchone()[0]==1
+
+
+
+def test_portfolio_includes_two_diverse_cases_per_genre():
+    names=[
+        "After Hours Jazz", "Live Jazz - Last Set & Ballads",
+        "Ambient - Air, Light & Japanese Spaces",
+        "Ambient - Low Light & Deep Listening",
+        "Deep Funk & Soul","Evening - Deep Soul & Blues",
+        "Evening - Jazz, Beats & Soul in the Same Room",
+        "Evening - No Genre, No Apology",
+    ]
+    selected=validation.portfolio(names,per_category=2)
+    assert len(selected["jazz"])==2
+    assert len(selected["ambient"])==2
+    assert len(selected["soul"])==2
+    assert len(selected["mixed"])>=1
+    all_names=sum(selected.values(),[])
+    assert len(all_names)==len(set(all_names))
+    assert all(name in names for name in all_names)
+
+
+def test_validation_summary_reports_uncertainty_without_retroactive_success(
+    tmp_path,monkeypatch
+):
+    monkeypatch.setattr(validation,"FILE",tmp_path/"review.sqlite")
+    for i in range(4):
+        validation.record("Jazz",str(i),str(i+10),
+            "accept" if i<3 else "reject",
+            "none" if i<3 else "mood",
+            "",True,"rev","snap",.7,{"fit":.6})
+    state=validation.summary(["Jazz"])["Jazz"]
+    assert state["human_validated"] is False
+    assert state["acceptance_rate"]==.75
+    assert len(state["acceptance_interval_95"])==2
+    assert state["acceptance_interval_95"][0]<.75<state["acceptance_interval_95"][1]
+    assert state["distinct_targets"]==4
