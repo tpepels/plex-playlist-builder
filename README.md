@@ -57,13 +57,66 @@ It is reused for an hour and survives container restarts. **Re-index library**
 forces an explicit full rescan. AudioMuse continues running independently and
 the local embedding cache is read-only to this workflow.
 
+### Step 3 — paired improvement measurement
+
+Every displayed candidate includes a compact read-only comparison; **Review
+changes** also compares the **entire proposed ordered playlist**. Five
+dimensions are reported independently:
+
+- **Coherence:** best musical-neighbor compatibility from MusiCNN/CLAP features,
+  preserving intentional minority subgroups rather than assuming one centroid.
+- **Variation:** artist/album Simpson diversity measured against the selected
+  focused/balanced/eclectic preference. Diversity is not always maximized.
+- **Energy balance:** measured energy relative to the declared target or a
+  baseline that is held fixed across before/after comparisons.
+- **Flow:** adjacent audio/energy compatibility, varied transitions, or the
+  desired rising/falling energy arc, depending on the saved profile.
+- **Intent alignment:** available mood/energy/live-release/explicit Plex genre
+  evidence and the saved playlist identity.
+
+Each dimension returns before, after, delta, feature coverage, sample size,
+and uncertainty. No audio is imputed. An unscored new recording withholds any
+improvement claim for dimensions requiring its missing measurements. These
+are diagnostic heuristics, **not** listening-quality measurements or
+calibrated probabilities. They cannot alone authorize playlist edits.
+
+### Step 4 — real-library, listening-grounded validation
+
+In **Playlist Intelligence**, use **Audit jazz / ambient / soul / mixed**.
+It selects four distinct *existing Plex playlist definitions*, preferring
+manually declared genre information where available. It reports actual Plex
+track resolution and audio coverage, not synthetic fixture results, and flags
+missing musical families explicitly. The acceptance threshold is four human
+listening reviews per family with at least 60% audio coverage. An auditable
+status remains incomplete until those requirements are met.
+
+For any candidate, click **Validate** to hear its recording and (for a
+replacement) the original recording. Confirm listening, choose **Accept fit**
+or **Reject fit**, and specify a concrete rejection reason (genre, energy,
+mood, flow, repetition, recording, metadata or other). Optional notes and
+per-factor model evidence are stored durably at
+\`/data/curation-validation.sqlite\` without editing Plex or YAML. Repeated
+reviews of a pair revise rather than double-count its outcome.
+
+From two accepted and two rejected examples under the same playlist-identity
+revision, the app performs bounded (±25% before renormalization) per-playlist
+factor-weight calibration. Accepted/rejected pair history adds explicit,
+transparent adjustment to its future recommendation ranking. Old feedback
+remains readable but is excluded from recalibrating a subsequently modified
+identity. The algorithm never silently modifies or removes playlist tracks.
+
+Automated regression cases exercise jazz, ambient, soul and intentionally
+mixed music. These synthetic tests verify mechanics and guardrails; they do
+not constitute real listening validation. The user's AudioMuse worker and
+real Plex track files are required for genuine acoustic and human tests.
+
 The phase has no automatic playlist modifications. Every change requires a
 per-playlist review and a distinct explicit approval.
 
 Short offline checks:
 
 \`\`\`bash
-python3 -m pytest -q tests/test_playlist_curator.py tests/test_playlist_intelligence_api.py tests/test_curation_library.py tests/test_playlist_identity_ranking.py
+python3 -m pytest -q tests/test_playlist_curator.py tests/test_playlist_intelligence_api.py tests/test_curation_library.py tests/test_playlist_identity_ranking.py tests/test_curation_impact.py tests/test_curation_validation.py tests/test_curation_stages_3_4_api.py
 node tests/test_playlist_intelligence_ui.mjs
 \`\`\`
 
