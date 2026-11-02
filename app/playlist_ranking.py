@@ -123,6 +123,15 @@ def _intent_score(f, info, intent, observed_energy):
         if _cue(info["album"]+" "+info["title"]):
             available.append((1. if intent["live"]=="prefer" else 0., .2))
             reasons.append("explicit live-release cue")
+    declared = [normalize(style) for style in intent["styles"] if normalize(style)]
+    genres = [normalize(g) for g in (info.get("genres") or []) if normalize(g)]
+    if declared and genres:
+        direct = any(d == g or d in g.split() or g in d.split()
+                     for d in declared for g in genres)
+        # Plex metadata is an imperfect taxonomy; mismatch gets a soft
+        # penalty, never a definitive genre exclusion.
+        available.append((1. if direct else .35, .5))
+        reasons.append("Plex genre metadata")
     if not available:
         return None, []
     return sum(v*w for v,w in available)/sum(w for _,w in available), reasons
