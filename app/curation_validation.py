@@ -105,36 +105,81 @@ def record(playlist, target, candidate, verdict, issue, note, listened,
             "verdict":verdict}
 
 
-def calibration(playlist, variation, *, current_identity_revision=None):
-    """Fit modest bounded factor weights from distinct human positive/negative labels.
+def _score(factors,weights):
+    pairs=[(key,value) for key,value in factors.items()
+           if key in weights and value is not None]
+    return (sum(value*weights[key] for key,value in pairs) /
+            sum(weights[key] for key,_ in pairs)) if pairs else None
 
-    Minimum 2 positive and 2 negative reviews with comparable feature data.
-    Old identity revisions remain audit evidence but cannot tune a new profile.
-    """
+
+def _auc(points):
+    positive=[s for s,y in points if s is not None and y]
+    negative=[s for s,y in points if s is not None and not y]
+    if not positive or not negative:return None
+    return round(sum(1 if p>n else .5 if p==n else 0
+                     for p in positive for n in negative) /
+                 (len(positive)*len(negative)),4)
+
+
+def _fit_weights(rows,variation):
     baseline=SCORE_WEIGHTS[variation]
+    accepted=[r for r in rows if r["verdict"]=="accept"]
+    rejected=[r for r in rows if r["verdict"]=="reject"]
+    if len(accepted)<2 or len(rejected)<2:
+        return dict(baseline),{}
+    weights=dict(baseline)
+    evidence={}
+    for factor in FACTOR_KEYS:
+        pos=[r["factors"][factor] for r in accepted if factor in r["factors"]]
+        neg=[r["factors"][factor] for r in rejected if factor in r["factors"]]
+        if len(pos)<2 or len(neg)<2:continue
+        difference=sum(pos)/len(pos)-sum(neg)/len(neg)
+        weights[factor]=baseline[factor]*max(.75,min(1.25,1+.5*difference))
+        evidence[factor]=round(difference,4)
+    total=sum(weights.values())
+    return {key:value/total for key,value in weights.items()},evidence
+
+
+def calibration(playlist,variation,*,current_identity_revision=None):
+    """Bounded feedback adaptation, gated on leave-one-out discrimination."""
+    baseline=dict(SCORE_WEIGHTS[variation])
     rows=[r for r in reviews(playlist) if r["listened"] and
           (current_identity_revision is None or
            r["identity_revision"]==current_identity_revision)]
-    positive=[r for r in rows if r["verdict"]=="accept"]
-    negative=[r for r in rows if r["verdict"]=="reject"]
-    enough=len(positive)>=2 and len(negative)>=2
-    weights=dict(baseline)
-    evidence={}
+    pos=sum(r["verdict"]=="accept" for r in rows)
+    neg=len(rows)-pos
+    fitted,evidence=_fit_weights(rows,variation)
+    old_auc=_auc([(_score(r["factors"],baseline),
+                   r["verdict"]=="accept") for r in rows])
+    enough=len(rows)>=8 and pos>=3 and neg>=3 and bool(evidence)
+    held_out_auc=None
+    trained=False
     if enough:
-        for factor in FACTOR_KEYS:
-            pos=[r["factors"][factor] for r in positive if factor in r["factors"]]
-            neg=[r["factors"][factor] for r in negative if factor in r["factors"]]
-            if len(pos)<2 or len(neg)<2:continue
-            difference=sum(pos)/len(pos)-sum(neg)/len(neg)
-            # Restrict update to ±25%; avoid an overfit collapse of a factor.
-            weights[factor]=baseline[factor]*max(.75,min(1.25,1+0.5*difference))
-            evidence[factor]=round(difference,4)
-        normalizer=sum(weights.values())
-        weights={key:value/normalizer for key,value in weights.items()}
-    return {"weights":weights,"trained":enough and bool(evidence),
-            "reviewed":len(rows),"accepted":len(positive),"rejected":len(negative),
+        held_out=[]
+        for i,row in enumerate(rows):
+            weights,_=_fit_weights(rows[:i]+rows[i+1:],variation)
+            held_out.append((_score(row["factors"],weights),
+                             row["verdict"]=="accept"))
+        held_out_auc=_auc(held_out)
+        trained=(held_out_auc is not None and old_auc is not None
+                 and held_out_auc>=old_auc+.02 and held_out_auc>=.55)
+    return {"weights":fitted if trained else baseline,
+            "trained":trained,
+            "status":"held_out_improvement" if trained else
+                     "insufficient_reviews" if not enough else "no_held_out_gain",
+            "reviewed":len(rows),"accepted":pos,"rejected":neg,
             "factor_separation":evidence,
-            "warning":"Small-sample per-playlist preference calibration; human labels, not proof of quality."}
+            "baseline_auc":old_auc,"held_out_auc":held_out_auc,
+            "warning":"Small-sample human preference evidence; no automatic weight change without out-of-sample improvement."}
+
+
+def _wilson(accepted,total,z=1.96):
+    if not total:return None
+    p=accepted/total
+    scale=1+z*z/total
+    middle=(p+z*z/(2*total))/scale
+    half=z*((p*(1-p)+z*z/(4*total))/total)**.5/scale
+    return [round(max(0,middle-half),3),round(min(1,middle+half),3)]
 
 
 def feedback_for(playlist, identity_revision):
