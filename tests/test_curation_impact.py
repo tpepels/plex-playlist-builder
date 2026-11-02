@@ -81,6 +81,8 @@ def test_unanalyzed_candidate_drops_coverage_and_withholds_delta():
     assert result["metrics"]["coherence"]["after"]["status"]=="insufficient" or (
         result["metrics"]["coherence"]["after"]["score"] is not None)
     assert "Incomplete feature coverage" in result["metrics"]["coherence"]["uncertainty"]
+    assert result["metrics"]["coherence"]["delta"] is None
+    assert "Introduced recording lacks data for this dimension" in result["metrics"]["coherence"]["uncertainty"]
 
 
 def test_reorder_changes_flow_but_does_not_change_artist_diversity():
