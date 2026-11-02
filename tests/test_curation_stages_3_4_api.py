@@ -73,9 +73,10 @@ def test_rejects_stale_identity_before_review_or_approval(monkeypatch):
         lambda *args,**kwargs:called.append(True))
     request=SimpleNamespace(headers={"origin":"http://example.com"},
                             base_url="http://example.com/")
-    with pytest.raises(main.CurationConflict):
+    with pytest.raises(HTTPException) as rejected:
         main.curation_apply(main.CurationApplyBody(**b.model_dump(),
              plan_id="ignored",approved=True),request)
+    assert rejected.value.status_code==409
     assert not called
 
 
