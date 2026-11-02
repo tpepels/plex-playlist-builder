@@ -186,11 +186,35 @@ def compare(before, after, library, cache, identity, *, decoded=False,
         before,library,ff,identity,reference=reference,pair_cache=pair_cache)
     b=measure(after,library,ff,identity,reference=reference,pair_cache=pair_cache)
     changes={}
+    introduced=set(after)-set(before)
+    # Do not claim an improvement after substituting an unmeasured recording.
+    # The known tracks may still produce an attractive aggregate, but the
+    # newly introduced recording itself has not been evaluated.
+    def new_track_scored(metric,key):
+        f=ff.get(key,{})
+        if metric=="variation":return True  # Plex artist/album metadata.
+        if metric=="coherence":
+            return f.get("musicnn") is not None or f.get("clap") is not None
+        if metric=="energy":return f.get("energy") is not None
+        if metric=="flow":
+            return (f.get("musicnn") is not None or f.get("clap") is not None
+                    or f.get("energy") is not None)
+        if metric=="intent":
+            from .playlist_ranking import _intent_score
+            observed=[ff[k]["energy"] for k in before if k in ff and
+                      ff[k].get("energy") is not None]
+            value,_=_intent_score(f,library[key],identity,_mean(observed))
+            return value is not None
+        return False
     for metric in NAMES:
         old,new=a[metric],b[metric]
-        valid=old["score"] is not None and new["score"] is not None
+        missing_new=[key for key in introduced if not new_track_scored(metric,key)]
+        valid=(old["score"] is not None and new["score"] is not None
+               and not missing_new)
         delta=round(new["score"]-old["score"],4) if valid else None
         reasons=[]
+        if missing_new:
+            reasons.append("Introduced recording lacks data for this dimension")
         if not valid:
             reasons.append("Insufficient observed data for paired comparison")
         if old["coverage"] < 1 or new["coverage"] < 1:
