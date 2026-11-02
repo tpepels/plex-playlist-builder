@@ -18,6 +18,7 @@ TOKEN_FILE = Path(os.getenv("AUDIOMUSE_API_TOKEN_FILE", "/run/secrets/audiomuse_
 MAX_INDEX_PAGES = 100
 MAX_CHANGED_TRACKS = 50000
 BATCH_SIZE = 100
+MAX_PER_REQUEST = 500  # Keep a manual UI sync bounded as the library grows.
 
 
 def _settings() -> tuple[str, str]:
@@ -104,10 +105,12 @@ def synchronize() -> dict:
     index = _get_index(url, token)
     with closing(_open_cache()) as conn:
         stored = dict(conn.execute("SELECT track_id, fp FROM audio_features"))
-        changed = [key for key, fp in index.items() if stored.get(key) != fp]
+        all_changed = [key for key, fp in index.items() if stored.get(key) != fp]
         removed = [key for key in stored if key not in index]
-        if len(changed) > MAX_CHANGED_TRACKS:
+        if len(all_changed) > MAX_CHANGED_TRACKS:
             raise RuntimeError("AudioMuse change set exceeds safety limit.")
+        changed = all_changed[:MAX_PER_REQUEST]
+        pending = len(all_changed) - len(changed)
         updated = []
         for batch in _chunks(changed):
             reply = _get(url, token, {"ids": ",".join(batch),
@@ -140,8 +143,10 @@ def synchronize() -> dict:
                 "INSERT INTO metadata(key,value) VALUES('last_sync', datetime('now')) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
             )
+        count = conn.execute("SELECT COUNT(*) FROM audio_features").fetchone()[0]
         return {"available": len(index), "new_or_updated": len(changed),
-                "removed": len(removed), "cached": len(index)}
+                "removed": len(removed), "cached": count,
+                "pending": pending, "complete": pending == 0}
 
 
 def cached_features() -> tuple[dict[str, dict], dict]:
