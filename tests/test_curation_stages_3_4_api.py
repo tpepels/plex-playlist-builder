@@ -100,6 +100,7 @@ def test_human_feedback_route_requires_origin_attestation_and_stable_snapshot(
     ids=[str(i) for i in range(1,7)]
     body=main.ValidationBody(name="Jazz",target_id="6",candidate_id="7",
        verdict="reject",issue="mood",note="Too energetic",listened=True,
+       candidate_played_seconds=18,original_played_seconds=21,
        identity_revision="test-id",snapshot=signature(ids))
     other=SimpleNamespace(headers={"origin":"https://evil.example"},
                           base_url="http://example.com/")
@@ -117,6 +118,10 @@ def test_human_feedback_route_requires_origin_attestation_and_stable_snapshot(
         main.submit_playlist_validation(body.model_copy(update={"snapshot":"old"}),own)
     assert exc.value.status_code==409
     assert len(val.reviews("Jazz"))==1
+    with pytest.raises(HTTPException) as too_short:
+        main.submit_playlist_validation(body.model_copy(update={
+            "candidate_played_seconds":5}),own)
+    assert too_short.value.status_code==422
 
 
 def test_cross_genre_validation_uses_plex_not_synthetic_assumptions(
