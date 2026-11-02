@@ -124,6 +124,62 @@ For an explicit TSV export, replace automatic retrieval with `--plex-tsv /path/t
 
 Important results: `provider_type` should be `plex`, `exact_plex_rating_key_matches` should normally equal `manifest_tracks_fetched` for a single Plex server, and `unmatched_sample` should be empty. A small or zero match requires checking the server configuration and mapping before proceeding.
 
+## Playlist-manager integration: audio cache and coherence report
+
+The Plex rating-key identity sample passed (12/12). This adds an **independent
+read-only feature cache** to the existing playlist manager. It does not require
+a full Plex export and does not call AudioMuse's playlist-creation endpoints.
+
+The API token already saved for your CLI probe must also be readable from
+within the **playlist-manager container**. The CLI token stored under the
+Linux user's home directory is not automatically visible inside Docker.
+
+1. Edit the media stack's **actual** Compose file (usually
+   ~/media-stack/docker-compose.yml). Under the **existing**
+   plex-playlist-manager service's environment add:
+
+   AUDIOMUSE_URL: http://host.docker.internal:8098
+   AUDIOMUSE_API_TOKEN_FILE: /run/secrets/audiomuse_api_token
+
+2. Under that same service's **existing** volumes append this bind mount:
+
+   - /home/tom/.config/plex-playlist-manager/audiomuse-api-token:/run/secrets/audiomuse_api_token:ro
+
+   Use the absolute path to the file created earlier and adjust /home/tom if
+   your actual home directory differs. The file must already exist, be a file
+   (not a directory), and be private (chmod 600). Never put the token value in
+   docker-compose.yml or send it in chat. The Dockerfile currently runs as
+   root, so it can read a root-owned Docker bind mount to the file.
+
+3. Rebuild ONLY the playlist-manager service:
+
+   cd ~/media-stack/plex-playlist-manager && git pull --ff-only
+   cd ~/media-stack
+   sudo docker compose config --quiet
+   sudo docker compose up -d --build --no-deps plex-playlist-manager
+
+4. Open http://media-server:5051/musical-coherence. Click
+   **Sync AudioMuse analysis** once. This stores the analyzed tracks (currently
+   about 336) in /srv/plex-playlist-manager/audiomuse-cache.sqlite, in the
+   manager's existing persistent data volume. Refreshes are incremental based
+   on AudioMuse's fingerprint field.
+
+5. Inspect the page. Each playlist reports analyzed-track coverage. Only
+   playlists with at least six embeddings and 60% coverage (and no unresolved
+   album-only YAML entries) get an exploratory pairwise cosine score and ranked
+   relative outliers. No auto-remove, auto-add, or Plex sync is done.
+
+The source files are app/audiomuse_client.py (sync + SQLite),
+app/audiomuse_coherence.py (scoring), and a dedicated read-only review
+page. The manager backend reads AudioMuse through the host.docker.internal
+alias already used for Plex.
+
+**Important:** similarity alone cannot identify dissonance, free jazz, or
+inappropriate tracks reliably. These are review candidates, not autonomous
+curation decisions. The initial 336 tracks are too sparse to score most
+playlists. Expand AudioMuse's library analysis later after the API and UI
+are confirmed to work.
+
 ## Scope and resources
 
 - Web app: port **8098** (playlist manager stays on 5051).
