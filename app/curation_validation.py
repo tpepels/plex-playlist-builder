@@ -48,6 +48,10 @@ def _row(row):
 
 
 def reviews(playlist):
+    # Reading an uninitialized validator must be side-effect-free, including
+    # on fresh installations and CI hosts without a writable /data mount.
+    if not FILE.is_file():
+        return []
     with LOCK, _db() as db:
         return [_row(row) for row in db.execute(
             "SELECT playlist,target_id,candidate_id,verdict,issue,note,"
