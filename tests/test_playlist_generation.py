@@ -137,3 +137,12 @@ def test_too_few_matching_tracks_is_explicit_not_filled_from_wrong_genre():
     result=generate(req,lib,features(6))
     assert len(result["keys"])==6
     assert any("Only 6 of 18" in w for w in result["warnings"])
+
+
+
+def test_uninterpretable_brief_is_rejected_not_silently_filled_with_random_music():
+    with pytest.raises(GenerationError,match="no verifiable musical criteria"):
+        parse_prompt("Make something really interesting for me")
+    valid=parse_prompt("Warm relaxed music",count=6)
+    with pytest.raises(GenerationError,match="No tracks satisfy"):
+        generate(valid,library(12),{})
