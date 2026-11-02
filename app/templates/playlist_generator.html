@@ -50,7 +50,8 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
 <h1>Intelligent Playlist Generation</h1>
 <p class="muted">Generate from your Plex music library, inspect the evidence, audition and edit every track, then approve creation of a new playlist.</p>
 <section class="panel">
-  <h2>1 · Describe the music</h2>
+  <div class="row"><h2>1 · Describe the music</h2>
+    <button id="reindexLibrary" type="button" title="Refresh album years and genres from Plex">Re-index Plex library</button></div>
   <form id="createForm">
     <label for="prompt">Musical brief</label>
     <textarea id="prompt" required maxlength="400" minlength="8" placeholder="Intimate live jazz, 1955–1965, long improvisations, warm club atmosphere"></textarea>
@@ -269,6 +270,15 @@ function move(index,direction){
          after_id:destination===0?null:direction===1?keys[destination]:
                    keys[destination-1]}]);
 }
+$('reindexLibrary').onclick=async()=>{
+  $('reindexLibrary').disabled=true;
+  notify('Reading complete Plex music catalogue and release metadata…');
+  try{
+    const result=await post('/api/curation/library/refresh',{});
+    notify('Plex music catalogue refreshed · '+result.tracks+' tracks');
+  }catch(error){notify(error.message,true)}
+  finally{$('reindexLibrary').disabled=false}
+};
 $('createForm').onsubmit=async(event)=>{
   event.preventDefault();if(working)return;
   const prompt=$('prompt').value.trim(),name=readName();
