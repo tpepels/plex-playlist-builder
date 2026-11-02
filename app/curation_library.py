@@ -65,6 +65,31 @@ def get_library(music, refresh=False):
         # when all search pages succeeded, otherwise retain the prior snapshot.
         all_tracks=music.searchTracks(container_size=200)
         tracks=catalogue(all_tracks)
+        # Plex track objects often omit the genre/year stored on their album.
+        # Enrich by parentRatingKey using one bulk album search (not one
+        # network request per track). A failed album search leaves unknowns
+        # explicit, and never invents release metadata.
+        try:
+            albums=music.searchAlbums(container_size=200)
+        except (AttributeError,TypeError):
+            albums=[]
+        except Exception:
+            albums=[]
+        album_data={}
+        for album in albums:
+            key=str(getattr(album,"ratingKey","") or "")
+            if not key:continue
+            album_data[key]={
+                "year":getattr(album,"year",None),
+                "genres":[str(getattr(tag,"tag",tag) or "") for tag in
+                           (getattr(album,"genres",None) or [])][:16],
+            }
+        for row in tracks.values():
+            inherited=album_data.get(row["album_key"],{})
+            if not row.get("year") and inherited.get("year"):
+                row["year"]=inherited["year"]
+            if not row.get("genres") and inherited.get("genres"):
+                row["genres"]=inherited["genres"]
         if not _valid(tracks):
             raise RuntimeError("Plex returned an empty or invalid track catalogue.")
         new=_write(tracks)
