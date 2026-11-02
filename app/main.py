@@ -47,6 +47,7 @@ from .playlist_curator import (
     resolve_items, signature,
 )
 from .curation_apply import find_live, current_keys, change_plan, apply_approved
+from .curation_library import get_library, metadata as curation_library_metadata
 from fastapi.responses import StreamingResponse
 from .duplicates import find_duplicates, duplicates_tsv
 from .isc_discovery import fetch_catalog, compare_library
@@ -904,8 +905,7 @@ def _curation_context(name: str, *, require_live: bool = True):
         raise HTTPException(status_code=404, detail="Unknown curated playlist.")
     plex, music = connect()
     live = find_live(plex, name)
-    tracks = _insights_tracks(music)
-    library = catalogue(tracks)
+    library = get_library(music)
     before = current_keys(live)
     if not before or len(set(before)) != len(before):
         raise CurationConflict("Playlist is empty or contains duplicate Plex tracks.")
@@ -917,6 +917,25 @@ def _curation_context(name: str, *, require_live: bool = True):
 @app.get("/playlist-intelligence", response_class=HTMLResponse)
 def playlist_intelligence_page(request: Request):
     return templates.TemplateResponse("playlist_intelligence.html", {"request": request})
+
+
+@app.post("/api/curation/library/refresh")
+def refresh_curation_catalogue(request: Request):
+    """Explicitly rescan the full Plex library; existing snapshot remains on failure."""
+    origin = request.headers.get("origin")
+    if not origin or origin.rstrip("/") != str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403, detail="Same-origin browser request required.")
+    try:
+        _, music = connect()
+        library = get_library(music, refresh=True)
+        return {"tracks":len(library),"state":"fresh"}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Plex catalogue refresh failed; previous snapshot is retained.") from exc
+
+
+@app.get("/api/curation/library/status")
+def curation_catalogue_status():
+    return curation_library_metadata()
 
 
 @app.get("/api/curation/playlists")
