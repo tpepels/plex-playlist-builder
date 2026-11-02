@@ -227,9 +227,10 @@ def assess(name: str, spec: dict, library: dict, cache: dict) -> dict:
     keys, problems = resolve_items(spec, library)
     ff = features_for(cache)
     profile = _profile(keys, library, ff)
+    raw_keys = [str(item.get("rating_key")) for item in spec.get("items", []) if item.get("rating_key")]
+    repeats = len(raw_keys) - len(set(raw_keys))
+    profile["repeated_tracks"] = repeats
     embedded = [k for k in keys if k in ff and ff[k]["musicnn"] is not None]
-    center = _center(embedded, ff, "musicnn")
-    claps = _center(keys, ff, "clap")
     reviews = []
     # Relative outliers only when the analysis sample is substantial.
     if profile["confidence"] == "sufficient":
@@ -248,6 +249,12 @@ def assess(name: str, spec: dict, library: dict, cache: dict) -> dict:
                 en = ff[key]["energy"]
                 if en is not None and profile["energy"] is not None and abs(en-profile["energy"])>.3:
                     why.append("Different energy level")
+                tempo = ff[key]["tempo"]
+                if tempo and profile["tempo"] and abs(math.log2(tempo/profile["tempo"])) > .7:
+                    why.append("Unusual tempo")
+                if any(abs(ff[key]["mood"][m]-profile["mood"][m])>.35
+                       for m in ff[key]["mood"] if m in profile["mood"]):
+                    why.append("Different mood")
                 reviews.append({"track_id":key, "reason":why,
                                 "difference":round(median-sc,3)})
     reviews.sort(key=lambda it:-it["difference"])
@@ -259,6 +266,7 @@ def assess(name: str, spec: dict, library: dict, cache: dict) -> dict:
         flags.append("Album concentration")
     if profile["mean_adjacent_energy_change"] is not None and profile["mean_adjacent_energy_change"] > .35:
         flags.append("Abrupt energy changes")
+    if repeats: flags.append("Repeated tracks: "+str(repeats))
     if problems: flags.append("Unresolved playlist entries")
     tracks = []
     flagged = {i["track_id"]:i for i in reviews}
