@@ -42,6 +42,12 @@ from .audiomuse_verification import verify_plex_track_keys
 from .audiomuse_client import cached_features, synchronize as synchronize_audiomuse
 from .audiomuse_coherence import coherence_report
 from .audiomuse_analysis import AudioMuseControlError, analysis_status, start_analysis
+from .playlist_curator import (
+    CurationConflict, assess, candidates as curation_candidates, catalogue,
+    resolve_items, signature,
+)
+from .curation_apply import find_live, current_keys, change_plan, apply_approved
+from fastapi.responses import StreamingResponse
 from .duplicates import find_duplicates, duplicates_tsv
 from .isc_discovery import fetch_catalog, compare_library
 from .playlist_covers import import_cover_zip, MAX_ZIP_BYTES
@@ -877,3 +883,169 @@ def sync_all():
         return {"results": results}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# Playlist Intelligence: explicit human approval and preservation of Plex playlist IDs.
+class CurationPlanBody(BaseModel):
+    name: str
+    version: str
+    snapshot: str
+    operations: list[dict]
+
+
+class CurationApplyBody(CurationPlanBody):
+    plan_id: str
+    approved: bool = False
+
+
+def _curation_context(name: str, *, require_live: bool = True):
+    definitions = _configured_playlists()
+    if name in DEFAULT_HIDDEN_PLAYLIST_TITLES or name not in definitions:
+        raise HTTPException(status_code=404, detail="Unknown curated playlist.")
+    plex, music = connect()
+    live = find_live(plex, name)
+    tracks = _insights_tracks(music)
+    library = catalogue(tracks)
+    before = current_keys(live)
+    if not before or len(set(before)) != len(before):
+        raise CurationConflict("Playlist is empty or contains duplicate Plex tracks.")
+    if any(key not in library for key in before):
+        raise CurationConflict("Playlist contains tracks absent from the configured Plex music library.")
+    return plex, music, library, definitions, live, before
+
+
+@app.get("/playlist-intelligence", response_class=HTMLResponse)
+def playlist_intelligence_page(request: Request):
+    return templates.TemplateResponse("playlist_intelligence.html", {"request": request})
+
+
+@app.get("/api/curation/playlists")
+def curation_playlist_names():
+    names = [name for name in _configured_playlists()
+             if name not in DEFAULT_HIDDEN_PLAYLIST_TITLES]
+    return {"playlists": names}
+
+
+@app.get("/api/curation/playlist/{name}")
+def curation_playlist(name: str):
+    try:
+        _, _, library, definitions, live, before = _curation_context(name)
+        # Show the playlist ACTUALLY present in Plex; YAML is a separate versioned
+        # definition and may be out of sync. Applying updates the matching YAML.
+        live_spec = {**definitions[name], "items": [
+            {"rating_key": key} for key in before
+        ]}
+        cached, cache_state = cached_features()
+        result = assess(name, live_spec, library, cached)
+        yaml_keys, yaml_issues = resolve_items(definitions[name],library)
+        result.update({
+            "version": fingerprint(definitions),
+            "snapshot": signature(before),
+            "playlist_id": str(live.ratingKey),
+            "yaml_in_sync": not yaml_issues and yaml_keys == before,
+            "yaml_issues": yaml_issues,
+            "cache":cache_state,
+        })
+        return result
+    except CurationConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Cannot inspect the Plex playlist.") from exc
+
+
+@app.get("/api/curation/candidates")
+def get_curation_candidates(name: str, target: str = "", q: str = "",
+                            limit: int = Query(default=20, ge=1, le=30)):
+    if len(q) > 120:
+        raise HTTPException(status_code=422, detail="Search query is too long.")
+    try:
+        _, _, library, _, _, before = _curation_context(name)
+        cache, _ = cached_features()
+        return {"candidates": curation_candidates(before, library, cache,
+                            target=target or None, query=q, limit=limit),
+                "target":target or None}
+    except CurationConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Candidate search unavailable.") from exc
+
+
+@app.post("/api/curation/plan")
+def curation_plan(body: CurationPlanBody):
+    try:
+        _, _, library, definitions, _, before = _curation_context(body.name)
+        if fingerprint(definitions) != body.version or signature(before) != body.snapshot:
+            raise CurationConflict("Playlist changed. Reload before reviewing.")
+        return change_plan(before, body.operations, library, name=body.name,
+                           version=body.version, snapshot=body.snapshot)
+    except CurationConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/curation/apply")
+def curation_apply(body: CurationApplyBody, request: Request):
+    origin = request.headers.get("origin")
+    if not origin or origin.rstrip("/") != str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403, detail="Same-origin browser request required.")
+    try:
+        plex, _, library, _, _, _ = _curation_context(body.name)
+        return apply_approved(
+            plex, body.name, version=body.version, snapshot=body.snapshot,
+            operations=body.operations, plan_id=body.plan_id,
+            library=library, approved=body.approved,
+            forbidden=DEFAULT_HIDDEN_PLAYLIST_TITLES,
+        )
+    except CurationConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/curation/audio/{track_id}")
+def curation_audio(track_id: int, request: Request):
+    """Proxy selected Plex audio bytes; never expose the Plex token to the browser."""
+    import requests
+    from .plex_client import discover_token
+    if track_id <= 0:
+        raise HTTPException(status_code=404, detail="Invalid track.")
+    try:
+        plex, _ = connect()
+        song = plex.fetchItem(track_id)
+        if getattr(song,"TYPE",getattr(song,"type","")) != "track":
+            raise HTTPException(status_code=404, detail="Not an audio track.")
+        part = song.media[0].parts[0]
+        path = str(part.key)
+        if not path.startswith("/library/parts/"):
+            raise HTTPException(status_code=404, detail="Audio file unavailable.")
+        range_header = request.headers.get("range", "")
+        if range_header and (len(range_header) > 80 or not range_header.startswith("bytes=")
+                             or "," in range_header):
+            raise HTTPException(status_code=416, detail="Unsupported audio range.")
+        headers = {"X-Plex-Token": discover_token()}
+        if range_header:
+            headers["Range"] = range_header
+        upstream = requests.get(plex._baseurl.rstrip("/") + path, headers=headers,
+                                stream=True, timeout=(5, 30), allow_redirects=False,
+                                verify=plex._session.verify)
+        if upstream.status_code not in (200, 206):
+            upstream.close()
+            raise HTTPException(status_code=502, detail="Plex could not stream this track.")
+        safe = {k: v for k,v in (
+            ("Accept-Ranges",upstream.headers.get("Accept-Ranges")),
+            ("Content-Range",upstream.headers.get("Content-Range")),
+            ("Content-Length",upstream.headers.get("Content-Length")),
+        ) if v}
+        kind = str(getattr(part,"container","") or "").lower()
+        mime = {"mp3":"audio/mpeg","flac":"audio/flac","m4a":"audio/mp4",
+                "mp4":"audio/mp4","ogg":"audio/ogg","wav":"audio/wav"}.get(kind,"application/octet-stream")
+        def chunks():
+            try:
+                yield from upstream.iter_content(chunk_size=65536)
+            finally:
+                upstream.close()
+        return StreamingResponse(chunks(), status_code=upstream.status_code,
+                                 media_type=mime, headers=safe)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Audio preview unavailable.") from exc
