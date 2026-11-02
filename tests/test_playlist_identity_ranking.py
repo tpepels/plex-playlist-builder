@@ -242,3 +242,31 @@ def test_clap_only_analysis_can_rank_without_invented_musicnn_similarity():
     assert results[0]["match"] is not None
     assert results[0]["confidence"]=="medium"
     assert results[0]["analyzed"] is True
+
+
+
+def test_eclectic_minority_subgroup_is_not_misidentified_as_outliers():
+    from app.playlist_curator import assess
+    library={str(i):row(i,f"Artist {i}","Release",f"Track {i}")
+             for i in range(1,13)}
+    records=[(i,(1.,0.,0.,0.),.35,110.,.5) for i in range(1,10)]
+    records += [(i,(0.,1.,0.,0.),.55,110.,.5) for i in range(10,13)]
+    spec={"items":[{"rating_key":str(i)} for i in range(1,13)]}
+    result=assess("Jazz/Soul",spec,library,audio(records),
+                  intent(variation="eclectic"))
+    assert result["profile"]["confidence"]=="sufficient"
+    assert result["reviews"]==[]
+
+
+def test_genuinely_isolated_track_is_flagged_even_in_eclectic_playlist():
+    from app.playlist_curator import assess
+    library={str(i):row(i,f"Artist {i}","Release",f"Track {i}")
+             for i in range(1,14)}
+    records=[(i,(1.,0.,0.,0.),.4,110.,.5) for i in range(1,10)]
+    records += [(i,(0.,1.,0.,0.),.4,110.,.5) for i in range(10,13)]
+    records.append((13,(0.,0.,1.,0.),.9,110.,.5))
+    spec={"items":[{"rating_key":str(i)} for i in range(1,14)]}
+    result=assess("Jazz/Soul",spec,library,audio(records),
+                  intent(variation="eclectic"))
+    assert [r["track_id"] for r in result["reviews"]]==["13"]
+    assert "Weak match to existing musical subgroups" in result["reviews"][0]["reason"]
