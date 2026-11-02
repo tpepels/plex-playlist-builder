@@ -34,6 +34,7 @@ def catalogue(raw_tracks: list) -> dict[str, dict]:
         if not m["key"]:
             continue
         raw_genres = getattr(track, "genres", None) or []
+        m["duration_ms"] = getattr(track, "duration", None)
         m["genres"] = list(dict.fromkeys(
             str(getattr(genre, "tag", genre) or "").strip()
             for genre in raw_genres
