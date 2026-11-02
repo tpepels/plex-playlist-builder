@@ -125,18 +125,29 @@ def apply_approved(plex, name: str, *, version: str, snapshot: str,
             # try to restore Plex to the original ordered content.
             save_text(yaml.safe_dump(changed,sort_keys=False,allow_unicode=True))
         except Exception as exc:
+            errors = []
+            # save_text writes YAML before writing its pending-state file. A
+            # failure in that SECOND step must restore YAML as well as Plex.
+            try:
+                if fingerprint(load()) != fingerprint(data):
+                    save_text(yaml.safe_dump(data,sort_keys=False,allow_unicode=True))
+            except Exception as yaml_rollback:
+                errors.append("YAML rollback: "+str(yaml_rollback))
             try:
                 restore = {}
+                live_after_failure = current_keys(playlist)
                 for key in before:
-                    if key not in current_keys(playlist):
+                    if key not in live_after_failure:
                         restore[key] = plex.fetchItem(int(key))
                 _apply_in_place(playlist,before,restore)
-            except Exception as rollback:
+            except Exception as plex_rollback:
+                errors.append("Plex rollback: "+str(plex_rollback))
+            if errors:
                 raise RuntimeError(
-                    "Plex/YAML update failed AND rollback failed; manual reconciliation "
-                    f"required. Original error: {exc}; rollback: {rollback}"
+                    "Update failed; manual reconciliation required: " +
+                    "; ".join(errors) + "; original error: "+str(exc)
                 ) from exc
-            raise RuntimeError("Update failed; Plex was restored to the original playlist.") from exc
+            raise RuntimeError("Update failed; Plex and YAML were restored.") from exc
         try:
             mark_synced(name,new_spec)
             state="synced"
