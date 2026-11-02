@@ -49,6 +49,44 @@ sudo docker compose ps
 
 If the tag fails again, check the currently published tags at https://github.com/NeptuneHub/AudioMuse-AI/pkgs/container/audiomuse-ai and use an existing version (or `latest` for the released rolling version). The PostgreSQL `Interrupted` message is a consequence of the failed Docker Compose pull, not evidence of a PostgreSQL problem.
 
+## Fast Plex ID verification (recommended first)
+
+The first probe already confirmed the AudioMuse `/api/sync` index works. To
+validate provider IDs, **do not fetch all Plex tracks**: the full library-export
+endpoint can take a long time. The new implementation asks Plex for only a
+bounded sample of AudioMuse track IDs, then compares their actual song titles.
+
+First update and rebuild the existing playlist-manager **service only**:
+
+```bash
+cd ~/media-stack/plex-playlist-manager
+git pull --ff-only
+cd ~/media-stack
+sudo docker compose up -d --build plex-playlist-manager
+```
+
+Then (the probe automatically reads the private token file created earlier):
+
+```bash
+cd ~/media-stack/plex-playlist-manager
+python3 -u scripts/audiomuse_probe.py \
+  --url http://127.0.0.1:8098 \
+  --verify-sample 12
+```
+
+This calls **POST `/api/plex/verify-rating-keys`** in our manager (max 25 IDs
+per request) and **GET `/api/sync?ids=...`** in AudioMuse, without embeddings.
+Both are read-only. A successful sample has `verified: true`,
+`matched: 12`, and empty `missing`/`title_mismatches`. Some metadata
+differences can be benign, so investigate mismatches before interpreting them
+as broken identifiers. The 12-track sample alone does **not** prove all the
+library IDs match. For more coverage use `--verify-sample 25`; only
+`--all` changes the AudioMuse index traversal, and neither option triggers
+the slow full-library Plex export.
+
+**Never use this validation endpoint to modify Plex playlists.** It cannot
+write to Plex or the playlist YAML.
+
 ## Read-only ID mapping check (after the first analysis batch)
 
 From the playlist-manager repository on media-server:
