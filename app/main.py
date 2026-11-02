@@ -39,6 +39,8 @@ from .recent_export import export_recent_tracks
 from .album_export import export_album_names
 from .insights import analyze
 from .audiomuse_verification import verify_plex_track_keys
+from .audiomuse_client import cached_features, synchronize as synchronize_audiomuse
+from .audiomuse_coherence import coherence_report
 from .duplicates import find_duplicates, duplicates_tsv
 from .isc_discovery import fetch_catalog, compare_library
 from .playlist_covers import import_cover_zip, MAX_ZIP_BYTES
@@ -257,6 +259,31 @@ def verify_rating_keys(body: VerifyPlexTrackKeysBody):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Plex track verification unavailable") from exc
+
+
+@app.get("/musical-coherence", response_class=HTMLResponse)
+def musical_coherence_page(request: Request):
+    """AudioMuse review page; no playlist or Plex mutations."""
+    return templates.TemplateResponse("musical_coherence.html", {"request": request})
+
+
+@app.get("/api/audiomuse/coherence")
+def audiomuse_coherence():
+    """Read the local feature cache and YAML only; never query Plex."""
+    try:
+        features, state = cached_features()
+        return coherence_report(_configured_playlists(), features, state)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="AudioMuse cache unavailable") from exc
+
+
+@app.post("/api/audiomuse/sync")
+async def audiomuse_sync():
+    """Sync audio analysis data to SQLite, not Plex. No playlists are modified."""
+    try:
+        return await run_in_threadpool(synchronize_audiomuse)
+    except (RuntimeError, ValueError, OSError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/library-export.tsv")
