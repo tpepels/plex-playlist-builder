@@ -124,3 +124,39 @@ def test_plex_export_progress(monkeypatch):
                                         progress=updates.append) == {"123"}
     assert "full-library TSV" in updates[0]
     assert "completed: 1 track IDs" in updates[-1]
+
+
+def test_token_file_read_from_private_default_location(tmp_path, monkeypatch):
+    monkeypatch.delenv("AUDIOMUSE_API_TOKEN", raising=False)
+    monkeypatch.delenv("AUDIOMUSE_API_TOKEN_FILE", raising=False)
+    monkeypatch.setattr(module.Path, "home", lambda: tmp_path)
+    secret = tmp_path / ".config" / "plex-playlist-manager" / "audiomuse-api-token"
+    secret.parent.mkdir(parents=True)
+    secret.write_text("test-token\\n", encoding="utf-8")
+    secret.chmod(0o600)
+    assert module.load_api_token() == "test-token"
+
+
+def test_environment_token_takes_priority_over_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("AUDIOMUSE_API_TOKEN", "from-environment")
+    monkeypatch.setenv("AUDIOMUSE_API_TOKEN_FILE", str(tmp_path / "missing"))
+    assert module.load_api_token() == "from-environment"
+
+
+def test_explicit_token_file_and_permissions(tmp_path, monkeypatch):
+    monkeypatch.delenv("AUDIOMUSE_API_TOKEN", raising=False)
+    secret = tmp_path / "private-token"
+    secret.write_text("from-file", encoding="utf-8")
+    secret.chmod(0o600)
+    monkeypatch.setenv("AUDIOMUSE_API_TOKEN_FILE", str(secret))
+    assert module.load_api_token() == "from-file"
+    secret.chmod(0o644)
+    with pytest.raises(RuntimeError, match="permissions are too open"):
+        module.load_api_token()
+
+
+def test_missing_explicit_token_file_is_reported(tmp_path, monkeypatch):
+    monkeypatch.delenv("AUDIOMUSE_API_TOKEN", raising=False)
+    monkeypatch.setenv("AUDIOMUSE_API_TOKEN_FILE", str(tmp_path / "missing"))
+    with pytest.raises(RuntimeError, match="does not exist"):
+        module.load_api_token()
