@@ -41,9 +41,9 @@ def _read():
 def _write(tracks):
     FILE.parent.mkdir(parents=True,exist_ok=True)
     # Only JSON-native fields; the full searchTracks() objects are not persisted.
-    cleaned={k:{field:row[field] for field in (
+    cleaned={k:{**{field:row[field] for field in (
         "key","album_key","artist","album","title","disc","index"
-    )} for k,row in tracks.items()}
+    )},"genres":list(row.get("genres") or [])[:16]} for k,row in tracks.items()}
     envelope={"updated":time.time(),"tracks":cleaned}
     temp=FILE.with_suffix(FILE.suffix+".tmp")
     temp.write_text(json.dumps(envelope,ensure_ascii=False,separators=(",",":")),encoding="utf-8")
