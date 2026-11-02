@@ -978,7 +978,7 @@ def curation_playlist_names():
     return {"playlists": names}
 
 
-@app.get("/api/curation/playlist/{name}")
+@app.get("/api/curation/playlist/{name:path}")
 def curation_playlist(name: str):
     try:
         _, _, library, definitions, live, before = _curation_context(name)
@@ -1011,7 +1011,7 @@ def curation_playlist(name: str):
         raise HTTPException(status_code=503, detail="Cannot inspect the Plex playlist.") from exc
 
 
-@app.get("/api/curation/identity/{name}")
+@app.get("/api/curation/identity/{name:path}")
 def get_curation_identity(name: str):
     try:
         _, _, library, definitions, _, before = _curation_context(name)
@@ -1025,7 +1025,7 @@ def get_curation_identity(name: str):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@app.put("/api/curation/identity/{name}")
+@app.put("/api/curation/identity/{name:path}")
 def update_curation_identity(name: str, body: IdentityUpdateBody, request: Request):
     origin = request.headers.get("origin")
     if not origin or origin.rstrip("/") != str(request.base_url).rstrip("/"):
@@ -1041,7 +1041,7 @@ def update_curation_identity(name: str, body: IdentityUpdateBody, request: Reque
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@app.post("/api/curation/identity/{name}/reset")
+@app.post("/api/curation/identity/{name:path}/reset")
 def reset_curation_identity(name: str, body: IdentityResetBody, request: Request):
     origin = request.headers.get("origin")
     if not origin or origin.rstrip("/") != str(request.base_url).rstrip("/"):
@@ -1233,7 +1233,7 @@ def get_curation_validation():
             "notice":"Programmatic checks are not listening judgments; validate four recommendations per category against real audio."}
 
 
-@app.get("/api/curation/validation/{name}")
+@app.get("/api/curation/validation/{name:path}")
 def get_playlist_validation(name: str):
     if name not in _configured_playlists() or name in DEFAULT_HIDDEN_PLAYLIST_TITLES:
         raise HTTPException(status_code=404,detail="Unknown playlist.")
