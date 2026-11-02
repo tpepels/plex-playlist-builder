@@ -169,6 +169,12 @@ Linux user's home directory is not automatically visible inside Docker.
    album-only YAML entries) get an exploratory pairwise cosine score and ranked
    relative outliers. No auto-remove, auto-add, or Plex sync is done.
 
+Each button press transfers at most **500 changed tracks** to keep requests bounded.
+The result shows `pending` and `complete`; if pending is nonzero, click
+Sync again. The initial 336-track library fits in one press. As the analysis
+library grows, this will become a scheduled/incremental background sync in
+a later phase, not a single long-running web request.
+
 The source files are app/audiomuse_client.py (sync + SQLite),
 app/audiomuse_coherence.py (scoring), and a dedicated read-only review
 page. The manager backend reads AudioMuse through the host.docker.internal
