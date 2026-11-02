@@ -1078,6 +1078,8 @@ def get_curation_candidates(name: str, target: str = "", q: str = "",
         # Avoid decoding the whole AudioMuse cache separately for each.
         impact_ids = set(before) | {row["id"] for row in recommendations}
         decoded = features_for({key:cache[key] for key in impact_ids if key in cache})
+        pairs = {}
+        baseline = None
         for row in recommendations:
             after = list(before)
             if target:
@@ -1088,7 +1090,9 @@ def get_curation_candidates(name: str, target: str = "", q: str = "",
             else:
                 after.append(row["id"])
             row["impact"] = compare_curations(before, after, library, decoded,
-                                              intent["values"], decoded=True)
+                   intent["values"], decoded=True,pair_cache=pairs,baseline=baseline)
+            if baseline is None:
+                baseline={k:v["before"] for k,v in row["impact"]["metrics"].items()}
         return {"candidates": recommendations,
                 "target":target or None, "identity_source":intent["source"],
                 "identity_revision":intent["revision"],"calibration":calibration}
