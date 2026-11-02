@@ -132,7 +132,7 @@ def test_token_file_read_from_private_default_location(tmp_path, monkeypatch):
     monkeypatch.setattr(module.Path, "home", lambda: tmp_path)
     secret = tmp_path / ".config" / "plex-playlist-manager" / "audiomuse-api-token"
     secret.parent.mkdir(parents=True)
-    secret.write_text("test-token\\n", encoding="utf-8")
+    secret.write_text("test-token\n", encoding="utf-8")
     secret.chmod(0o600)
     assert module.load_api_token() == "test-token"
 
