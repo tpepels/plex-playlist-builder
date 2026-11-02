@@ -63,7 +63,24 @@ The probe displays a progress message for each manifest page and when the Plex l
 
 The probe automatically downloads the **current** full Plex library TSV from the existing playlist manager on `http://127.0.0.1:5051/api/library-export.tsv`. It fetches the AudioMuse read-only `/api/sync?fields=index` manifest and compares exact provider IDs with Plex `rating_key` values. Nothing is modified in either system.
 
-If AudioMuse authentication is enabled (default), configure an API token in **Administration → Setup Wizard → AudioMuse Authentication** (`API_TOKEN`). Pass it to the probe via `AUDIOMUSE_API_TOKEN` on the server. Do not paste it into chat, commit it or include it in screenshots. You can also use an existing local browser cookie through `AUDIOMUSE_COOKIE` if needed. The API token takes precedence.
+If AudioMuse authentication is enabled (default), configure an API token in **Administration → Setup Wizard → AudioMuse Authentication** (`API_TOKEN`). The probe reads an explicit `AUDIOMUSE_API_TOKEN` environment variable first; otherwise it loads `~/.config/plex-playlist-manager/audiomuse-api-token` automatically. This user-only file is outside the Git repository and persists after logging out.
+
+One-time installation, **assuming the current shell still contains the API token from a previous successful request**:
+
+```bash
+install -d -m 700 "$HOME/.config/plex-playlist-manager"
+if [ -z "${AUDIOMUSE_API_TOKEN:-}" ]; then
+    echo "No token in this shell. Run 'read -rsp "Token: " AUDIOMUSE_API_TOKEN; echo' separately first."
+else
+    (umask 077; printf '%s' "$AUDIOMUSE_API_TOKEN" > "$HOME/.config/plex-playlist-manager/audiomuse-api-token")
+    chmod 600 "$HOME/.config/plex-playlist-manager/audiomuse-api-token"
+    unset AUDIOMUSE_API_TOKEN
+fi
+```
+
+Run `python3 scripts/audiomuse_probe.py --url http://127.0.0.1:8098 --manifest-only` without a token variable afterward. To read a non-default location, set `AUDIOMUSE_API_TOKEN_FILE` to the path. The probe rejects token files that are readable by group/others; don't print or commit the token. `AUDIOMUSE_COOKIE` is also an optional fallback for existing setups. Explicit `AUDIOMUSE_API_TOKEN` always has priority.
+
+Note: this token is available only to processes running as the Linux user who owns the file. The Docker playlist-manager container cannot automatically read a home-directory token file; a future in-container API integration will need a deliberate read-only secret mount.
 
 For an explicit TSV export, replace automatic retrieval with `--plex-tsv /path/to/plex-music-library.tsv`. For a remote playlist manager use `--plex-url http://media-server:5051`. If audio analysis is still running, matching covers **only the analyzed tracks**. Do not assume the entire library is mismapped because the scanned count is low.
 
