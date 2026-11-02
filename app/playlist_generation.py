@@ -27,7 +27,7 @@ YEAR_DECADE=re.compile(r"\b((?:18|19|20)\d0)s\b",re.I)
 TRACK_COUNT=re.compile(r"\b(\d{1,3})\s*(?:tracks?|songs?|nummers?|stukken?)\b",re.I)
 MINUTES_COUNT=re.compile(r"\b(\d{2,3})\s*(?:minutes?|mins?|minuten?)\b",re.I)
 HOUR_COUNT=re.compile(r"\b(\d{1,2})\s*(?:hours?|uur)\b",re.I)
-LONG_CUE=re.compile(r"\b(long|extended|lengthy|lang(?:e)?|uitgebreide)\b.{0,25}\b(improvisation|solo|track|piece|improvisatie|nummer)\b",re.I)
+LONG_CUE=re.compile(r"\b(long|extended|lengthy|lang(?:e)?|uitgebreide)\b.{0,25}\b(improvisations?|solos?|tracks?|pieces?|improvisaties?|nummers?)\b",re.I)
 LIVE_CUE=re.compile(r"\b(live|concert|club|vanguard|on stage|in concert)\b",re.I)
 EXPLICIT_GENRE=re.compile(r"\b(jazz|soul|ambient|blues|funk|classical|rock|folk|electronic)\b",re.I)
 PERFORMANCE_CUES=("live","concert","vanguard","at the","in person","jazz club","on stage")
@@ -292,6 +292,7 @@ def generate(request,library,feature_cache):
         raise GenerationError("No tracks satisfy the explicit criteria. Broaden the date, live or style requirements.")
     ranked=sorted(base,key=lambda k:(-base[k],normalize(library[k]["artist"]),
                                      normalize(library[k]["title"]),k))
+    rank_index={key:i for i,key in enumerate(ranked)}
     # Preserve cross-genre candidate representation: the initial shortlist is
     # not allowed to collapse into a single popular subgenre.
     shortlist=ranked[:MAX_POOL]
@@ -311,7 +312,7 @@ def generate(request,library,feature_cache):
         last=selected[-1] if selected else None
         best=max(remaining,key=lambda k:(
             _intrinsic(k,selected,library,ff,identity,last,base),
-            -ranked.index(k) if len(ranked)<3000 else -list(base).index(k)))
+            -rank_index[k]))
         duration=_duration(library[best])
         if minutes_target and elapsed>=minutes_target*60000 and selected:
             break
