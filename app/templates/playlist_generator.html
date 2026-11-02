@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Playlist Generator</title>
+<style>
+:root{color-scheme:dark;--bg:#080f16;--panel:#111d27;--surface:#1a2b37;--line:#2c4450;--text:#e9f4f3;--muted:#a2b7c1;--accent:#6cf5c2;--amber:#f0c18a;--red:#eb9ca2}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,sans-serif}
+main{max-width:1220px;margin:auto;padding:22px 20px 70px}a{color:var(--accent);text-decoration:none}
+header,.row{display:flex;align-items:center;justify-content:space-between;gap:13px}
+header{margin-bottom:20px}h1{font-size:26px;margin:7px 0 6px;letter-spacing:-.035em}
+h2{font-size:16px;margin:0 0 11px}.muted,small{font-size:12px;color:var(--muted)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin:14px 0}
+.layout{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);gap:14px}
+input,textarea,select,button{color:var(--text);font:inherit;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 10px}
+textarea{min-height:102px;resize:vertical;width:100%}
+input,select{width:100%;min-width:0}input[type=checkbox]{width:auto}
+label{font-size:12px;color:var(--muted);display:block}
+label>input,label>select{margin-top:5px}button{cursor:pointer}button:hover{border-color:var(--accent)}
+button:disabled{opacity:.43;cursor:default}.primary{color:#082019;background:var(--accent);font-weight:700}
+.warn{color:var(--amber)}.error{color:var(--red)}.good{color:var(--accent)}
+#notice{min-height:20px;margin:12px 0}#workspace[hidden],dialog[hidden],[hidden]{display:none!important}
+.controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.controls>input{flex:1}
+.mini-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:10px 0}
+.metric-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.metric{background:var(--surface);border-radius:9px;padding:11px}
+.metric b{font-size:19px;display:block}.metric small{display:block}
+.track{display:flex;align-items:center;gap:9px;padding:10px 2px;border-bottom:1px solid var(--line)}
+.track:last-child{border:0}.meta{flex:1;min-width:0}.meta strong{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta span{display:block;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.track button{padding:5px 7px;font-size:12px;min-height:28px;flex-shrink:0}
+.track .tag{font-size:11px;color:var(--amber)}.selected{background:#1c353b}
+.scroll{max-height:570px;overflow:auto}#candidateList{min-height:140px}
+#player{width:100%;margin-top:12px;height:36px}#candidateHint{margin:8px 0}
+.flag{border-left:2px solid var(--amber);padding:6px 10px;margin:5px 0;background:#241f1a;font-size:12px;color:#f0cfa7}
+.quality{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
+.quality td,.quality th{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+.quality td:not(:first-child),.quality th:not(:first-child){text-align:right}
+.pill{font-size:11px;background:var(--surface);border-radius:6px;padding:3px 7px;color:var(--muted)}
+footer{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:16px}
+dialog{width:min(720px,94vw);max-height:85vh;overflow:auto;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px}
+dialog::backdrop{background:#000b}
+#publishTracks{max-height:180px;overflow:auto;font-size:12px;color:var(--muted);padding:8px;background:var(--surface);border-radius:8px}
+#publishTracks>div{padding:3px}
+fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:15px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:850px){.layout{grid-template-columns:1fr}.mini-grid{grid-template-columns:1fr 1fr}.metric-grid{grid-template-columns:repeat(2,1fr)}main{padding:14px}.row{flex-wrap:wrap}}
+</style></head>
+<body><main>
+<header><a href="/">← Playlists</a><a href="/playlist-intelligence">Existing playlist intelligence</a></header>
+<h1>Intelligent Playlist Generation</h1>
+<p class="muted">Generate from your Plex music library, inspect the evidence, audition and edit every track, then approve creation of a new playlist.</p>
+<section class="panel">
+  <h2>1 · Describe the music</h2>
+  <form id="createForm">
+    <label for="prompt">Musical brief</label>
+    <textarea id="prompt" required maxlength="400" minlength="8" placeholder="Intimate live jazz, 1955–1965, long improvisations, warm club atmosphere"></textarea>
+    <div class="mini-grid">
+      <label>Tracks (1–120)<input id="count" type="number" min="1" max="120" value="24" required></label>
+      <label>Target minutes (optional)<input id="minutes" type="number" min="15" max="900" placeholder="No limit"></label>
+      <label>Playlist name<input id="name" maxlength="120" placeholder="New playlist name" required></label>
+    </div>
+    <footer>
+      <button id="restoreDraft" type="button" hidden>Restore last draft</button>
+      <button id="generate" type="submit" class="primary">Generate draft</button>
+    </footer>
+  </form>
+  <p id="notice" role="status" aria-live="polite"></p>
+</section>
+<div id="workspace" hidden>
+<section class="panel">
+  <div class="row"><h2>2 · Inspect musical identity and selection</h2><span id="draftStatus" class="pill"></span></div>
+  <p id="identity" class="muted"></p>
+  <div class="metric-grid" id="summary"></div>
+  <div id="warnings"></div>
+  <details><summary class="muted" style="cursor:pointer;margin-top:14px">How candidates were selected</summary><div id="selection" class="muted" style="padding:9px"></div></details>
+  <table id="quality" class="quality"><thead><tr><th>Quality dimension</th><th>Score</th><th>Coverage</th></tr></thead><tbody></tbody></table>
+  <p class="muted">Heuristic scores and metadata are not proof of recording quality. Missing analysis is shown rather than estimated.</p>
+</section>
+<div class="layout">
+  <section class="panel">
+    <div class="row"><h2>3 · Edit the sequence</h2><span id="trackCount" class="muted"></span></div>
+    <div id="trackList" class="scroll"></div>
+  </section>
+  <section class="panel">
+    <div class="row"><h2 id="suggestionHeading">Browse the library</h2><button id="clearTarget" type="button">Add tracks</button></div>
+    <div class="controls"><input id="search" type="search" maxlength="120" placeholder="Artist, album or song…"><button id="find" type="button">Search</button></div>
+    <p class="muted" id="candidateHint">Choose a track to find replacements, or search the library to add music.</p>
+    <div id="candidateList" class="scroll"></div>
+    <audio id="player" controls preload="none" hidden></audio>
+  </section>
+</div>
+<section class="panel">
+  <div class="row"><h2>4 · Approve publication</h2><span class="muted">Your existing playlists are never overwritten</span></div>
+  <p class="muted">Review the selected name, exact track order, coverage and warnings. Publication writes a new Plex playlist and the matching YAML definition.</p>
+  <footer><button id="review" class="primary" type="button">Review &amp; publish…</button></footer>
+</section>
+</div>
+<dialog id="publishDialog">
+  <h2>Review creation in Plex</h2>
+  <p id="publicationSummary"></p>
+  <div id="publishWarnings"></div>
+  <table id="publicationQuality" class="quality"></table>
+  <p class="muted">Approved track order</p><div id="publishTracks"></div>
+  <fieldset><label><input type="checkbox" id="publishApproval"> I approve creating this new playlist in Plex and saving it in the YAML collection.</label></fieldset>
+  <footer><button id="cancelPublish" type="button">Cancel</button><button id="confirmPublish" class="primary" type="button" disabled>Create playlist</button></footer>
+</dialog>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(cls)n.className=cls;return n};
+const smallButton=(text,action)=>{const b=node('button',text);b.type='button';b.onclick=action;return b};
+let draft=null,target=null,optionCache={},plan=null,working=false;
+function notify(message,error=false){
+  $('notice').textContent=message;
+  $('notice').className=error?'error':'';
+}
+async function api(path,options){
+  const response=await fetch(path,options);
+  let result;
+  try{result=await response.json()}catch{throw Error('Unexpected server response '+response.status)}
+  if(!response.ok)throw Error(result.detail||'Request failed ('+response.status+')');
+  return result;
+}
+const post=(url,obj)=>api(url,{method:'POST',
+   headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)});
+const fmtMinutes=n=>n!==null&&n!==undefined?Number(n).toFixed(1)+' min':'Unknown duration';
+const descriptions={coherence:'Musical coherence',variation:'Variety',
+   energy:'Energy',flow:'Sequence',intent:'Brief alignment'};
+function readName(){return $('name').value.trim()}
+function audio(id){
+  const player=$('player'),path='/api/curation/audio/'+encodeURIComponent(id);
+  if(player.getAttribute('src')===path&&!player.paused){player.pause();return}
+  player.hidden=false;player.src=path;
+  player.play().catch(()=>notify('Plex audio preview unavailable',true));
+}
+function metricTable(table,quality){
+  const body=table.tagName==='TABLE'&&table.tBodies.length?table.tBodies[0]:table;
+  body.replaceChildren();
+  for(const [key,label] of Object.entries(descriptions)){
+    const m=quality.metrics[key],r=node('tr');
+    r.append(node('td',label),node('td',m.score===null?'Unknown':Math.round(m.score*100)+'%'),
+             node('td',Math.round(m.coverage*100)+'%'));
+    if(m.score===null)r.title='Insufficient measured features';
+    body.append(r);
+  }
+}
+function itemView(t,index){
+  const item=node('div',undefined,'track'+(target===t.id?' selected':''));
+  const meta=node('div',undefined,'meta');
+  meta.append(node('strong',t.title),node('span',t.artist+' · '+t.album));
+  const detail=(t.year||'year unknown')+' · '+fmtMinutes((t.duration_ms||0)/60000);
+  meta.append(node('span',detail));
+  item.append(meta);
+  item.append(smallButton('▶',()=>audio(t.id)));
+  const controls=draft.status==='draft';
+  if(controls){
+    const up=smallButton('↑',()=>move(index,-1));up.disabled=index===0;item.append(up);
+    const down=smallButton('↓',()=>move(index,1));down.disabled=index>=draft.data.tracks.length-1;item.append(down);
+    item.append(smallButton('Replace',()=>chooseTarget(t.id)));
+    item.append(smallButton('×',()=>edit([{type:'remove',track_id:t.id}])));
+  }
+  return item;
+}
+function draw(){
+  if(!draft)return;
+  $('workspace').hidden=false;
+  const data=draft.data,d=data.diagnostics,brief=data.request;
+  $('draftStatus').textContent=draft.status==='published'?'Published to Plex #'+draft.playlist_id:'Draft revision '+draft.revision;
+  $('review').disabled=draft.status!=='draft';
+  $('identity').textContent='Styles: '+(brief.identity.styles.join(', ')||'unclassified')+
+     ' · mood: '+(brief.identity.moods.join(', ')||'unspecified')+
+     ' · '+brief.identity.variation+' variation · '+brief.identity.flow+' flow'+
+     ' · '+brief.identity.energy+' energy';
+  $('summary').replaceChildren();
+  for(const [label,val] of [
+    ['Tracks',d.tracks],['Duration',d.duration_minutes+' min'],
+    ['Artists',d.unique_artists],['Albums',d.unique_albums],
+    ['Analyzed',d.analyzed+'/'+d.tracks],['Eligible',data.selection.eligible]]){
+    const m=node('div',undefined,'metric');m.append(node('b',val),node('small',label));
+    $('summary').append(m);
+  }
+  $('warnings').replaceChildren();
+  for(const warning of [...new Set([...(data.warnings||[]),...(d.flags||[])])])
+    $('warnings').append(node('p',warning,'flag'));
+  $('selection').textContent=data.selection.catalogue+' library tracks · '+
+    data.selection.initial_candidates+' pass hard filters · '+
+    data.selection.eligible+' have evidence for requested style · '+
+    data.selection.shortlisted+' considered during generation. Exclusions: '+
+    Object.entries(data.selection.excluded||{}).map(([k,n])=>k+': '+n).join(', ');
+  metricTable($('quality'),d.metrics);
+  $('trackCount').textContent=data.tracks.length+' tracks · drag-free order controls';
+  $('trackList').replaceChildren();
+  data.tracks.forEach((t,i)=>$('trackList').append(itemView(t,i)));
+  if(draft.status==='published')notify('Published in Plex · '+draft.playlist_id);
+}
+async function loadDraft(id){
+  try{
+    const loaded=await api('/api/generation/drafts/'+encodeURIComponent(id));
+    draft=loaded;
+    localStorage.setItem('playlistGenerationDraft',draft.id);
+    target=null;optionCache={};
+    draw();
+    notify('Draft restored.');
+  }catch(error){localStorage.removeItem('playlistGenerationDraft');notify(error.message,true)}
+}
+function selectTarget(id){
+  target=id;
+  $('search').value='';
+  $('suggestionHeading').textContent=id?'Replace '+draft.data.tracks.find(t=>t.id===id)?.title:'Browse the library';
+  $('trackList').replaceChildren();
+  draft.data.tracks.forEach((t,i)=>$('trackList').append(itemView(t,i)));
+  findCandidates();
+}
+const chooseTarget=selectTarget;
+async function findCandidates(){
+  if(!draft)return;
+  $('candidateHint').textContent='Searching Plex library…';
+  try{
+    const result=await api('/api/generation/drafts/'+encodeURIComponent(draft.id)+
+      '/candidates?target='+encodeURIComponent(target||'')+
+      '&q='+encodeURIComponent($('search').value.trim())+'&limit=30');
+    $('candidateList').replaceChildren();
+    for(const item of result.candidates){
+      optionCache[item.id]=item;
+      const row=node('div',undefined,'track');
+      const meta=node('div',undefined,'meta');
+      meta.append(node('strong',item.title),node('span',item.artist+' · '+item.album));
+      meta.append(node('span',item.match===null?'Unscored (limited AudioMuse)':
+             Math.round(item.match*100)+'% fit · '+item.confidence+' confidence'));
+      if(item.criteria_issue)meta.append(node('span','Outside brief: '+item.criteria_issue,'warn'));
+      row.append(meta,smallButton('▶',()=>audio(item.id)));
+      const b=smallButton(target?'Replace':'Add',()=>edit([
+        target?{type:'replace',track_id:target,candidate_id:item.id}:
+          {type:'add',candidate_id:item.id,...(
+              item.match!==null?{after_id:item.suggested_after_id}:{})}
+      ]));
+      b.disabled=draft.status!=='draft';
+      row.append(b);
+      $('candidateList').append(row);
+    }
+    $('candidateHint').textContent=result.candidates.length+
+      ' alternatives · metadata outside the original brief is marked';
+    if(!result.candidates.length)$('candidateList').append(node('p','No matching tracks.','muted'));
+  }catch(error){$('candidateHint').textContent=error.message;notify(error.message,true)}
+}
+async function edit(operations){
+  if(!draft||draft.status!=='draft')return;
+  working=true;
+  try{
+    const result=await post('/api/generation/drafts/'+encodeURIComponent(draft.id)+'/edit',
+                            {revision:draft.revision,operations});
+    draft=result;target=null;
+    draw();
+    notify('Draft updated. Plex unchanged.');
+    await findCandidates();
+  }catch(error){notify(error.message,true)}
+  finally{working=false}
+}
+function move(index,direction){
+  const keys=draft.data.keys;
+  const id=keys[index],destination=index+direction;
+  if(destination<0||destination>=keys.length)return;
+  edit([{type:'move',track_id:id,
+         after_id:destination===0?null:direction===1?keys[destination]:
+                   destination===1?null:keys[destination-2]}]);
+}
+$('createForm').onsubmit=async(event)=>{
+  event.preventDefault();if(working)return;
+  const prompt=$('prompt').value.trim(),name=readName();
+  if(!name){notify('Name the playlist before generating.',true);return}
+  working=true;$('generate').disabled=true;notify('Selecting and sequencing music from Plex…');
+  try{
+    const created=await post('/api/generation/drafts',{
+      prompt,count:Number($('count').value),
+      minutes:$('minutes').value?Number($('minutes').value):null
+    });
+    draft=created;target=null;optionCache={};
+    localStorage.setItem('playlistGenerationDraft',draft.id);
+    draw();notify('Draft generated. Review and adjust tracks before publishing.');
+  }catch(error){notify(error.message,true)}
+  finally{working=false;$('generate').disabled=false}
+};
+$('clearTarget').onclick=()=>selectTarget(null);
+$('find').onclick=findCandidates;
+$('search').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();findCandidates()}};
+$('review').onclick=async()=>{
+  if(!draft||working)return;
+  try{
+    plan=await post('/api/generation/plan',{draft_id:draft.id,
+             revision:draft.revision,name:readName()});
+    $('publicationSummary').textContent='Create '+plan.name+' · '+
+       plan.tracks+' tracks · '+plan.minutes+' minutes · new Plex playlist';
+    $('publishWarnings').replaceChildren();
+    for(const warning of plan.warnings)
+      $('publishWarnings').append(node('div',warning,'flag'));
+    metricTable($('publicationQuality'),plan.quality.metrics);
+    $('publishTracks').replaceChildren();
+    plan.track_order.forEach((t,i)=>$('publishTracks').append(
+       node('div',(i+1)+'. '+t.artist+' — '+t.title)));
+    $('publishApproval').checked=false;
+    $('confirmPublish').disabled=true;
+    $('publishDialog').showModal();
+  }catch(error){notify(error.message,true)}
+};
+$('publishApproval').onchange=()=>{$('confirmPublish').disabled=!$('publishApproval').checked};
+$('cancelPublish').onclick=()=>$('publishDialog').close();
+$('confirmPublish').onclick=async()=>{
+  if(!plan||!$('publishApproval').checked||working)return;
+  working=true;$('confirmPublish').disabled=true;
+  try{
+    const result=await post('/api/generation/publish',{
+      draft_id:draft.id,revision:draft.revision,
+      name:plan.name,plan_id:plan.plan_id,approved:true
+    });
+    $('publishDialog').close();
+    await loadDraft(draft.id);
+    notify(result.sync_state==='synced'?
+      'Published '+result.tracks+' tracks in Plex. Playlist #'+result.playlist_id:
+      'Created in Plex and YAML; synchronization state needs repair.',
+      result.sync_state!=='synced');
+  }catch(error){notify(error.message,true)}
+  finally{working=false;$('confirmPublish').disabled=false}
+};
+const last=localStorage.getItem('playlistGenerationDraft');
+if(last){
+  $('restoreDraft').hidden=false;
+  $('restoreDraft').onclick=()=>loadDraft(last);
+}
+</script></body></html>
