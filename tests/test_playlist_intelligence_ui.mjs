@@ -1,8 +1,8 @@
 // Fast, offline route-to-UI coverage, no browser dependencies.
 'use strict';
-const fs=require('node:fs');
-const vm=require('node:vm');
-const assert=require('node:assert/strict');
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
 const src=fs.readFileSync('app/templates/playlist_intelligence.html','utf8');
 const scripts=[...src.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
 assert.equal(scripts.length,1);
