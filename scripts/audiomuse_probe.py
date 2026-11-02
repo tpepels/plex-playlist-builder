@@ -49,6 +49,35 @@ def plex_ids_from_manager(url: str, *, progress: Progress | None = None) -> set[
     return ids
 
 
+def load_api_token() -> str:
+    """Load a token without placing credentials in Git or shell history.
+
+    Explicit AUDIOMUSE_API_TOKEN wins. Otherwise read the local user-only
+    token file, optionally configured through AUDIOMUSE_API_TOKEN_FILE.
+    """
+    token = os.environ.get("AUDIOMUSE_API_TOKEN", "").strip()
+    if token:
+        return token
+
+    explicit = os.environ.get("AUDIOMUSE_API_TOKEN_FILE", "").strip()
+    token_path = Path(explicit).expanduser() if explicit else (
+        Path.home() / ".config" / "plex-playlist-manager" / "audiomuse-api-token"
+    )
+    if not token_path.exists():
+        if explicit:
+            raise RuntimeError(f"AudioMuse token file does not exist: {token_path}")
+        return ""
+    if not token_path.is_file():
+        raise RuntimeError(f"AudioMuse token path is not a regular file: {token_path}")
+    if token_path.is_symlink():
+        raise RuntimeError(f"AudioMuse token file cannot be a symlink: {token_path}")
+    if token_path.stat().st_mode & 0o077:
+        raise RuntimeError(
+            f"AudioMuse token file permissions are too open; run chmod 600 {token_path}"
+        )
+    return token_path.read_text(encoding="utf-8").strip()
+
+
 def auth_headers(*, token: str = "", cookie: str = "") -> dict[str, str]:
     """Use AudioMuse's documented machine-to-machine Bearer token when set."""
     headers = {"Accept": "application/json"}
@@ -133,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         manifest = get_manifest(
             args.url,
-            token=os.environ.get("AUDIOMUSE_API_TOKEN", ""),
+            token=load_api_token(),
             cookie=os.environ.get("AUDIOMUSE_COOKIE", ""),
             all_pages=args.all,
             progress=show_progress,
