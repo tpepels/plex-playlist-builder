@@ -144,6 +144,10 @@ small{color:var(--muted)}
 <main class="signal-shell">
 <header class="signal-header signal-transition">
   <div class="signal-brand">
+    <button id="navigationToggle" type="button" class="navigation-toggle" aria-label="Open navigation menu"
+            aria-expanded="false" aria-controls="navigationPanel" title="Open navigation menu">
+      <span class="hamburger-lines" aria-hidden="true"><span></span><span></span><span></span></span>
+    </button>
     <img class="signal-mark" src="/static/signal-mark.svg" width="61" height="61" alt="" aria-hidden="true">
     <div>
       <div class="signal-kicker">SIGNAL CONSOLE / LIBRARY INTELLIGENCE</div>
@@ -156,42 +160,73 @@ small{color:var(--muted)}
     <button id="signal-theme-toggle" type="button" class="signal-theme-button" aria-pressed="true">CYBER: ON</button>
   </div>
 </header>
-<div id="health" class="status"><span class="dot"></span>Connecting to Plex…</div>
-
-<section class="panel" aria-label="Loaded playlist version" aria-live="polite">
-  <div class="panel-header">
-    <div>
-      <div class="kicker">Loaded YAML</div>
-      <div class="version-name" id="versionName">Reading saved definitions…</div>
-      <p class="version-detail" id="versionDetail"></p>
-    </div>
-    <span class="id" id="versionId" title="Content fingerprint (not a date)">—</span>
+<div id="navigationBackdrop" class="navigation-backdrop" hidden></div>
+<aside id="navigationPanel" class="navigation-drawer" aria-label="Navigation" tabindex="-1" hidden>
+  <div class="navigation-drawer-head">
+    <strong>Navigation</strong>
+    <button id="navigationClose" class="navigation-close" type="button" aria-label="Close navigation menu">Close <span aria-hidden="true">×</span></button>
   </div>
-  <div id="versionMetrics" class="metrics"></div>
-</section>
-
-<section class="panel" aria-label="Import and export">
-  <div class="actions">
-    <button id="importPack" class="primary" title="Validate YAML, import, and sync changes to Plex">Import &amp; sync</button>
-    <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
-    <button id="importCoverZip" type="button" title="Upload playlist covers from a ZIP, replacing previous versions by filename">Upload cover ZIP</button>
+  <nav class="view-tabs navigation-list" aria-label="Main sections">
+    <span class="navigation-group-heading">WORKSPACE</span>
+    <button class="view-tab active" type="button" data-view="playlists" aria-current="page">Playlists</button>
+    <button class="view-tab" type="button" data-view="health">Playlist health</button>
+    <button class="view-tab" type="button" data-view="duplicates">Duplicate albums</button>
+    <button class="view-tab" type="button" data-view="newmusic">New music</button>
+    <button class="view-tab" type="button" data-view="isc">Music discovery</button>
+    <button class="view-tab" type="button" data-view="discover">Find album</button>
+  </nav>
+  <nav class="navigation-list navigation-links" aria-label="Analysis and utilities">
+    <span class="navigation-group-heading">ANALYSE &amp; CURATION</span>
+    <a href="/playlist-intelligence">Playlist Intelligence</a>
+    <a href="/musical-coherence">Musical coherence</a>
+    <span class="navigation-group-heading">LIBRARY TOOLS</span>
+    <a href="/downloads-audit">Download audit</a>
+    <button id="importCoverZip" type="button" title="Upload covers by ZIP filename">Upload playlist covers</button>
     <input id="coverZipFile" type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden>
-    <a class="button" href="/playlist-intelligence" title="Review playlists, compare tracks and approve changes directly in Plex">Playlist Intelligence</a>
-    <a class="button" href="/musical-coherence" title="Read-only AudioMuse playlist similarity and coverage review">Musical coherence</a>
-    <a class="button" href="/downloads-audit" title="Vergelijk alle albumfolders op schijf met Plex en bekijk mislukte downloads">Downloadcontrole</a>
-    <a class="button" href="/api/library-albums.tsv" download="plex-albums.tsv" title="Download one row per distinct artist and album, for music recommendations">Album list TSV</a>
-    <a class="button" href="/api/library-export.tsv" download="plex-music-library.tsv">Full library TSV</a>
-    <a class="button" href="/api/playlists-export.yml" download="plex-playlists.yml">Plex playlists YAML</a>
+  </nav>
+  <details class="navigation-exports">
+    <summary>Export data <span aria-hidden="true">⌄</span></summary>
+    <div class="navigation-export-links">
+      <a href="/api/library-albums.tsv" download="plex-albums.tsv" title="One row per artist and album">Album list TSV</a>
+      <a href="/api/library-export.tsv" download="plex-music-library.tsv">Full library TSV</a>
+      <a href="/api/playlists-export.yml" download="plex-playlists.yml">Playlist YAML</a>
+      <form id="recentForm" action="/api/library-recent.tsv" method="get" class="recent-form" aria-label="Export recently added music">
+        <label for="recentMode">Recent music export</label>
+        <select id="recentMode" name="mode" aria-label="Recent music selection">
+          <option value="hours">Last hours</option>
+          <option value="albums">Latest albums</option>
+        </select>
+        <input id="recentLimit" name="limit" type="number" min="1" max="8760" value="48" required aria-label="Number of hours">
+        <button type="submit" title="Export selected tracks with Plex rating keys">Download TSV</button>
+      </form>
+    </div>
+  </details>
+</aside>
+
+<div class="workspace-heading">
+  <div>
+    <span class="workspace-label">LIBRARY / <span id="activeSectionPath">PLAYLISTS</span></span>
+    <h2 id="activeSectionTitle" tabindex="-1">Playlists</h2>
   </div>
-  <form id="recentForm" action="/api/library-recent.tsv" method="get" class="recent-form" aria-label="Export recently added music">
-    <label for="recentMode">New music</label>
-    <select id="recentMode" name="mode" aria-label="Recent music selection">
-      <option value="hours">Last hours</option>
-      <option value="albums">Latest albums</option>
-    </select>
-    <input id="recentLimit" name="limit" type="number" min="1" max="8760" value="48" required aria-label="Number of hours">
-    <button type="submit" title="Export selected tracks with Plex rating keys">Download TSV</button>
-  </form>
+  <div class="workspace-primary-action">
+    <button id="importPack" class="primary" title="Validate YAML, import and sync changes to Plex">Import &amp; sync</button>
+    <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
+  </div>
+</div>
+<section class="collection-status" aria-label="Current collection">
+  <div class="collection-identity">
+    <span class="collection-label">Loaded collection</span>
+    <strong class="version-name" id="versionName">Reading saved definitions…</strong>
+    <span class="version-detail" id="versionDetail"></span>
+    <details class="collection-info">
+      <summary>Details</summary>
+      <span class="id" id="versionId" title="Content fingerprint (not a date)">—</span>
+    </details>
+  </div>
+  <div class="collection-summary-right">
+    <div id="versionMetrics" class="metrics"></div>
+    <div id="health" class="status"><span class="dot"></span>Connecting to Plex…</div>
+  </div>
 </section>
 <div id="notice" class="notice" role="status" hidden></div>
 <section id="coverImportResult" class="panel" aria-label="Cover ZIP import results" hidden>
@@ -216,14 +251,7 @@ small{color:var(--muted)}
   </div>
 </section>
 
-<nav class="view-tabs" aria-label="Playlist builder views">
-  <button class="view-tab active" type="button" data-view="playlists">Playlists</button>
-  <button class="view-tab" type="button" data-view="health">Health</button>
-  <button class="view-tab" type="button" data-view="duplicates">Duplicates</button>
-  <button class="view-tab" type="button" data-view="newmusic">New music</button>
-  <button class="view-tab" type="button" data-view="isc">Discover</button>
-  <button class="view-tab" type="button" data-view="discover">Find album</button>
-</nav>
+
 <section id="viewPlaylists">
 <div class="section-title"><h2>Playlists</h2><small id="listHint"></small></div>
 <div class="playlist-tools">
@@ -1113,10 +1141,54 @@ $("duplicateKind").onchange = renderDuplicates;
 $("refreshDuplicates").onclick = () => loadDuplicates(true);
 for (const b of document.querySelectorAll(".refreshInsights"))
   b.onclick = () => loadInsights(true);
+const NAVIGATION_TITLES = {
+  playlists:"Playlists", health:"Playlist health", duplicates:"Duplicate albums",
+  newmusic:"New music", isc:"Music discovery", discover:"Find album"
+};
+function setNavigationOpen(open, restoreFocus=false) {
+  const toggle=$("navigationToggle");
+  $("navigationBackdrop").hidden=!open;
+  $("navigationPanel").hidden=!open;
+  toggle.setAttribute("aria-expanded",String(open));
+  toggle.setAttribute("aria-label",open?"Close navigation menu":"Open navigation menu");
+  document.body?.classList?.toggle("navigation-open",open);
+  if(open)$("navigationPanel").focus?.();
+  else if(restoreFocus)toggle.focus?.();
+}
+$("navigationToggle").onclick=()=>setNavigationOpen($("navigationPanel").hidden);
+$("navigationClose").onclick=()=>setNavigationOpen(false,true);
+$("navigationBackdrop").onclick=()=>setNavigationOpen(false,true);
+// Only trap focus while the menu is open. Esc and outside click close it.
+document.addEventListener?.("keydown",event=>{
+  if($("navigationPanel").hidden)return;
+  if(event.key==="Escape") {
+    event.preventDefault();
+    setNavigationOpen(false,true);
+    return;
+  }
+  if(event.key!=="Tab")return;
+  const focusables=Array.from($("navigationPanel").querySelectorAll(
+    'a[href],button:not([disabled]),summary,input:not([disabled]),select:not([disabled])'
+  )).filter(el=>!el.closest?.("[hidden]") && el.getClientRects?.().length!==0);
+  if(!focusables.length)return;
+  const first=focusables[0],last=focusables[focusables.length-1];
+  if(event.shiftKey && document.activeElement===first) {
+    event.preventDefault();last.focus();
+  } else if(!event.shiftKey && document.activeElement===last) {
+    event.preventDefault();first.focus();
+  }
+});
 for (const b of document.querySelectorAll(".view-tab")) b.onclick = async () => {
   activeView = b.dataset.view;
-  for (const tab of document.querySelectorAll(".view-tab"))
+  for (const tab of document.querySelectorAll(".view-tab")) {
     tab.classList.toggle("active", tab===b);
+    if(tab===b)tab.setAttribute("aria-current","page");
+    else tab.removeAttribute?.("aria-current");
+  }
+  $("activeSectionTitle").textContent=NAVIGATION_TITLES[activeView];
+  $("activeSectionPath").textContent=NAVIGATION_TITLES[activeView].toUpperCase();
+  $("importPack").parentElement?.classList?.toggle("secondary-view",activeView!=="playlists");
+  setNavigationOpen(false);
   for (const [view,id] of Object.entries({
     playlists:"viewPlaylists",health:"viewHealth",duplicates:"viewDuplicates",newmusic:"viewNewmusic",isc:"viewIsc",discover:"viewDiscover"
   })) $(id).hidden = view !== activeView;
