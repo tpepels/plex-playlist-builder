@@ -1222,12 +1222,15 @@ def get_curation_validation():
             **stats[name],
         })
     total=sum(row.get("reviewed",0) for row in rows)
+    ready=all(row.get("status")=="needs_human_review"
+              and row.get("reviewed",0)>=4
+              and row.get("audio_coverage",0)>=.60 for row in rows)
     return {"categories":rows,"reviewed_total":total,
             "audited_groups":sum(bool(row.get("name")) for row in rows),
-            "human_validation_complete":all(
-                row.get("reviewed",0)>0 and row.get("status")=="needs_human_review"
-                for row in rows),
-            "notice":"Automatically generated checks are not listening judgments. A human must audition and label recommendations."}
+            "validation_target":{"categories":4,"listened_reviews_per_category":4,
+                                 "minimum_audio_coverage":.60},
+            "human_validation_complete":ready,
+            "notice":"Programmatic checks are not listening judgments; validate four recommendations per category against real audio."}
 
 
 @app.get("/api/curation/validation/{name}")
