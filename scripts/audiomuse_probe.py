@@ -103,7 +103,7 @@ def get_manifest(url: str, *, token: str = "", cookie: str = "", all_pages: bool
                 result = json.load(response)
         except HTTPError as exc:
             if exc.code in (401, 403):
-                raise RuntimeError("Authentication required: configure AUDIOMUSE_API_TOKEN locally (never share it)") from exc
+                raise RuntimeError("Authentication required: configure AUDIOMUSE_API_TOKEN or a protected ~/.config/plex-playlist-manager/audiomuse-api-token file (never share it)") from exc
             raise RuntimeError(f"AudioMuse HTTP {exc.code} on /api/sync") from exc
         except URLError as exc:
             raise RuntimeError(f"Cannot reach AudioMuse at {url}: {exc.reason}") from exc
