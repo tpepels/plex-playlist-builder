@@ -27,7 +27,7 @@ jobs:
             tests/test_curation_library.py \
             tests/test_curation_impact.py \
             tests/test_curation_validation.py \
-            tests/test_curation_stages_3_4_api.py
+            tests/test_curation_stages_3_4_api.py \
             tests/test_curation_real_errors.py
       - name: Python tests
         run: python -m pytest -q
