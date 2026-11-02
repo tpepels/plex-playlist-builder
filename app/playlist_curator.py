@@ -263,7 +263,7 @@ def assess(name: str, spec: dict, library: dict, cache: dict, intent: dict | Non
                          for other in embedded if other != key]
             neighbors = sorted((v for v in neighbors if v is not None), reverse=True)
             if neighbors:
-                scored.append((key, sum(neighbors[:3])/min(3,len(neighbors))))
+                scored.append((key, neighbors[0]))
         baselines = sorted(sc for _,sc in scored)
         median = baselines[len(baselines)//2] if baselines else 0
         variation = (intent or {}).get("variation","balanced")
