@@ -55,6 +55,7 @@ audio{width:100%;height:35px;margin-top:8px}
   <div class="controls">
     <select id="playlist" aria-label="Playlist"><option value="">Select playlist…</option></select>
     <button id="reload" type="button">Refresh</button>
+    <button id="refreshLibrary" type="button" title="Re-index the complete Plex music library">Re-index library</button>
   </div>
   <p id="message" role="status" aria-live="polite"></p>
   <div id="profile" hidden>
@@ -217,6 +218,10 @@ function renderDraft(){
   $('clear').disabled=actions.length===0||busy;
 }
 function chooseTarget(id){
+  if(id&&!source.keys.includes(id)){
+    message('Undo the staged replacement before choosing alternatives for it.',true);
+    return;
+  }
   target=id;
   $('candidateSearch').value='';
   $('candidateHeading').textContent=id?'Replace · '+track(id).title:'Add tracks';
@@ -237,6 +242,7 @@ async function searchCandidates(){
       chosen[t.id]=t;
       const row=el('div',undefined,'item'),meta=el('div',undefined,'meta');
       meta.append(el('strong',t.title),el('small',t.artist+' · '+t.album));
+      if(t.evidence?.length)meta.append(el('small','Matched on '+t.evidence.join(', ')));
       row.append(meta);
       row.append(el('span',t.match===null?'unscored':Math.round(t.match*100)+'%','score'));
       row.append(button('▶',()=>listen(t.id)));
@@ -278,6 +284,7 @@ async function loadPlaylist(){
     const flags=$('profileFlags');flags.replaceChildren();
     for(const f of source.flags)flags.append(el('span',f,'pill flag'));
     if(!source.yaml_in_sync)flags.append(el('span','Plex differs from YAML','pill flag'));
+    if(source.description)flags.append(el('span',source.description,'pill'));
     if(source.profile.confidence==='limited')flags.append(el('span','Limited audio coverage','pill flag'));
     $('trackSearch').value='';$('trackFilter').value='all';
     $('candidateSearch').value='';$('candidateList').replaceChildren();
@@ -288,6 +295,17 @@ async function loadPlaylist(){
 }
 $('playlist').onchange=()=>{if(actions.length&&!confirm('Discard staged changes?')){$('playlist').value=source?.name||'';return;}loadPlaylist()};
 $('reload').onclick=()=>{if(actions.length&&!confirm('Discard staged changes?'))return;loadPlaylist()};
+$('refreshLibrary').onclick=async()=>{
+  if(actions.length&&!confirm('Discard staged changes and refresh the library?'))return;
+  $('refreshLibrary').disabled=true;
+  message('Indexing complete Plex library…');
+  try{
+    const result=await post('/api/curation/library/refresh',{});
+    message('Plex library indexed · '+result.tracks+' tracks');
+    if(source)await loadPlaylist();
+  }catch(e){message(e.message,true)}
+  finally{$('refreshLibrary').disabled=false}
+};
 $('trackSearch').oninput=()=>{filteredPage=0;renderTracks()};
 $('trackFilter').onchange=()=>{filteredPage=0;renderTracks()};
 $('prevTracks').onclick=()=>{filteredPage--;renderTracks()};
