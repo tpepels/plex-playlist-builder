@@ -30,7 +30,8 @@ jobs:
             tests/test_curation_stages_3_4_api.py \
             tests/test_curation_real_errors.py \
             tests/test_playlist_generation.py \
-            tests/test_generation_publish.py
+            tests/test_generation_publish.py \
+            tests/test_generation_api.py
       - name: Python tests
         run: python -m pytest -q
       - name: Browser JavaScript syntax
