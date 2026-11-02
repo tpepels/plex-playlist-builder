@@ -521,3 +521,25 @@ test("menu keeps imports, cover ZIP and TSV exports reachable without triggering
   assert.equal(h.calls.some(x=>/import-config|sync-pending/.test(x)),false);
   assert.equal(h.$("navigationPanel").hidden,false);
 });
+
+
+test("navigation drawer traps keyboard focus and does not expose hidden content", async () => {
+  const h=makeHarness();
+  await new Promise(resolve=>setImmediate(resolve));
+  const first=fakeElement(),last=fakeElement();
+  first.getClientRects=()=>[{}];
+  last.getClientRects=()=>[{}];
+  h.$("navigationPanel").querySelectorAll=()=>[first,last];
+  h.$("navigationToggle").onclick();
+  let prevented=0;
+  h.document.activeElement=h.$("navigationPanel");
+  h.document.onkeydown({key:"Tab",shiftKey:true,preventDefault(){prevented++}});
+  assert.equal(last.focused,true);
+  assert.equal(prevented,1);
+  h.document.activeElement=last;
+  h.document.onkeydown({key:"Tab",shiftKey:false,preventDefault(){prevented++}});
+  assert.equal(first.focused,true);
+  assert.equal(prevented,2);
+  h.$("navigationClose").onclick();
+  assert.equal(h.$("navigationPanel").hidden,true);
+});
