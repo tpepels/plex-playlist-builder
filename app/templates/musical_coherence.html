@@ -53,6 +53,7 @@ table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--li
   <div class="controls">
     <button id="refresh">Refresh cached report</button>
     <button id="sync">Sync AudioMuse analysis</button>
+    <button id="stopSync" type="button" hidden>Stop after current batch</button>
   </div>
   <p id="status" role="status" aria-live="polite">Loading cache…</p>
   <div id="metrics" class="metrics"></div>
@@ -221,22 +222,34 @@ refreshAnalysisStatus();
 $('refresh').addEventListener('click', load);
 $('filter').addEventListener('input', render);
 $('visibility').addEventListener('change', render);
+let stopSyncRequested = false;
+$('stopSync').addEventListener('click', () => { stopSyncRequested = true; });
 $('sync').addEventListener('click', async () => {
   $('sync').disabled = true;
+  $('stopSync').hidden = false;
+  stopSyncRequested = false;
   $('status').className = '';
-  $('status').textContent = 'Synchronizing analyzed tracks from AudioMuse. Your playlists will not change…';
+  $('status').textContent = 'Synchronizing AudioMuse data in batches; no playlists will change…';
   try {
-    const data = await request('/api/audiomuse/sync', {method: 'POST'});
+    let data;
+    let rounds = 0;
+    do {
+      data = await request('/api/audiomuse/sync', {method: 'POST'});
+      rounds += 1;
+      $('status').textContent = 'Caching AudioMuse: ' + data.cached + ' of ' +
+        data.available + ' analyzed tracks; ' + data.pending + ' pending. Batch ' + rounds + '.';
+    } while (!data.complete && !stopSyncRequested && rounds < 120);
     await load();
-    $('status').textContent = (data.complete ? 'Sync complete' : 'Partial sync — click Sync again') +
+    $('status').textContent = (data.complete ? 'Sync complete' :
+      stopSyncRequested ? 'Sync paused' : 'Batch limit reached; click Sync again') +
       ': ' + data.cached + ' of ' + data.available + ' analyzed tracks cached; ' +
-      data.new_or_updated + ' updated, ' + data.removed + ' removed; ' +
-      data.pending + ' still pending.';
+      data.pending + ' remaining.';
   } catch (error) {
     $('status').className = 'error';
     $('status').textContent = error.message;
   } finally {
     $('sync').disabled = false;
+    $('stopSync').hidden = true;
   }
 });
 load();
