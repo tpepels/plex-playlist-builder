@@ -160,3 +160,73 @@ def test_missing_explicit_token_file_is_reported(tmp_path, monkeypatch):
     monkeypatch.setenv("AUDIOMUSE_API_TOKEN_FILE", str(tmp_path / "missing"))
     with pytest.raises(RuntimeError, match="does not exist"):
         module.load_api_token()
+
+
+
+def test_sample_selects_spread_of_ids():
+    manifest = {"tracks": [{"id": str(i)} for i in range(100)]}
+    assert module._sample_ids(manifest, 4) == ["0", "25", "50", "75"]
+
+
+def test_verify_sample_uses_bounded_plex_endpoint_and_audio_metadata(monkeypatch):
+    import json
+
+    manifest = {"tracks": [
+        {"id": "101", "fp": "a"},
+        {"id": "102", "fp": "b"},
+        {"id": "103", "fp": "c"},
+    ]}
+    calls = []
+
+    def fake_json(request, *, timeout=30):
+        calls.append(request)
+        if "/api/plex/verify-rating-keys" in request.full_url:
+            assert request.get_method() == "POST"
+            keys = json.loads(request.data.decode())["rating_keys"]
+            assert keys == ["101", "102", "103"]
+            return {"checked": 3, "matched": 3, "results": [
+                {"id": key, "status": "matched", "title": title}
+                for key, title in zip(keys, ["Blue in Green", "Naïma", "Take Five"])
+            ]}
+        assert "/api/sync?" in request.full_url
+        assert "include_embeddings=false" in request.full_url
+        assert request.get_header("Authorization") == "Bearer unit-token"
+        return {"tracks": [
+            {"id": "101", "title": "Blue in Green"},
+            {"id": "102", "title": "Naima"},
+            {"id": "103", "title": "Take Five"},
+        ]}
+
+    monkeypatch.setattr(module, "_request_json", fake_json)
+    r = module.verify_sample(
+        manifest, audiomuse_url="http://127.0.0.1:8098",
+        plex_url="http://127.0.0.1:5051",
+        token="unit-token", sample_size=3,
+    )
+    assert len(calls) == 2
+    assert r["verified"] is True
+    assert r["matched"] == 3
+    assert r["metadata_compared"] == 3
+    assert r["title_mismatches"] == []
+
+
+def test_verify_sample_refuses_missing_and_mismatching_ids(monkeypatch):
+    manifest = {"tracks": [{"id": "1"}, {"id": "2"}]}
+
+    def fake_json(request, *, timeout=30):
+        if "/api/plex/verify-rating-keys" in request.full_url:
+            return {"results": [
+                {"id": "1", "status": "matched", "title": "Known"},
+                {"id": "2", "status": "missing"},
+            ]}
+        return {"tracks": [{"id": "1", "title": "Different"}]}
+
+    monkeypatch.setattr(module, "_request_json", fake_json)
+    r = module.verify_sample(
+        manifest, audiomuse_url="http://audio", plex_url="http://plex",
+        sample_size=2,
+    )
+    assert r["verified"] is False
+    assert r["matched"] == 1
+    assert r["missing"] == [{"id": "2", "status": "missing"}]
+    assert len(r["title_mismatches"]) == 1
