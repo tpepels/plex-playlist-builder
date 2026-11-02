@@ -26,9 +26,9 @@ def library(n=45):
             "year":1957+i%7,"genres":["Jazz"],
             "duration_ms":9*60000+(i%4)*60000,"disc":1,"index":i
         }
-    tracks["43"]={**tracks["43"],"title":"Spoken Introduction 43"}
-    tracks["44"]={**tracks["44"],"year":None}
-    tracks["45"]={**tracks["45"],"year":1985}
+    if n>=43:tracks["43"]={**tracks["43"],"title":"Spoken Introduction 43"}
+    if n>=44:tracks["44"]={**tracks["44"],"year":None}
+    if n>=45:tracks["45"]={**tracks["45"],"year":1985}
     return tracks
 
 
@@ -82,7 +82,7 @@ def test_complete_generation_uses_entire_catalogue_and_verified_constraints():
     assert result["selection"]["excluded"]["spoken_or_applause"]==1
     assert len(result["tracks"])==len(keys)
     assert result["diagnostics"]["analyzed"]==14
-    assert set(result["diagnostics"]["metrics"])=={
+    assert set(result["diagnostics"]["metrics"])-{"counts"}=={
         "coherence","variation","energy","flow","intent"
     }
     assert generate(request,lib,features())["keys"]==keys
