@@ -46,6 +46,15 @@ dialog::backdrop{background:#000a}#planChanges{max-height:250px;overflow:auto;co
 audio{width:100%;height:35px;margin-top:8px}
 [hidden]{display:none!important}
 @media(max-width:850px){.columns{grid-template-columns:1fr}.scroll{max-height:450px}main{padding:12px}.row{flex-wrap:wrap}}
+
+.intent-grid{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:9px;margin:10px 0}
+.intent-grid label{display:flex;flex-direction:column;gap:3px;color:var(--muted);font-size:12px}
+.intent-grid input,.intent-grid select{width:100%}
+#identityPanel{border-top:1px solid var(--line);margin-top:12px;padding-top:10px}
+#identityPanel>summary{cursor:pointer;font-size:13px;color:var(--accent)}
+#identitySource{color:var(--muted);font-size:11px}
+#identityEvidence{font-size:11px;color:var(--muted);margin:7px 0}
+@media(max-width:650px){.intent-grid{grid-template-columns:repeat(2,minmax(120px,1fr))}}
 </style>
 </head>
 <body><main>
@@ -61,6 +70,31 @@ audio{width:100%;height:35px;margin-top:8px}
   <div id="profile" hidden>
     <div id="metrics" class="metrics"></div>
     <div id="profileFlags"></div>
+    <details id="identityPanel">
+      <summary>Musical identity <span id="identitySource"></span></summary>
+      <div class="intent-grid">
+        <label style="grid-column:1/-1">Purpose <input id="intentPurpose" maxlength="400" placeholder="What should this playlist feel like?"></label>
+        <label style="grid-column:span 2">Styles (comma separated) <input id="intentStyles" maxlength="400" placeholder="jazz, soul, ambient"></label>
+        <label style="grid-column:span 2">Moods (comma separated) <input id="intentMoods" maxlength="400" placeholder="relaxed, warm, intimate"></label>
+        <label>Variation <select id="intentVariation">
+          <option value="focused">Focused</option><option value="balanced">Balanced</option><option value="eclectic">Eclectic</option>
+        </select></label>
+        <label>Energy <select id="intentEnergy">
+          <option value="adaptive">Adaptive</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+        </select></label>
+        <label>Sequence <select id="intentFlow">
+          <option value="smooth">Smooth</option><option value="arc">Energy arc</option><option value="varied">Varied</option>
+        </select></label>
+        <label>Live recordings <select id="intentLive">
+          <option value="neutral">Neutral</option><option value="prefer">Prefer</option><option value="avoid">Avoid</option>
+        </select></label>
+      </div>
+      <div class="row">
+        <span id="identityEvidence"></span>
+        <div class="controls"><button id="resetIdentity" class="small" type="button">Use inferred</button>
+        <button id="saveIdentity" class="small primary" type="button">Save identity</button></div>
+      </div>
+    </details>
   </div>
 </section>
 <div id="workspace" hidden>
@@ -137,7 +171,14 @@ function currentKeys(){
   const arr=source.keys.slice();
   for(const action of actions){
     const k=action.track_id, newId=action.candidate_id;
-    if(action.type==='add'){if(!arr.includes(newId))arr.push(newId)}
+    if(action.type==='add'&&!arr.includes(newId)){
+      if(!('after_id' in action))arr.push(newId);
+      else if(action.after_id===null)arr.unshift(newId);
+      else {
+        const pos=arr.indexOf(action.after_id);
+        arr.splice(pos<0?arr.length:pos+1,0,newId);
+      }
+    }
     if(action.type==='remove'){const i=arr.indexOf(k);if(i>=0)arr.splice(i,1)}
     if(action.type==='replace'){const i=arr.indexOf(k);if(i>=0)arr[i]=newId}
     if(action.type==='move'){
@@ -156,6 +197,9 @@ function stage(change){
   }
   if(change.type==='replace'&&!before.includes(key)){message('Target missing',true);return;}
   if(change.type==='remove'&&!before.includes(key)){message('Track missing',true);return;}
+  if(change.type==='add'&&'after_id' in change&&change.after_id!==null&&!before.includes(change.after_id)){
+    message('Insertion anchor is missing. Refresh recommendations.',true);return;
+  }
   actions.push(change);
   const after=currentKeys();
   if(!after.length){actions.pop();message('Playlist cannot be empty',true);return;}
@@ -244,11 +288,15 @@ async function searchCandidates(){
       const row=el('div',undefined,'item'),meta=el('div',undefined,'meta');
       meta.append(el('strong',t.title),el('small',t.artist+' · '+t.album));
       if(t.evidence?.length)meta.append(el('small','Matched on '+t.evidence.join(', ')));
+      if(t.reasons?.length)meta.append(el('div',t.reasons.slice(0,2).join(' · '),'note'));
       row.append(meta);
-      row.append(el('span',t.match===null?'unscored':Math.round(t.match*100)+'%','score'));
+      const quality=el('span',t.match===null?'unscored':Math.round(t.match*100)+'% · '+t.confidence,'score');
+      if(t.factors)quality.title=Object.entries(t.factors).map(([k,v])=>k+': '+(v??'unknown')).join(' · ');
+      row.append(quality);
       row.append(button('▶',()=>listen(t.id)));
       row.append(button(target?'Replace':'Add',()=>stage(target?
-        {type:'replace',track_id:target,candidate_id:t.id}:{type:'add',candidate_id:t.id}), 'small primary'));
+        {type:'replace',track_id:target,candidate_id:t.id}:
+        {type:'add',candidate_id:t.id,...(t.match!==null?{after_id:t.suggested_after_id}:{})}), 'small primary'));
       list.append(row);
     }
     if(!data.candidates.length)list.append(el('p','No candidates found.','smalltext'));
@@ -288,6 +336,7 @@ async function loadPlaylist(){
     if(!source.yaml_in_sync)flags.append(el('span','Plex differs from YAML','pill flag'));
     if(source.description)flags.append(el('span',source.description,'pill'));
     if(source.profile.confidence==='limited')flags.append(el('span','Limited audio coverage','pill flag'));
+    renderIdentity();
     $('trackSearch').value='';$('trackFilter').value='all';
     $('candidateSearch').value='';$('candidateList').replaceChildren();
     renderTracks();renderDraft();
@@ -295,6 +344,66 @@ async function loadPlaylist(){
   }catch(e){source=null;$('workspace').hidden=true;$('profile').hidden=true;message(e.message,true)}
   finally{busy=false}
 }
+function renderIdentity(){
+  const current=source?.identity;
+  if(!current)return;
+  const i=current.values;
+  $('identitySource').textContent='· '+current.source;
+  $('intentPurpose').value=i.purpose;
+  $('intentStyles').value=i.styles.join(', ');
+  $('intentMoods').value=i.moods.join(', ');
+  $('intentVariation').value=i.variation;
+  $('intentEnergy').value=i.energy;
+  $('intentFlow').value=i.flow;
+  $('intentLive').value=i.live;
+  $('resetIdentity').disabled=current.source!=='manual';
+  $('identityEvidence').textContent='Based on '+current.evidence.basis.join(' + ')+
+    ' · '+current.evidence.analyzed_tracks+' analyzed tracks. Verify inferred choices.';
+}
+function editedIdentity(){
+  const tags=id=>$(id).value.split(',').map(t=>t.trim().toLowerCase()).filter(Boolean);
+  return {
+    purpose:$('intentPurpose').value.trim(),
+    styles:tags('intentStyles'),moods:tags('intentMoods'),
+    variation:$('intentVariation').value,energy:$('intentEnergy').value,
+    flow:$('intentFlow').value,live:$('intentLive').value
+  };
+}
+$('saveIdentity').onclick=async()=>{
+  if(!source)return;
+  $('saveIdentity').disabled=true;
+  try{
+    const response=await api('/api/curation/identity/'+encodeURIComponent(source.name),{
+      method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({values:editedIdentity(),revision:source.identity.revision})
+    });
+    source.identity={...source.identity, ...response};
+    renderIdentity();
+    await searchCandidates();
+    message('Playlist identity saved. Recommendations updated.');
+  }catch(e){message(e.message,true)}
+  finally{$('saveIdentity').disabled=false}
+};
+$('resetIdentity').onclick=async()=>{
+  if(!source||source.identity.source!=='manual')return;
+  $('resetIdentity').disabled=true;
+  try{
+    await post('/api/curation/identity/'+encodeURIComponent(source.name)+'/reset',
+      {revision:source.identity.revision});
+    source.identity={
+      ...source.identity,
+      source:'inferred',
+      values:source.identity.suggested,
+      revision:null
+    };
+    // The server returns the exact reset revision, used by future updates.
+    source.identity=await api('/api/curation/identity/'+encodeURIComponent(source.name));
+    renderIdentity();
+    await searchCandidates();
+    message('Inferred identity restored.');
+  }catch(e){message(e.message,true)}
+  finally{$('resetIdentity').disabled=source?.identity?.source!=='manual'}
+};
 $('playlist').onchange=()=>{if(actions.length&&!confirm('Discard staged changes?')){$('playlist').value=source?.name||'';return;}loadPlaylist()};
 $('reload').onclick=()=>{if(actions.length&&!confirm('Discard staged changes?'))return;loadPlaylist()};
 $('refreshLibrary').onclick=async()=>{
