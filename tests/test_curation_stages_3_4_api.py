@@ -139,3 +139,20 @@ def test_cross_genre_validation_uses_plex_not_synthetic_assumptions(
     assert results["human_validation_complete"] is False
     assert next(r for r in results["categories"] if r["category"]=="jazz")["tracks"]==6
     assert next(r for r in results["categories"] if r["category"]=="ambient")["status"]=="missing_in_plex"
+
+
+
+def test_merged_routes_support_playlist_titles_containing_slashes():
+    from starlette.routing import Match
+    for method,path,expected_name in [
+       ("GET","/api/curation/playlist/Still / Minimal","Still / Minimal"),
+       ("GET","/api/curation/identity/Still / Minimal","Still / Minimal"),
+       ("PUT","/api/curation/identity/Still / Minimal","Still / Minimal"),
+       ("POST","/api/curation/identity/Still / Minimal/reset","Still / Minimal"),
+       ("GET","/api/curation/validation/Still / Minimal","Still / Minimal"),
+    ]:
+        scope={"type":"http","method":method,"path":path,"root_path":""}
+        matching=[route for route in main.app.routes
+                  if route.matches(scope)[0] == Match.FULL]
+        assert matching, (method,path)
+        assert matching[0].matches(scope)[1]["path_params"]["name"]==expected_name
