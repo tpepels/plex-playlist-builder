@@ -44,15 +44,21 @@ from .audiomuse_coherence import coherence_report
 from .audiomuse_analysis import AudioMuseControlError, analysis_status, start_analysis
 from .playlist_curator import (
     CurationConflict, assess, candidates as curation_candidates, catalogue,
-    resolve_items, signature,
+    resolve_items, signature, compute_operations,
 )
-from .curation_apply import find_live, current_keys, change_plan, apply_approved
+from .curation_apply import find_live, current_items, current_keys, change_plan, apply_approved
 from .curation_library import get_library, metadata as curation_library_metadata
 from .playlist_identity import (
     IdentityConflict, identity as playlist_identity, get_override,
     put_override, delete_override, revision as identity_revision,
 )
 from .playlist_ranking import rank_candidates
+from .curation_impact import compare as compare_curations
+from .curation_validation import (
+    categories as validation_categories, summary as validation_summary,
+    reviews as validation_reviews, record as record_validation,
+    calibration as validation_calibration, feedback_for as validation_feedback,
+)
 from fastapi.responses import StreamingResponse
 from .duplicates import find_duplicates, duplicates_tsv
 from .isc_discovery import fetch_catalog, compare_library
@@ -897,6 +903,19 @@ class CurationPlanBody(BaseModel):
     version: str
     snapshot: str
     operations: list[dict]
+    identity_revision: str | None = None
+
+
+class ValidationBody(BaseModel):
+    name: str
+    target_id: str | None = None
+    candidate_id: str
+    verdict: Literal["accept", "reject"]
+    issue: Literal["none","genre","energy","mood","flow","variety","recording","metadata","other"]
+    note: str = ""
+    listened: bool = False
+    identity_revision: str
+    snapshot: str
 
 
 class IdentityUpdateBody(BaseModel):
@@ -1049,14 +1068,62 @@ def get_curation_candidates(name: str, target: str = "", q: str = "",
                                    before, library, features_for({
                                        key: cache[key] for key in before if key in cache
                                    }))
-        return {"candidates": rank_candidates(before, library, cache, intent,
-                           target=target or None, query=q, limit=limit),
+        calibration = validation_calibration(name, intent["values"]["variation"],
+                                             current_identity_revision=intent["revision"])
+        recommendations = rank_candidates(
+            before, library, cache, intent, target=target or None,
+            query=q, limit=limit, weights=calibration["weights"],
+            feedback=validation_feedback(name, intent["revision"]))
+        # Compute the full paired impact for EVERY visible recommendation.
+        # Avoid decoding the whole AudioMuse cache separately for each.
+        impact_ids = set(before) | {row["id"] for row in recommendations}
+        decoded = features_for({key:cache[key] for key in impact_ids if key in cache})
+        for row in recommendations:
+            after = list(before)
+            if target:
+                after[after.index(target)] = row["id"]
+            elif row["match"] is not None:
+                anchor = row.get("suggested_after_id")
+                after.insert(after.index(anchor)+1 if anchor is not None else 0, row["id"])
+            else:
+                after.append(row["id"])
+            row["impact"] = compare_curations(before, after, library, decoded,
+                                              intent["values"], decoded=True)
+        return {"candidates": recommendations,
                 "target":target or None, "identity_source":intent["source"],
-                "identity_revision":intent["revision"]}
+                "identity_revision":intent["revision"],"calibration":calibration}
     except CurationConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Candidate search unavailable.") from exc
+
+
+@app.post("/api/curation/impact")
+def curation_impact(body: CurationPlanBody):
+    """Compare the exact staged sequence against the live playlist, read-only."""
+    try:
+        _, _, library, definitions, _, before = _curation_context(body.name)
+        if fingerprint(definitions) != body.version or signature(before) != body.snapshot:
+            raise CurationConflict("Playlist changed. Reload before comparison.")
+        if len(body.operations) > 100:
+            raise CurationConflict("Too many staged changes.")
+        after = compute_operations(before, body.operations, library)
+        cache, _ = cached_features()
+        from .playlist_curator import features_for
+        intent = playlist_identity(body.name, str(definitions[body.name].get("description") or ""),
+                                   before, library, features_for({
+                                       key:cache[key] for key in before if key in cache
+                                   }))
+        if body.identity_revision is not None and body.identity_revision!=intent["revision"]:
+            raise CurationConflict("Musical identity changed. Reload before comparison.")
+        ids=set(before)|set(after)
+        decoded=features_for({key:cache[key] for key in ids if key in cache})
+        result=compare_curations(before,after,library,decoded,intent["values"],decoded=True)
+        result["identity_revision"]=intent["revision"]
+        result["snapshot"]=body.snapshot
+        return result
+    except (CurationConflict,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
 @app.post("/api/curation/plan")
@@ -1065,8 +1132,11 @@ def curation_plan(body: CurationPlanBody):
         _, _, library, definitions, _, before = _curation_context(body.name)
         if fingerprint(definitions) != body.version or signature(before) != body.snapshot:
             raise CurationConflict("Playlist changed. Reload before reviewing.")
-        return change_plan(before, body.operations, library, name=body.name,
+        plan = change_plan(before, body.operations, library, name=body.name,
                            version=body.version, snapshot=body.snapshot)
+        report = curation_impact(body)
+        plan["impact"] = report
+        return plan
     except CurationConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -1077,7 +1147,14 @@ def curation_apply(body: CurationApplyBody, request: Request):
     if not origin or origin.rstrip("/") != str(request.base_url).rstrip("/"):
         raise HTTPException(status_code=403, detail="Same-origin browser request required.")
     try:
-        plex, _, library, _, _, _ = _curation_context(body.name)
+        plex, _, library, definitions, _, before = _curation_context(body.name)
+        if body.identity_revision is not None:
+            cache,_=cached_features()
+            from .playlist_curator import features_for
+            current = playlist_identity(body.name,str(definitions[body.name].get("description") or ""),
+                    before,library,features_for({k:cache[k] for k in before if k in cache}))
+            if current["revision"]!=body.identity_revision:
+                raise CurationConflict("Musical identity changed after preview. Review the plan again.")
         return apply_approved(
             plex, body.name, version=body.version, snapshot=body.snapshot,
             operations=body.operations, plan_id=body.plan_id,
@@ -1088,6 +1165,117 @@ def curation_apply(body: CurationApplyBody, request: Request):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/curation/validation")
+def get_curation_validation():
+    """Read-only real Plex playlist coverage and cross-genre review queue."""
+    definitions=_configured_playlists()
+    valid={name:spec for name,spec in definitions.items()
+           if name not in DEFAULT_HIDDEN_PLAYLIST_TITLES}
+    descriptions={name:str(spec.get("description") or "") for name,spec in valid.items()}
+    styles={}
+    for name in valid:
+        setting=get_override(name)
+        if setting: styles[name]=setting["styles"]
+    samples=validation_categories(valid.keys(),descriptions,styles)
+    stats=validation_summary(valid)
+    try:
+        plex,music=connect()
+        library=get_library(music)
+        features,_=cached_features()
+        live={p.title:p for p in plex.playlists(playlistType="audio")
+              if not getattr(p,"smart",False)}
+    except Exception as exc:
+        raise HTTPException(status_code=503,detail="Could not read Plex for validation.") from exc
+    from .playlist_curator import features_for
+    rows=[]
+    for kind,name in samples.items():
+        if not name:
+            rows.append({"category":kind,"status":"no_matching_playlist",
+                         "name":None,"reviewed":0})
+            continue
+        playlist=live.get(name)
+        if not playlist:
+            rows.append({"category":kind,"name":name,"status":"missing_in_plex",
+                         **stats[name]})
+            continue
+        ids=[str(t.ratingKey) for t in current_items(playlist)]
+        if not ids or any(k not in library for k in ids):
+            rows.append({"category":kind,"name":name,"status":"unresolved_in_catalogue",
+                         **stats[name]})
+            continue
+        local={k:features[k] for k in ids if k in features}
+        intent=playlist_identity(name,descriptions[name],ids,library,features_for(local))
+        assessment=assess(name,{"items":[{"rating_key":k} for k in ids]},
+                          library,local,intent["values"])
+        rows.append({
+            "category":kind,"name":name,"status":"needs_human_review",
+            "tracks":len(ids),"audio_coverage":assessment["profile"]["coverage"],
+            "identity_source":intent["source"],
+            "confidence":assessment["profile"]["confidence"],
+            "possible_outliers":len(assessment["reviews"]),
+            **stats[name],
+        })
+    total=sum(row.get("reviewed",0) for row in rows)
+    return {"categories":rows,"reviewed_total":total,
+            "audited_groups":sum(bool(row.get("name")) for row in rows),
+            "human_validation_complete":all(
+                row.get("reviewed",0)>0 and row.get("status")=="needs_human_review"
+                for row in rows),
+            "notice":"Automatically generated checks are not listening judgments. A human must audition and label recommendations."}
+
+
+@app.get("/api/curation/validation/{name}")
+def get_playlist_validation(name: str):
+    if name not in _configured_playlists() or name in DEFAULT_HIDDEN_PLAYLIST_TITLES:
+        raise HTTPException(status_code=404,detail="Unknown playlist.")
+    definitions=_configured_playlists()
+    val=validation_reviews(name)
+    setting=get_override(name)
+    return {"playlist":name,"reviews":val,"summary":validation_summary([name])[name],
+            "identity_source":"manual" if setting else "inferred"}
+
+
+@app.post("/api/curation/validation/review")
+def submit_playlist_validation(body: ValidationBody,request: Request):
+    origin=request.headers.get("origin")
+    if not origin or origin.rstrip("/")!=str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403,detail="Same-origin browser request required.")
+    try:
+        _, _, library, definitions, _, before=_curation_context(body.name)
+        if signature(before)!=body.snapshot:
+            raise CurationConflict("Plex playlist changed since listening. Refresh.")
+        if body.candidate_id not in library or body.candidate_id in before:
+            raise CurationConflict("Candidate is absent from the catalogue or already in playlist.")
+        if body.target_id and body.target_id not in before:
+            raise CurationConflict("Original track no longer belongs to this playlist.")
+        cache,_=cached_features()
+        from .playlist_curator import features_for
+        intent=playlist_identity(body.name,str(definitions[body.name].get("description") or ""),
+              before,library,features_for({k:cache[k] for k in before if k in cache}))
+        if intent["revision"]!=body.identity_revision:
+            raise CurationConflict("Identity changed since audition. Reload.")
+        # Recompute factual candidate factors server-side. Do not trust
+        # fabricated scores or feature snapshots supplied by a browser.
+        # An individually selected candidate need not be among the top N.
+        # Evaluate it through the same scoring function directly.
+        from .playlist_ranking import _profile_context,_score_candidate
+        ids=set(before)|{body.candidate_id}
+        ff=features_for({k:cache[k] for k in ids if k in cache})
+        ctx=_profile_context(before,library,ff,intent["values"],body.target_id)
+        scored=_score_candidate(body.candidate_id,library[body.candidate_id],
+                  ff.get(body.candidate_id,{}),before,library,ff,intent["values"],
+                  body.target_id,ctx,detailed=True)
+        saved=record_validation(body.name,body.target_id,body.candidate_id,
+                   body.verdict,body.issue,body.note,body.listened,
+                   intent["revision"],body.snapshot,scored["match"],
+                   scored.get("factors",{}))
+        saved["calibration"]=validation_calibration(body.name,intent["values"]["variation"],
+                            current_identity_revision=intent["revision"])
+        return saved
+    except (CurationConflict,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
 @app.get("/api/curation/audio/{track_id}")
