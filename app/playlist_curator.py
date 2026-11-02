@@ -235,7 +235,7 @@ def _profile(keys, lib, ff):
     }
 
 
-def assess(name: str, spec: dict, library: dict, cache: dict) -> dict:
+def assess(name: str, spec: dict, library: dict, cache: dict, intent: dict | None = None) -> dict:
     keys, problems = resolve_items(spec, library)
     ff = features_for(cache)
     profile = _profile(keys, library, ff)
@@ -253,20 +253,24 @@ def assess(name: str, spec: dict, library: dict, cache: dict) -> dict:
     else:
         profile["mean_pairwise_cosine"]=None
     reviews = []
-    # Relative outliers only when the analysis sample is substantial.
+    # Contextual outliers: nearest musical neighbors, NOT the global average.
+    # A deliberately eclectic playlist can contain coherent subgroups.
     if profile["confidence"] == "sufficient":
         scored = []
         for key in embedded:
             candidate = ff[key]
-            rest = _center(embedded, ff, "musicnn", excluded=key)
-            sc = cosine(candidate["musicnn"], rest)
-            if sc is not None:
-                scored.append((key, sc))
-        baseline = sorted(sc for _,sc in scored)
-        median = baseline[len(baseline)//2] if baseline else 0
+            neighbors = [cosine(candidate["musicnn"], ff[other]["musicnn"])
+                         for other in embedded if other != key]
+            neighbors = sorted((v for v in neighbors if v is not None), reverse=True)
+            if neighbors:
+                scored.append((key, sum(neighbors[:3])/min(3,len(neighbors))))
+        baselines = sorted(sc for _,sc in scored)
+        median = baselines[len(baselines)//2] if baselines else 0
+        variation = (intent or {}).get("variation","balanced")
+        threshold = .25 if variation == "eclectic" else .17
         for key, sc in scored:
-            if median-sc >= .12:
-                why = ["Audio character differs from the rest"]
+            if median-sc >= threshold:
+                why = ["Weak match to existing musical subgroups"]
                 en = ff[key]["energy"]
                 if en is not None and profile["energy"] is not None and abs(en-profile["energy"])>.3:
                     why.append("Different energy level")
@@ -276,7 +280,7 @@ def assess(name: str, spec: dict, library: dict, cache: dict) -> dict:
                 if any(abs(ff[key]["mood"][m]-profile["mood"][m])>.35
                        for m in ff[key]["mood"] if m in profile["mood"]):
                     why.append("Different mood")
-                reviews.append({"track_id":key, "reason":why,
+                reviews.append({"track_id":key,"reason":why,
                                 "difference":round(median-sc,3)})
     reviews.sort(key=lambda it:-it["difference"])
     # Long-term playlist-wide flags: informative, not forced genre caps.
