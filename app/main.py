@@ -1255,7 +1255,10 @@ def get_curation_validation_queue(name: str):
                                 ids,library,features_for(local))
         assessed=assess(name,{"items":[{"rating_key":key} for key in ids]},
                         library,local,intent["values"])
-        priority=[item["track_id"] for item in assessed["reviews"][:3]]
+        unusual=[item["id"] for item in assessed["tracks"]
+                 if item["review_flags"]]
+        outliers=[item["track_id"] for item in assessed["reviews"][:3]]
+        priority=list(dict.fromkeys(unusual[:2]+outliers))[:4]
         spread=[ids[round(i*(len(ids)-1)/7)] for i in range(8)]
         chosen=list(dict.fromkeys(priority+spread))
         # Keep a mix of suspected errors and ordinary examples; only 8
@@ -1268,7 +1271,8 @@ def get_curation_validation_queue(name: str):
             reviewed=sum(item["target_id"]==key for item in past)
             targets.append({"id":key, "artist":track["artist"],"title":track["title"],
                             "reviewed":reviewed,
-                            "reason":"contextual outlier" if key in priority else
+                            "reason":"metadata review" if key in unusual else
+                                     "contextual outlier" if key in outliers else
                                      "stratified playlist sample"})
         return {"playlist":name,"targets":targets,
                 "audio_coverage":assessed["profile"]["coverage"],
