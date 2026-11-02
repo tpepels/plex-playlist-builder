@@ -977,6 +977,7 @@ def refresh_curation_catalogue(request: Request):
 # Create-only playlist generation: all edits stay in a durable review draft.
 class GenerationCreateBody(BaseModel):
     prompt: str
+    name: str
     count: int | None = None
     minutes: int | None = None
     identity: dict | None = None
@@ -1033,7 +1034,9 @@ def create_generation(body: GenerationCreateBody,request: Request):
         _,library=_generation_context()
         cached,_=cached_features()
         built=generate_playlist(intent,library,cached)
-        data={"request":intent,"keys":built["keys"],
+        from .generation_publish import _name
+        title=_name(body.name)
+        data={"request":intent,"name":title,"keys":built["keys"],
               "diagnostics":built["diagnostics"],
               "selection":built["selection"],"warnings":built["warnings"]}
         return _generation_payload(create_generation_draft(data),library)
