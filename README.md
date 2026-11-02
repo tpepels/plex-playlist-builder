@@ -18,6 +18,51 @@ A tiny local web service for defining Plex music playlists in YAML, previewing m
 - Exports recently added music directly as TSV: last X hours (new tracks only) or last N added albums (complete albums), with their Plex rating keys and addition timestamps.
 - Exports all current Plex audio playlists as importable YAML, preserving playlist order and exact Plex rating keys so the file can be uploaded in chat to avoid reusing tracks.
 
+## Playlist Intelligence (curation)
+
+Open **/playlist-intelligence** or use the **Playlist Intelligence** link on
+the manager's main page.
+
+The full feature workflow is available in one screen:
+
+1. Select a saved playlist. The editor reads the actual ordered Plex playlist;
+   it compares its identity and contents against versioned YAML, without writing.
+2. Inspect the descriptive profile, energy/tempo, artist/album diversity,
+   analysis coverage, possible outliers and reasons. Low coverage is explicitly
+   identified, and absence of an embedding is never assigned a fabricated score.
+3. Select a track to search for alternatives, or use **Add** to browse the
+   full Plex library. Search all artist/album/title metadata, compare available
+   MusiCNN, CLAP, energy/tempo and mood features, and listen to Plex audio
+   without exposing the Plex token in the browser.
+4. Stage add, remove, replace or reorder actions. Undo or clear changes.
+   **Review changes** is read-only and shows the exact effect before approval.
+5. Only **Apply to Plex** with explicit approval edits the existing playlist
+   in place. A YAML-version and Plex-order check prevents stale decisions;
+   changes are verified, persisted in the saved YAML and marked synchronized.
+   The playlist identity and artwork are preserved. Partial failures trigger
+   best-effort rollback with an explicit error if reconciliation is required.
+
+The full Plex catalogue is retrieved via paginated search once and stored
+atomically in the existing data volume at /data/curation-library.json.
+It is reused for an hour and survives container restarts. **Re-index library**
+forces an explicit full rescan. AudioMuse continues running independently and
+the local embedding cache is read-only to this workflow.
+
+The phase has no automatic playlist modifications. Every change requires a
+per-playlist review and a distinct explicit approval.
+
+Short offline checks:
+
+\`\`\`bash
+python3 -m pytest -q tests/test_playlist_curator.py tests/test_playlist_intelligence_api.py tests/test_curation_library.py
+node tests/test_playlist_intelligence_ui.mjs
+\`\`\`
+
+A live Plex integration check should include preview, comparing a replacement,
+approving a change to a test playlist, verifying its ID/cover/contents and
+then reverting via the same interface. Live testing changes real Plex data and
+must be performed only after the user approves the specific changes.
+
 ## Install into your existing media-stack
 
 Assuming your compose file is in the directory that contains your other project directories:
