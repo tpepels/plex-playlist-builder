@@ -132,3 +132,28 @@ def test_validation_summary_reports_uncertainty_without_retroactive_success(
     assert len(state["acceptance_interval_95"])==2
     assert state["acceptance_interval_95"][0]<.75<state["acceptance_interval_95"][1]
     assert state["distinct_targets"]==4
+
+
+
+def test_stale_playlist_snapshots_are_excluded_from_learning_and_acceptance(
+    tmp_path,monkeypatch
+):
+    monkeypatch.setattr(validation,"FILE",tmp_path/"reviews.sqlite")
+    for i in range(8):
+        validation.record("Jazz",str(i),str(i+10),
+          "accept" if i<4 else "reject","none" if i<4 else "mood",
+          "",True,"same_identity","old_order",.8,
+          {"fit":.8 if i<4 else .3,"flow":.7 if i<4 else .4})
+    old=validation.summary(["Jazz"],{"Jazz":("old_order","same_identity")})["Jazz"]
+    assert old["reviewed"]==8
+    current=validation.summary(["Jazz"],{"Jazz":("new_order","same_identity")})["Jazz"]
+    assert current["reviewed"]==0
+    assert current["reviewed_historical"]==8
+    assert not current["human_validated"]
+    calibration=validation.calibration("Jazz","balanced",
+       current_identity_revision="same_identity",
+       current_playlist_snapshot="new_order")
+    assert calibration["reviewed"]==0
+    assert calibration["trained"] is False
+    assert validation.feedback_for("Jazz","same_identity","new_order")=={}
+    assert len(validation.feedback_for("Jazz","same_identity","old_order"))==8
