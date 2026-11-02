@@ -213,6 +213,46 @@ def categories(names, descriptions=None, manual_styles=None):
     return selected
 
 
+def portfolio(names,descriptions=None,manual_styles=None,per_category=2):
+    """Select diverse existing cases per family, with no invented playlists."""
+    if not 1<=per_category<=5:raise ValueError("per_category must be 1–5")
+    descriptions=descriptions or {}
+    manual_styles=manual_styles or {}
+    pools={"jazz":[],"ambient":[],"soul":[],"mixed":[]}
+    for name in sorted(names):
+        source=normalize(name+" "+str(descriptions.get(name,"")))
+        words=set(source.split())
+        styles=set(normalize(x) for x in manual_styles.get(name,[]))
+        if "jazz" in words or "jazz" in styles:pools["jazz"].append(name)
+        if "ambient" in words or "ambient" in styles:pools["ambient"].append(name)
+        if "soul" in words or "soul" in styles:pools["soul"].append(name)
+        if ("mix" in words or "mixed" in words or "fusion" in words
+                or "eclectic" in words or "same room" in source
+                or len(styles)>=2 or sum(x in words for x in
+                ("jazz","soul","ambient","beats","classical"))>=2):
+            pools["mixed"].append(name)
+    result={kind:[] for kind in pools}
+    used=set()
+    for kind in ("mixed","ambient","soul","jazz"):
+        for _ in range(per_category):
+            available=[name for name in pools[kind] if name not in used]
+            if not available:break
+            selected=result[kind]
+            if selected:
+                def overlap(name):
+                    tokens=set(normalize(name).split())
+                    return max(len(tokens & set(normalize(prev).split())) /
+                               max(1,len(tokens | set(normalize(prev).split())))
+                               for prev in selected)
+                # Prefer a different context instead of two near-duplicate titles.
+                choice=min(available,key=lambda name:(overlap(name),name))
+            else:
+                choice=available[0]
+            used.add(choice)
+            selected.append(choice)
+    return result
+
+
 def summary(playlists):
     """Validation coverage across actual playlist names, not synthetic fixtures."""
     result={}
@@ -222,6 +262,8 @@ def summary(playlists):
         b=sum(r["verdict"]=="reject" for r in records)
         issues=dict(Counter(r["issue"] for r in records if r["verdict"]=="reject"))
         result[name]={"reviewed":len(records),"accepted":a,"rejected":b,
-                      "issue_counts":issues,"human_validated":len(records)>0,
-                      "acceptance_rate":round(a/len(records),3) if records else None}
+                      "issue_counts":issues,"human_validated":len(records)>=8,
+                      "acceptance_rate":round(a/len(records),3) if records else None,
+                      "acceptance_interval_95":_wilson(a,len(records)),
+                      "distinct_targets":len({r["target_id"] for r in records})}
     return result
