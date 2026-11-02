@@ -143,7 +143,8 @@ and show the active/main-task status:
 - This integration cannot start clustering or touch Plex playlists.
 - Once analysis progresses or completes, press **Sync AudioMuse analysis**
   to refresh the local feature cache. Each sync transfers at most 500 changed
-  tracks; repeat while \`pending\` remains nonzero.
+  tracks per request. One click now continues through successive batches,
+  with visible progress and a Stop-after-current-batch option.
 - No scheduled execution is enabled. Starting a whole-library analysis requires
   the deliberate click and confirmation.
 
@@ -207,11 +208,11 @@ Linux user's home directory is not automatically visible inside Docker.
    album-only YAML entries) get an exploratory pairwise cosine score and ranked
    relative outliers. No auto-remove, auto-add, or Plex sync is done.
 
-Each button press transfers at most **500 changed tracks** to keep requests bounded.
-The result shows `pending` and `complete`; if pending is nonzero, click
-Sync again. The initial 336-track library fits in one press. As the analysis
-library grows, this will become a scheduled/incremental background sync in
-a later phase, not a single long-running web request.
+Each internal API request processes at most **500 changed tracks**. The UI
+repeats these requests in one click until the cache is caught up, or until you
+click **Stop after current batch**. Completed batches persist so the next
+click resumes from the remaining tracks. A future improvement is server-side
+scheduled synchronization independent of an open browser.
 
 The source files are app/audiomuse_client.py (sync + SQLite),
 app/audiomuse_coherence.py (scoring), and a dedicated read-only review
