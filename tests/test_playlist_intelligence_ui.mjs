@@ -20,6 +20,13 @@ for(const path of [
 for(const func of ['chooseTarget','renderTracks','stage','listen','renderDraft']){
   assert(script.includes('function '+func+'('),'Missing function: '+func);
 }
+for(const id of ['intentPurpose','intentStyles','intentMoods','intentVariation',
+                  'intentEnergy','intentFlow','intentLive','saveIdentity','resetIdentity']) {
+  assert(ids.has(id),'Missing identity editor field: '+id);
+}
+assert(script.includes('/api/curation/identity/'),'Identity persistence not integrated');
+assert(script.includes('after_id:t.suggested_after_id'),'Missing context-aware insertion');
+assert(script.includes('t.confidence'),'Missing candidate confidence');
 assert(script.includes('approved:true'),'Explicit approval required.');
 assert(src.includes('<dialog id="approval"'),'Missing preview dialog.');
 console.log('Playlist Intelligence UI: syntax, DOM and API wiring OK');
