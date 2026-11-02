@@ -11,6 +11,9 @@ services:
       PLEX_VERIFY_SSL: "false"
       PLEX_LIBRARY: Music
       PLAYLISTS_FILE: /data/playlists.yml
+      # Audio analysis is read-only. AudioMuse runs separately on host port 8098.
+      AUDIOMUSE_URL: http://host.docker.internal:8098
+      AUDIOMUSE_API_TOKEN_FILE: /run/secrets/audiomuse_api_token
       # Internal Docker DNS for server-to-server album queue submissions.
       YTDLP_SERVER_URL: http://yt-dlp-server:4545
       # Browser-reachable address shown after a successful enqueue.
@@ -21,4 +24,6 @@ services:
     volumes:
       - /srv/plex-playlist-manager:/data
       - /srv/plex/config:/plex-config:ro
+      # Private token file created by the CLI probe; do not copy into image/Git.
+      - /home/tom/.config/plex-playlist-manager/audiomuse-api-token:/run/secrets/audiomuse_api_token:ro
     restart: unless-stopped
