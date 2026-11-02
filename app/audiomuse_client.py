@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -101,7 +102,7 @@ def synchronize() -> dict:
     """Retrieve changed analysis records atomically; never touch Plex or YAML."""
     url, token = _settings()
     index = _get_index(url, token)
-    with _open_cache() as conn:
+    with closing(_open_cache()) as conn:
         stored = dict(conn.execute("SELECT track_id, fp FROM audio_features"))
         changed = [key for key, fp in index.items() if stored.get(key) != fp]
         removed = [key for key in stored if key not in index]
