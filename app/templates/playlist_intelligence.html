@@ -271,6 +271,8 @@ function appendTrackCard(root,id,idx,keys){
   const meta=el('div',undefined,'meta');
   meta.append(el('strong',t.title),el('small',t.artist+(t.album?' · '+t.album:'')));
   if(t.review)meta.append(el('div',t.review.reason.join(' · '),'note'));
+  if(t.review_flags?.length)meta.append(el('div',
+    t.review_flags.map(x=>x.message).join(' · '),'note'));
   if(t.transition)meta.append(el('div',t.transition,'note'));
   item.append(meta);
   if(t.energy!==null&&t.energy!==undefined)item.append(el('span','E '+Number(t.energy).toFixed(2),'score'));
@@ -488,6 +490,8 @@ async function searchCandidates(){
       meta.append(el('strong',t.title),el('small',t.artist+' · '+t.album));
       if(t.evidence?.length)meta.append(el('small','Matched on '+t.evidence.join(', ')));
       if(t.reasons?.length)meta.append(el('div',t.reasons.slice(0,2).join(' · '),'note'));
+      if(t.review_flags?.length)meta.append(el('div',
+         t.review_flags.map(x=>x.message).join(' · '),'note'));
       if(t.impact)meta.append(el('span',showDelta(t.impact,true),'candidate-impact'));
       if(t.human_review)meta.append(el('small','Your previous verdict: '+t.human_review.verdict));
       row.append(meta);
