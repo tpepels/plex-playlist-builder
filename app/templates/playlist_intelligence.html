@@ -173,6 +173,7 @@ function appendTrackCard(root,id,idx,keys){
   const meta=el('div',undefined,'meta');
   meta.append(el('strong',t.title),el('small',t.artist+(t.album?' · '+t.album:'')));
   if(t.review)meta.append(el('div',t.review.reason.join(' · '),'note'));
+  if(t.transition)meta.append(el('div',t.transition,'note'));
   item.append(meta);
   if(t.energy!==null&&t.energy!==undefined)item.append(el('span','E '+Number(t.energy).toFixed(2),'score'));
   item.append(button('▶',()=>listen(id)));
@@ -276,6 +277,7 @@ async function loadPlaylist(){
     for(const [title,value] of [
       ['tracks',source.profile.tracks],['artists',source.profile.artists],
       ['coverage',Math.round(100*source.profile.coverage)+'%'],
+      ['coherence',source.profile.mean_pairwise_cosine??'—'],
       ['energy',source.profile.energy??'—'],
       ['tempo',source.profile.tempo??'—']
     ]){
@@ -339,7 +341,9 @@ $('approve').onclick=async()=>{
     const result=await post('/api/curation/apply',{...bodyFor(),plan_id:plan.plan_id,approved:true});
     $('approval').close();
     await loadPlaylist();
-    message('Applied to Plex · '+result.after_count+' tracks · ID '+result.playlist_id);
+    message(result.status==='synced'?
+      'Applied to Plex · '+result.after_count+' tracks · ID '+result.playlist_id:
+      'Applied in Plex and YAML; sync-state repair needed',result.status!=='synced');
   }catch(e){message(e.message,true);$('approval').close()}
   finally{busy=false;$('approve').disabled=false;renderDraft()}
 };
