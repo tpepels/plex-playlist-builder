@@ -18,6 +18,8 @@ function fakeElement() {
     replaceChildren(...items) { this.children = items; },
     addEventListener(name, callback) { this["on" + name] = callback; },
     setAttribute(name, value) { this[name] = value; },
+    removeAttribute(name) { delete this[name]; },
+    focus() { this.focused = true; },
     querySelectorAll() { return []; },
   };
 }
@@ -44,7 +46,11 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
   $("duplicateKind").value = "all";
   $("iscStatus").value = "missing";
   $("iscMood").value = "all";
+  $("navigationPanel").hidden = true;
+  $("navigationBackdrop").hidden = true;
   const document = {
+    body: {classList: {toggle() {}}},
+    addEventListener(name, callback) { this["on" + name] = callback; },
     getElementById: $,
     querySelectorAll(query) {
       if (query === ".view-tab") return tabs;
@@ -211,7 +217,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     input.files = [{ name: filename, text: async () => "playlists:\n  Beta: {}\n" }];
     await input.onchange();
   }
-  return { chooseFile, calls, requests, $, tabs, filename, get imported() { return imported; }, get synced() { return synced; } };
+  return { chooseFile, calls, requests, $, tabs, document, filename, get imported() { return imported; }, get synced() { return synced; } };
 }
 
 test("valid file immediately imports and syncs new playlists", async () => {
@@ -450,4 +456,68 @@ test("cover ZIP picker rejects nonzip files before sending requests", async () =
   await h.$("coverZipFile").onchange();
   assert.match(h.$("notice").textContent, /Select a ZIP file/);
   assert.ok(!h.calls.includes("/api/playlist-covers/import-zip"));
+});
+
+
+test("hamburger navigation opens as a drawer and closes via backdrop, Close and Escape", async () => {
+  const h = makeHarness();
+  await new Promise(resolve => setImmediate(resolve));
+  const toggle=h.$("navigationToggle");
+  await toggle.onclick();
+  assert.equal(h.$("navigationPanel").hidden,false);
+  assert.equal(h.$("navigationBackdrop").hidden,false);
+  assert.equal(toggle["aria-expanded"],"true");
+  h.$("navigationBackdrop").onclick();
+  assert.equal(h.$("navigationPanel").hidden,true);
+  assert.equal(toggle["aria-expanded"],"false");
+  toggle.onclick();
+  h.$("navigationClose").onclick();
+  assert.equal(h.$("navigationPanel").hidden,true);
+  toggle.onclick();
+  h.document.onkeydown({key:"Escape",preventDefault() {}});
+  assert.equal(h.$("navigationPanel").hidden,true);
+  assert.equal(toggle.focused,true);
+});
+
+test("all six sections navigate without losing lazy-loading, selecting one section only", async () => {
+  const h = makeHarness();
+  await new Promise(resolve => setImmediate(resolve));
+  const pairs=[
+    ["playlists","Playlists","viewPlaylists"],
+    ["health","Playlist health","viewHealth"],
+    ["duplicates","Duplicate albums","viewDuplicates"],
+    ["newmusic","New music","viewNewmusic"],
+    ["isc","Music discovery","viewIsc"],
+    ["discover","Find album","viewDiscover"]
+  ];
+  for(const [key,title,active] of pairs){
+    h.$("navigationToggle").onclick();
+    const tab=h.tabs.find(t=>t.dataset.view===key);
+    await tab.onclick();
+    assert.equal(h.$("navigationPanel").hidden,true);
+    assert.equal(h.$("activeSectionTitle").textContent,title);
+    assert.equal(tab["aria-current"],"page");
+    for(const [, ,other] of pairs) assert.equal(h.$(other).hidden,other!==active);
+  }
+  assert.ok(h.calls.some(x=>x.startsWith("/api/insights?")));
+  assert.ok(h.calls.some(x=>x.startsWith("/api/duplicates?")));
+  assert.ok(h.calls.some(x=>x.startsWith("/api/discover/isc?")));
+});
+
+test("menu keeps imports, cover ZIP and TSV exports reachable without triggering writes", async () => {
+  const h=makeHarness();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(html, /id="importPack"/);
+  assert.match(html, /id="importCoverZip"/);
+  assert.match(html, /id="coverZipFile"/);
+  assert.match(html, /id="recentForm"[^>]*action="\/api\/library-recent.tsv"/);
+  assert.match(html, /href="\/playlist-intelligence"/);
+  assert.match(html, /href="\/musical-coherence"/);
+  assert.match(html, /href="\/downloads-audit"/);
+  assert.match(html, /href="\/api\/library-albums.tsv"/);
+  assert.match(html, /href="\/api\/library-export.tsv"/);
+  assert.match(html, /href="\/api\/playlists-export.yml"/);
+  h.$("navigationToggle").onclick();
+  assert.equal(h.calls.some(x=>/import-config|sync-pending/.test(x)),false);
+  assert.equal(h.$("navigationPanel").hidden,false);
 });
