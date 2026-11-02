@@ -140,12 +140,15 @@ def _fit_weights(rows,variation):
     return {key:value/total for key,value in weights.items()},evidence
 
 
-def calibration(playlist,variation,*,current_identity_revision=None):
+def calibration(playlist,variation,*,current_identity_revision=None,
+                current_playlist_snapshot=None):
     """Bounded feedback adaptation, gated on leave-one-out discrimination."""
     baseline=dict(SCORE_WEIGHTS[variation])
     rows=[r for r in reviews(playlist) if r["listened"] and
           (current_identity_revision is None or
-           r["identity_revision"]==current_identity_revision)]
+           r["identity_revision"]==current_identity_revision) and
+          (current_playlist_snapshot is None or
+           r["playlist_snapshot"]==current_playlist_snapshot)]
     pos=sum(r["verdict"]=="accept" for r in rows)
     neg=len(rows)-pos
     fitted,evidence=_fit_weights(rows,variation)
@@ -182,9 +185,11 @@ def _wilson(accepted,total,z=1.96):
     return [round(max(0,middle-half),3),round(min(1,middle+half),3)]
 
 
-def feedback_for(playlist, identity_revision):
+def feedback_for(playlist, identity_revision,playlist_snapshot=None):
     return {(r["target_id"],r["candidate_id"]):r for r in reviews(playlist)
-            if r["identity_revision"]==identity_revision}
+            if r["identity_revision"]==identity_revision and
+               (playlist_snapshot is None or
+                r["playlist_snapshot"]==playlist_snapshot)}
 
 
 def categories(names, descriptions=None, manual_styles=None):
@@ -253,15 +258,22 @@ def portfolio(names,descriptions=None,manual_styles=None,per_category=2):
     return result
 
 
-def summary(playlists):
-    """Validation coverage across actual playlist names, not synthetic fixtures."""
+def summary(playlists,active_versions=None):
+    """Report CURRENT reviews, withholding stale playlist/identity judgments."""
     result={}
     for name in playlists:
         records=reviews(name)
+        historical=len(records)
+        if active_versions is not None:
+            current=active_versions.get(name)
+            records=[r for r in records if current is not None and
+                     r["playlist_snapshot"]==current[0] and
+                     r["identity_revision"]==current[1]]
         a=sum(r["verdict"]=="accept" for r in records)
         b=sum(r["verdict"]=="reject" for r in records)
         issues=dict(Counter(r["issue"] for r in records if r["verdict"]=="reject"))
-        result[name]={"reviewed":len(records),"accepted":a,"rejected":b,
+        result[name]={"reviewed":len(records),"reviewed_historical":historical,
+                      "accepted":a,"rejected":b,
                       "issue_counts":issues,"human_validated":len(records)>=8,
                       "acceptance_rate":round(a/len(records),3) if records else None,
                       "acceptance_interval_95":_wilson(a,len(records)),
