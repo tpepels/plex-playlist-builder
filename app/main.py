@@ -38,6 +38,7 @@ from .config_store import (
 from .recent_export import export_recent_tracks
 from .album_export import export_album_names
 from .insights import analyze
+from .audiomuse_verification import verify_plex_track_keys
 from .duplicates import find_duplicates, duplicates_tsv
 from .isc_discovery import fetch_catalog, compare_library
 from .playlist_covers import import_cover_zip, MAX_ZIP_BYTES
@@ -83,6 +84,10 @@ class CurateBody(BaseModel):
     rating_keys: list[str]
     album_key: str
     version_id: str
+
+
+class VerifyPlexTrackKeysBody(BaseModel):
+    rating_keys: list[str]
 
 
 # Cache raw Plex track objects briefly; recalculate playlist metrics each request
@@ -238,6 +243,20 @@ async def import_playlist_cover_archive(request: Request):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except OSError as exc:
         raise HTTPException(status_code=503, detail="Could not save playlist covers to persistent storage.") from exc
+
+
+@app.post("/api/plex/verify-rating-keys")
+def verify_rating_keys(body: VerifyPlexTrackKeysBody):
+    """Bounded read-only ID check; does not export the entire Plex library."""
+    if not 1 <= len(body.rating_keys) <= 25:
+        raise HTTPException(status_code=422, detail="Supply 1-25 track IDs.")
+    try:
+        plex, _ = connect()
+        return verify_plex_track_keys(plex, body.rating_keys)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Plex track verification unavailable") from exc
 
 
 @app.get("/api/library-export.tsv")
