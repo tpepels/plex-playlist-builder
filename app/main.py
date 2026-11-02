@@ -970,11 +970,12 @@ def curation_playlist(name: str):
         ]}
         cached, cache_state = cached_features()
         local_cache = {key: cached[key] for key in before if key in cached}
-        result = assess(name, live_spec, library, local_cache)
-        result["sources"]["audiomuse"] = len(cached)
         from .playlist_curator import features_for
-        result["identity"] = playlist_identity(name, str(definitions[name].get("description") or ""),
-                                                  before, library, features_for(local_cache))
+        intent = playlist_identity(name, str(definitions[name].get("description") or ""),
+                                   before, library, features_for(local_cache))
+        result = assess(name, live_spec, library, local_cache, intent["values"])
+        result["sources"]["audiomuse"] = len(cached)
+        result["identity"] = intent
         yaml_keys, yaml_issues = resolve_items(definitions[name],library)
         result.update({
             "version": fingerprint(definitions),
