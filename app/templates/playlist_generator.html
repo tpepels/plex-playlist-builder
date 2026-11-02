@@ -60,6 +60,17 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
       <label>Target minutes (optional)<input id="minutes" type="number" min="15" max="900" placeholder="No limit"></label>
       <label>Playlist name<input id="name" maxlength="120" placeholder="New playlist name" required></label>
     </div>
+    <details id="advancedBrief" style="margin-top:12px">
+      <summary class="muted" style="cursor:pointer">Advanced musical preferences</summary>
+      <div class="mini-grid" style="margin-top:13px">
+        <label>Styles (optional)<input id="styles" maxlength="240" placeholder="jazz, soul"></label>
+        <label>Moods (optional)<input id="moods" maxlength="240" placeholder="warm, intimate, relaxed"></label>
+        <label>Variation<select id="variation"><option value="">Infer from brief</option><option value="focused">Focused</option><option value="balanced">Balanced</option><option value="eclectic">Eclectic</option></select></label>
+        <label>Energy<select id="energy"><option value="">Infer from brief</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="adaptive">Adaptive</option></select></label>
+        <label>Flow<select id="flow"><option value="">Infer from brief</option><option value="smooth">Smooth</option><option value="arc">Energy arc</option><option value="varied">Varied</option></select></label>
+        <label>Live preference<select id="live"><option value="">Infer from brief</option><option value="prefer">Prefer live</option><option value="neutral">Neutral</option><option value="avoid">Avoid live</option></select></label>
+      </div>
+    </details>
     <footer>
       <button id="restoreDraft" type="button" hidden>Restore last draft</button>
       <button id="generate" type="submit" class="primary">Generate draft</button>
@@ -203,6 +214,13 @@ async function loadDraft(id){
     $('prompt').value=draft.data.request.prompt||$('prompt').value;
     $('count').value=draft.data.request.criteria.count;
     $('minutes').value=draft.data.request.criteria.target_minutes||'';
+    const profile=draft.data.request.identity;
+    $('styles').value=profile.styles.join(', ');
+    $('moods').value=profile.moods.join(', ');
+    $('variation').value=profile.variation;
+    $('energy').value=profile.energy;
+    $('flow').value=profile.flow;
+    $('live').value=profile.live;
     localStorage.setItem('playlistGenerationDraft',draft.id);
     target=null;optionCache={};
     draw();
@@ -285,9 +303,16 @@ $('createForm').onsubmit=async(event)=>{
   if(!name){notify('Name the playlist before generating.',true);return}
   working=true;$('generate').disabled=true;notify('Selecting and sequencing music from Plex…');
   try{
+    const overrides={};
+    const tags=id=>$(id).value.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
+    if($('styles').value.trim())overrides.styles=tags('styles');
+    if($('moods').value.trim())overrides.moods=tags('moods');
+    for(const field of ['variation','energy','flow','live'])
+      if($(field).value)overrides[field]=$(field).value;
     const created=await post('/api/generation/drafts',{
       prompt,name,count:Number($('count').value),
-      minutes:$('minutes').value?Number($('minutes').value):null
+      minutes:$('minutes').value?Number($('minutes').value):null,
+      identity:Object.keys(overrides).length?overrides:null
     });
     draft=created;target=null;optionCache={};
     localStorage.setItem('playlistGenerationDraft',draft.id);
