@@ -7,7 +7,9 @@ import csv
 import io
 import json
 import os
+import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Callable
 from urllib.error import HTTPError, URLError
@@ -148,6 +150,98 @@ def compare(manifest: dict, plex: set[str] | None) -> dict:
     return output
 
 
+
+def _normalise_title(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "")).casefold()
+    normalized = "".join(c for c in normalized if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", " ", normalized).strip()
+
+
+def _sample_ids(manifest: dict, limit: int) -> list[str]:
+    ids = list(dict.fromkeys(str(track["id"]) for track in manifest["tracks"]))
+    if not ids:
+        return []
+    size = min(limit, len(ids))
+    return [ids[i * len(ids) // size] for i in range(size)]
+
+
+def _request_json(request: Request, *, timeout: int = 30) -> dict:
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            result = json.load(response)
+    except HTTPError as exc:
+        raise RuntimeError(f"HTTP {exc.code} calling {request.full_url}") from exc
+    except (URLError, TimeoutError) as exc:
+        raise RuntimeError(f"Cannot reach {request.full_url}: {exc}") from exc
+    if not isinstance(result, dict):
+        raise RuntimeError("Unexpected JSON response (expected object)")
+    return result
+
+
+def verify_sample(manifest: dict, *, audiomuse_url: str, plex_url: str,
+                  token: str = "", cookie: str = "", sample_size: int = 12,
+                  progress: Progress | None = None) -> dict:
+    """Verify a bounded sample against actual Plex tracks; no full-library export."""
+    if not 1 <= sample_size <= 25:
+        raise ValueError("--verify-sample must be between 1 and 25")
+    ids = _sample_ids(manifest, sample_size)
+    if not ids:
+        return {"sampled": 0, "matched": 0, "missing": [], "title_mismatches": [],
+                "metadata_compared": 0, "verified": False,
+                "message": "No analyzed AudioMuse tracks yet"}
+    if progress:
+        progress(f"Verifying {len(ids)} AudioMuse IDs via direct Plex lookups (no full export)")
+    request = Request(
+        plex_url.rstrip("/") + "/api/plex/verify-rating-keys",
+        data=json.dumps({"rating_keys": ids}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    result = _request_json(request)
+    checked = result.get("results")
+    if not isinstance(checked, list) or len(checked) != len(ids):
+        raise RuntimeError("Plex verification returned an unexpected number of rows")
+    by_id = {str(entry["id"]): entry for entry in checked}
+    if len(by_id) != len(ids) or set(by_id) != set(ids):
+        raise RuntimeError("Plex verification result IDs do not match requested IDs")
+    matched = [i for i in ids if by_id[i].get("status") == "matched"]
+    missing = [{"id": i, "status": by_id[i].get("status")} for i in ids if i not in matched]
+    differences = []
+    compared = 0
+    if matched:
+        # Upstream /api/sync?ids=... returns metadata without big embeddings.
+        endpoint = audiomuse_url.rstrip("/") + "/api/sync?" + urlencode({
+            "ids": ",".join(matched), "include_embeddings": "false"
+        })
+        if progress:
+            progress(f"Fetching AudioMuse titles for {len(matched)} matched IDs")
+        details = _request_json(Request(endpoint, headers=auth_headers(token=token, cookie=cookie)))
+        audio_tracks = details.get("tracks")
+        if not isinstance(audio_tracks, list):
+            raise RuntimeError("Unexpected AudioMuse metadata response")
+        by_audio = {str(t.get("id")): t for t in audio_tracks if isinstance(t, dict)}
+        for track_id in matched:
+            audio = by_audio.get(track_id)
+            if not audio:
+                differences.append({"id": track_id, "reason": "AudioMuse metadata missing"})
+                continue
+            audio_title = audio.get("title")
+            plex_title = by_id[track_id].get("title")
+            if audio_title and plex_title:
+                compared += 1
+                if _normalise_title(audio_title) != _normalise_title(plex_title):
+                    differences.append({"id": track_id, "audio_title": audio_title,
+                                        "plex_title": plex_title})
+    return {
+        "sampled": len(ids),
+        "matched": len(matched),
+        "missing": missing,
+        "metadata_compared": compared,
+        "title_mismatches": differences[:15],
+        "verified": len(matched) == len(ids) and compared == len(matched) and not differences,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="http://media-server:8098")
@@ -158,15 +252,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--all", action="store_true", help="Fetch all pages, not just the first")
     parser.add_argument("--manifest-only", action="store_true",
                         help="Skip potentially slow Plex export; verify AudioMuse alone")
+    parser.add_argument("--verify-sample", type=int, nargs="?", const=12,
+                        help="Verify 1-25 AudioMuse IDs directly against Plex (no full export)")
     args = parser.parse_args(argv)
     try:
+        token = load_api_token()
         manifest = get_manifest(
             args.url,
-            token=load_api_token(),
+            token=token,
             cookie=os.environ.get("AUDIOMUSE_COOKIE", ""),
             all_pages=args.all,
             progress=show_progress,
         )
+        if args.verify_sample is not None:
+            if args.plex_tsv:
+                raise ValueError("--verify-sample cannot be combined with --plex-tsv")
+            output = verify_sample(
+                manifest,
+                audiomuse_url=args.url,
+                plex_url=args.plex_url,
+                token=token,
+                cookie=os.environ.get("AUDIOMUSE_COOKIE", ""),
+                sample_size=args.verify_sample,
+                progress=show_progress,
+            )
+            print(json.dumps(output, indent=2, ensure_ascii=False), flush=True)
+            return 0 if output["verified"] else 2
         if args.manifest_only:
             show_progress("Skipping Plex ID comparison (--manifest-only)")
             plex = None
