@@ -152,7 +152,7 @@ def synchronize() -> dict:
 def cached_features() -> tuple[dict[str, dict], dict]:
     if not CACHE_FILE.is_file():
         return {}, {"cached": 0, "last_sync": None}
-    with _open_cache() as conn:
+    with closing(_open_cache()) as conn:
         tracks = {track_id: json.loads(payload)
                   for track_id, payload in conn.execute("SELECT track_id,data FROM audio_features")}
         row = conn.execute("SELECT value FROM metadata WHERE key='last_sync'").fetchone()
