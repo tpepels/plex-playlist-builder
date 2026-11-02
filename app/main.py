@@ -41,6 +41,7 @@ from .insights import analyze
 from .audiomuse_verification import verify_plex_track_keys
 from .audiomuse_client import cached_features, synchronize as synchronize_audiomuse
 from .audiomuse_coherence import coherence_report
+from .audiomuse_analysis import AudioMuseControlError, analysis_status, start_analysis
 from .duplicates import find_duplicates, duplicates_tsv
 from .isc_discovery import fetch_catalog, compare_library
 from .playlist_covers import import_cover_zip, MAX_ZIP_BYTES
@@ -90,6 +91,12 @@ class CurateBody(BaseModel):
 
 class VerifyPlexTrackKeysBody(BaseModel):
     rating_keys: list[str]
+
+class StartAudioMuseAnalysisBody(BaseModel):
+    recent_albums: int
+    confirm_full_library: bool = False
+
+
 
 
 # Cache raw Plex track objects briefly; recalculate playlist metrics each request
@@ -259,6 +266,34 @@ def verify_rating_keys(body: VerifyPlexTrackKeysBody):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Plex track verification unavailable") from exc
+
+
+@app.get("/api/audiomuse/analysis/status")
+def get_audiomuse_analysis_status():
+    """Read AudioMuse's active and last main-task state."""
+    try:
+        return analysis_status()
+    except (AudioMuseControlError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/audiomuse/analysis/start")
+def start_audiomuse_analysis(body: StartAudioMuseAnalysisBody, request: Request):
+    """Queue an AudioMuse analysis; never trigger clustering or playlist changes."""
+    # This app is LAN-accessible. Deny cross-origin browser POSTs to this endpoint.
+    # A direct local caller can send an Origin header; the browser UI does so.
+    origin = request.headers.get("origin")
+    if not origin or origin.rstrip("/") != str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403, detail="Same-origin browser request required.")
+    try:
+        return start_analysis(
+            recent_albums=body.recent_albums,
+            confirm_full_library=body.confirm_full_library,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AudioMuseControlError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @app.get("/musical-coherence", response_class=HTMLResponse)
