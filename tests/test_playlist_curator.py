@@ -233,3 +233,50 @@ def test_system_playlist_is_protected(monkeypatch):
         changes.apply_approved(Plex(Playlist(["1"])),"All Music",version="v",snapshot="s",
             operations=[{"type":"remove","track_id":"1"}],plan_id="x",
             library=lib(),approved=True,forbidden={"All Music"})
+
+
+
+def test_partial_yaml_save_failure_restores_both_sources(monkeypatch):
+    import yaml
+    original={"playlists":{"Jazz":{"strict":True,"items":[{"rating_key":"1"},{"rating_key":"2"}]}}}
+    holder={"current":original}
+    def load():
+        return holder["current"]
+    def persist(content):
+        state=yaml.safe_load(content)
+        if state["playlists"]["Jazz"]["items"][0]["rating_key"]=="5":
+            holder["current"]=state
+            raise OSError("state file failed after YAML replacement")
+        holder["current"]=state
+    monkeypatch.setattr(changes,"load",load)
+    monkeypatch.setattr(changes,"save_text",persist)
+    monkeypatch.setattr(changes,"mark_synced",lambda *args:None)
+    plex=Plex(Playlist(["1","2"]))
+    before=plex.playlist._live[:]
+    version=fingerprint(original["playlists"])
+    snap=curator.signature(before)
+    ops=[{"type":"replace","track_id":"1","candidate_id":"5"}]
+    plan=changes.change_plan(before,ops,lib(),name="Jazz",version=version,snapshot=snap)
+    with pytest.raises(RuntimeError,match="restored"):
+        changes.apply_approved(plex,"Jazz",version=version,snapshot=snap,
+            operations=ops,plan_id=plan["plan_id"],library=lib(),approved=True,
+            forbidden=set())
+    assert holder["current"]==original
+    assert plex.playlist._live==before
+
+
+def test_unavailable_state_tracking_does_not_undo_successful_plex_edit(monkeypatch):
+    stored,saved,synced=setup_apply(monkeypatch)
+    def fail_synced(*args):
+        raise OSError("state file unwritable")
+    monkeypatch.setattr(changes,"mark_synced",fail_synced)
+    live=Playlist(["1","2","3"])
+    version=fingerprint(stored["playlists"])
+    snap=curator.signature(live._live)
+    ops=[{"type":"add","candidate_id":"5"}]
+    plan=changes.change_plan(live._live,ops,lib(),name="Jazz",version=version,snapshot=snap)
+    result=changes.apply_approved(Plex(live),"Jazz",version=version,snapshot=snap,
+            operations=ops,plan_id=plan["plan_id"],library=lib(),approved=True,
+            forbidden=set())
+    assert result["status"]=="saved_needs_state_repair"
+    assert live._live==["1","2","3","5"]
