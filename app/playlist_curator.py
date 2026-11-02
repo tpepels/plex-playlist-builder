@@ -28,7 +28,19 @@ class CurationConflict(ValueError):
 
 
 def catalogue(raw_tracks: list) -> dict[str, dict]:
-    return {m["key"]: m for track in raw_tracks if (m := track_model(track))["key"]}
+    result = {}
+    for track in raw_tracks:
+        m = track_model(track)
+        if not m["key"]:
+            continue
+        raw_genres = getattr(track, "genres", None) or []
+        m["genres"] = list(dict.fromkeys(
+            str(getattr(genre, "tag", genre) or "").strip()
+            for genre in raw_genres
+            if str(getattr(genre, "tag", genre) or "").strip()
+        ))[:16]
+        result[m["key"]] = m
+    return result
 
 
 def _indexes(library: dict[str, dict]):
