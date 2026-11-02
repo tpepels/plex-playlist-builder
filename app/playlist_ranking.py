@@ -46,26 +46,31 @@ def _pick(seq, limit=12):
     return [seq[round(i*(len(seq)-1)/(limit-1))] for i in range(limit)]
 
 
-def _sample_fit(candidate, sampled, center, mode):
-    audio = candidate.get("musicnn")
-    if audio is None:
-        return None
-    comps = [cosine(audio, feat.get("musicnn")) for feat in sampled]
-    comps = sorted((clamp((v+1)/2) for v in comps if v is not None), reverse=True)
-    if not comps:
-        return None
-    best = _mean(comps[:min(3,len(comps))])
-    typical = clamp((cosine(audio, center)+1)/2) if center is not None and cosine(audio,center) is not None else best
-    if mode=="focused":
-        return .65*typical+.35*best
-    if mode=="eclectic":
-        # An eclectic playlist should contain related subgroups, not force
-        # every track into the global centroid. Avoid both clones and
-        # unrelated outliers; the novelty term is deliberately bounded.
-        novelty = clamp(1-abs(best-.77)/.55)
-        return .55*best+.25*typical+.20*novelty
-    return .48*typical+.52*best
-
+def _sample_fit(candidate, sampled, centers, mode):
+    """Compare with all represented musical subgroups in both embedding spaces."""
+    scores = []
+    for field, weight in (("musicnn", .7), ("clap", .3)):
+        vector = candidate.get(field)
+        if vector is None:
+            continue
+        comps = [cosine(vector, feat.get(field)) for feat in sampled]
+        comps = sorted((clamp((v+1)/2) for v in comps if v is not None), reverse=True)
+        if not comps:
+            continue
+        best = _mean(comps[:min(3,len(comps))])
+        raw = cosine(vector, centers.get(field))
+        typical = clamp((raw+1)/2) if raw is not None else best
+        if mode == "focused":
+            value = .65*typical+.35*best
+        elif mode == "eclectic":
+            # Reward fit with at least one musical neighborhood without
+            # imposing homogeneity across an intentionally mixed playlist.
+            novelty = clamp(1-abs(best-.77)/.55)
+            value = .55*best+.25*typical+.20*novelty
+        else:
+            value = .48*typical+.52*best
+        scores.append((value,weight))
+    return sum(v*w for v,w in scores)/sum(w for _,w in scores) if scores else None
 
 def _concentration(keys, library):
     if not keys:
@@ -172,22 +177,24 @@ def _flow(candidate, pos, sequence, ff, intent, observed_energy):
 
 def _profile_context(keys, library, ff, intent, target):
     base=[key for key in keys if key!=target]
-    samplekeys=_pick([k for k in base if k in ff and ff[k].get("musicnn") is not None],12)
+    samplekeys=_pick([k for k in base if k in ff and (
+        ff[k].get("musicnn") is not None or ff[k].get("clap") is not None)],12)
     sampled=[ff[k] for k in samplekeys]
-    center=_centroid([f["musicnn"] for f in sampled]) if sampled else None
+    centers={field:_centroid([f[field] for f in sampled if f.get(field) is not None])
+             for field in ("musicnn","clap")}
     energies=[ff[k]["energy"] for k in base if k in ff and ff[k].get("energy") is not None]
     observed_energy=_mean(energies)
     title=normalize(intent["purpose"])
     artist_names={normalize(library[k]["artist"]) for k in keys if k in library}
     explicit_artist=next((artist for artist in artist_names if artist and
                           len(artist)>=5 and (" "+artist+" ") in (" "+title+" ")),None)
-    return base,sampled,center,observed_energy,explicit_artist
+    return base,sampled,centers,observed_energy,explicit_artist
 
 
 def _score_candidate(key, info, f, keys, lib, ff, intent, target, ctx,
                      *, detailed):
-    base,sampled,center,energy,artist_anchor=ctx
-    fit=_sample_fit(f,sampled,center,intent["variation"])
+    base,sampled,centers,energy,artist_anchor=ctx
+    fit=_sample_fit(f,sampled,centers,intent["variation"])
     if fit is None:
         return {"match":None,"confidence":"unscored","evidence":[],
                 "reasons":["No comparable audio embedding"],"factors":{},
@@ -224,7 +231,8 @@ def _score_candidate(key, info, f, keys, lib, ff, intent, target, ctx,
     if flow is not None:evidence.append("playlist sequence")
     if intention is not None:evidence.extend(reasons)
     # Does not claim strong confidence without representative measured coverage.
-    coverage=len([k for k in base if k in ff and ff[k].get("musicnn") is not None])/max(1,len(base))
+    coverage=len([k for k in base if k in ff and (
+        ff[k].get("musicnn") is not None or ff[k].get("clap") is not None)])/max(1,len(base))
     conf="high" if coverage>=.75 and len(sampled)>=12 and f.get("clap") is not None else (
         "medium" if coverage>=.6 and len(sampled)>=6 else "low")
     summaries=[]
@@ -276,7 +284,8 @@ def rank_candidates(keys, library, cache, identity, *, target=None, query="",lim
         item=_score_candidate(key,info,ff.get(key,{}),keys,library,ff,intent,target,ctx,detailed=True)
         results.append({
             "id":key, "artist":info["artist"],"album":info["album"],"title":info["title"],
-            "analyzed":key in ff and ff[key].get("musicnn") is not None,
+            "analyzed":key in ff and (ff[key].get("musicnn") is not None or
+                                 ff[key].get("clap") is not None),
             **item
         })
     results.sort(key=lambda x:(
