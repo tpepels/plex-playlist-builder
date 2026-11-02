@@ -165,7 +165,8 @@ audio{width:100%;height:35px;margin-top:8px}
   <p id="listeningDescription" class="smalltext"></p>
   <div id="originalAudioBlock"><label>Current track</label><audio id="validationOriginal" controls preload="none"></audio></div>
   <label>Proposed track</label><audio id="validationCandidate" controls preload="none"></audio>
-  <label><input id="confirmListened" type="checkbox"> I listened to the proposed track and, for a replacement, the original.</label>
+  <p id="playbackEvidence" class="smalltext" aria-live="polite">Play a meaningful sample of each recording (at least 15 seconds).</p>
+  <label><input id="confirmListened" type="checkbox"> I compared the recordings and confirm this judgment.</label>
   <label>Reason when rejected</label>
   <select id="validationIssue">
     <option value="none">No issue</option>
@@ -359,21 +360,55 @@ function showListeningReview(candidate, original){
   $('validationOriginal').src=hasOld?'/api/curation/audio/'+encodeURIComponent(original):'';
   $('validationCandidate').src='/api/curation/audio/'+encodeURIComponent(candidate.id);
   $('confirmListened').checked=false;
+  observedPlayback={original:0,candidate:0};
+  playbackPrevious={original:null,candidate:null};
+  updatePlaybackEvidence();
   $('validationNote').value='';
   $('validationIssue').value='none';
   $('listeningReview').showModal();
 }
+function updatePlaybackEvidence(){
+  const needsOriginal=Boolean(reviewChoice?.target);
+  $('playbackEvidence').textContent='Auditioned: proposed '+
+    Math.floor(observedPlayback.candidate)+'/15s'+
+    (needsOriginal?' · original '+Math.floor(observedPlayback.original)+'/15s':'')+
+    ' · seeking does not count as listening';
+}
+function trackPlayback(audio,kind){
+  audio.addEventListener('timeupdate',()=>{
+    if(!reviewChoice||audio.paused||audio.seeking)return;
+    const t=audio.currentTime;
+    const prev=playbackPrevious[kind];
+    if(prev!==null){
+      const delta=t-prev;
+      if(delta>0&&delta<=1.5)observedPlayback[kind]+=delta;
+    }
+    playbackPrevious[kind]=t;
+    updatePlaybackEvidence();
+  });
+  audio.addEventListener('seeking',()=>{playbackPrevious[kind]=null});
+  audio.addEventListener('ended',()=>{playbackPrevious[kind]=null});
+}
+trackPlayback($('validationOriginal'),'original');
+trackPlayback($('validationCandidate'),'candidate');
 async function submitListeningReview(verdict){
   if(!reviewChoice||!source)return;
   const issue=$('validationIssue').value;
   if(!$('confirmListened').checked){
-    message('Listen to both recordings (when replacing), then confirm listening.',true);return;
+    message('Confirm that you compared the recordings.',true);return;
+  }
+  if(observedPlayback.candidate<15||
+     (reviewChoice.target&&observedPlayback.original<15)){
+    message('Audition each recording for at least 15 seconds; skipping does not count.',true);return;
   }
   if(verdict==='reject'&&issue==='none'){
     message('Select a reason for rejecting the suggestion.',true);return;
   }
   const payload={name:source.name,target_id:reviewChoice.target,
-    candidate_id:reviewChoice.candidate,verdict,
+    candidate_id:reviewChoice.candidate,
+    candidate_played_seconds:Math.floor(observedPlayback.candidate),
+    original_played_seconds:Math.floor(observedPlayback.original),
+    verdict,
     issue:verdict==='accept'?'none':issue,
     note:$('validationNote').value,listened:true,
     identity_revision:source.identity.revision,snapshot:source.snapshot};
@@ -390,7 +425,11 @@ async function submitListeningReview(verdict){
     $('rejectCandidate').disabled=false;$('acceptCandidate').disabled=false;
   }
 }
-$('closeReview').onclick=()=>$('listeningReview').close();
+$('closeReview').onclick=()=>{
+  $('validationOriginal').pause();
+  $('validationCandidate').pause();
+  $('listeningReview').close();
+};
 $('acceptCandidate').onclick=()=>submitListeningReview('accept');
 $('rejectCandidate').onclick=()=>submitListeningReview('reject');
 
