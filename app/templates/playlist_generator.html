@@ -198,6 +198,10 @@ async function loadDraft(id){
   try{
     const loaded=await api('/api/generation/drafts/'+encodeURIComponent(id));
     draft=loaded;
+    $('name').value=draft.data.name||$('name').value;
+    $('prompt').value=draft.data.request.prompt||$('prompt').value;
+    $('count').value=draft.data.request.criteria.count;
+    $('minutes').value=draft.data.request.criteria.target_minutes||'';
     localStorage.setItem('playlistGenerationDraft',draft.id);
     target=null;optionCache={};
     draw();
@@ -272,7 +276,7 @@ $('createForm').onsubmit=async(event)=>{
   working=true;$('generate').disabled=true;notify('Selecting and sequencing music from Plex…');
   try{
     const created=await post('/api/generation/drafts',{
-      prompt,count:Number($('count').value),
+      prompt,name,count:Number($('count').value),
       minutes:$('minutes').value?Number($('minutes').value):null
     });
     draft=created;target=null;optionCache={};
