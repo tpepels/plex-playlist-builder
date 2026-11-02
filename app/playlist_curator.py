@@ -16,6 +16,7 @@ import struct
 from typing import Any
 
 from .insights import normalize, track_model
+from .curation_review_rules import review_track
 
 REVIEW_COVERAGE = .60
 MIN_EMBEDDED = 6
@@ -310,6 +311,7 @@ def assess(name: str, spec: dict, library: dict, cache: dict, intent: dict | Non
                        "energy":ff[key]["energy"] if key in ff else None,
                        "tempo":ff[key]["tempo"] if key in ff else None,
                        "transition":transition,
+                       "review_flags":review_track(info),
                        "review":flagged.get(key)})
     return {"name":name, "description":spec.get("description",""),
             "keys":keys, "issues":problems, "profile":profile,
