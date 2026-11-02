@@ -70,7 +70,7 @@ One-time installation, **assuming the current shell still contains the API token
 ```bash
 install -d -m 700 "$HOME/.config/plex-playlist-manager"
 if [ -z "${AUDIOMUSE_API_TOKEN:-}" ]; then
-    echo "No token in this shell. Run 'read -rsp "Token: " AUDIOMUSE_API_TOKEN; echo' separately first."
+    echo "No token in this shell. Enter it separately using: read -rsp Token: AUDIOMUSE_API_TOKEN; echo"
 else
     (umask 077; printf '%s' "$AUDIOMUSE_API_TOKEN" > "$HOME/.config/plex-playlist-manager/audiomuse-api-token")
     chmod 600 "$HOME/.config/plex-playlist-manager/audiomuse-api-token"
