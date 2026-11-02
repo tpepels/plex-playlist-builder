@@ -286,7 +286,7 @@ async function loadPlaylist(){
   }catch(e){source=null;$('workspace').hidden=true;$('profile').hidden=true;message(e.message,true)}
   finally{busy=false}
 }
-$('playlist').onchange=()=>{if(actions.length&&!confirm('Discard staged changes?'))return;loadPlaylist()};
+$('playlist').onchange=()=>{if(actions.length&&!confirm('Discard staged changes?')){$('playlist').value=source?.name||'';return;}loadPlaylist()};
 $('reload').onclick=()=>{if(actions.length&&!confirm('Discard staged changes?'))return;loadPlaylist()};
 $('trackSearch').oninput=()=>{filteredPage=0;renderTracks()};
 $('trackFilter').onchange=()=>{filteredPage=0;renderTracks()};
