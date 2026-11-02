@@ -227,3 +227,18 @@ def test_ranked_add_inserts_after_proposed_track_and_rejects_missing_anchor():
     with pytest.raises(CurationConflict,match="anchor"):
         compute_operations(["1","2"],
             [{"type":"add","candidate_id":"3","after_id":"99"}],library)
+
+
+
+def test_clap_only_analysis_can_rank_without_invented_musicnn_similarity():
+    library={str(i):row(i,"Artist"+str(i),"Album","Track "+str(i))
+             for i in range(1,8)}
+    features={str(i):{"clap_embedding":vec(1.,0.,0.,0.),
+                      "energy":.5,"other_features":{"relaxed":.5}}
+              for i in range(1,8)}
+    results=rank_candidates([str(i) for i in range(1,7)],
+        library,features,intent(styles=[],moods=[]),limit=1)
+    assert results[0]["id"]=="7"
+    assert results[0]["match"] is not None
+    assert results[0]["confidence"]=="medium"
+    assert results[0]["analyzed"] is True
