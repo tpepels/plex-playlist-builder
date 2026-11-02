@@ -10,6 +10,7 @@ from collections import Counter
 import math
 
 from .insights import normalize
+from .curation_review_rules import automatically_rankable, review_track
 from .playlist_curator import (
     CurationConflict, MAX_CANDIDATES, cosine, features_for, _centroid, _mean,
 )
@@ -269,6 +270,10 @@ def rank_candidates(keys, library, cache, identity, *, target=None, query="",lim
     pool=[]
     for key,info in library.items():
         if key in keys:continue
+        # Concert introductions and applause are in music libraries but are
+        # not defensible automatic recommendations for musical playlists.
+        if not query_norm and not automatically_rankable(info):
+            continue
         if query_norm and query_norm not in normalize(" ".join((
             info["artist"],info["album"],info["title"]))):
             continue
@@ -286,6 +291,13 @@ def rank_candidates(keys, library, cache, identity, *, target=None, query="",lim
     for key,info,_ in shortlisted:
         item=_score_candidate(key,info,ff.get(key,{}),keys,library,ff,intent,target,ctx,
                               detailed=True,weights=weights)
+        flags=review_track(info)
+        item["review_flags"]=flags
+        if not automatically_rankable(info):
+            item["match"]=None
+            item["confidence"]="unscored"
+            item["reasons"]=["Likely spoken introduction/applause; review manually"]
+            item["evidence"]=[]
         human=feedback.get((target or "",key))
         base_score=item["match"]
         if human and base_score is not None:
@@ -304,6 +316,7 @@ def rank_candidates(keys, library, cache, identity, *, target=None, query="",lim
             **item
         })
     results.sort(key=lambda x:(
+        bool(x.get("human_review") and x["human_review"]["verdict"]=="reject"),
         x["match"] is None,
         -(x["match"] if x["match"] is not None else -1),
         normalize(x["artist"]),normalize(x["album"]),normalize(x["title"]),x["id"]))
