@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Playlist Intelligence</title>
+<style>
+:root{color-scheme:dark;--bg:#080f16;--panel:#101c26;--surface:#172631;--line:#294150;--text:#eaf5f5;--muted:#9bb3c0;--accent:#6cf5c2;--amber:#e4ba79;--red:#ed9298}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.42 system-ui,sans-serif}
+main{max-width:1170px;margin:auto;padding:18px 20px 60px}
+a{color:var(--accent);text-decoration:none}
+header,.row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{font-size:24px;margin:15px 0}h2{font-size:15px;margin:0 0 8px}
+.panel{padding:14px 16px;border:1px solid var(--line);background:var(--panel);border-radius:10px;margin:12px 0}
+.controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+button,select,input{background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:7px 10px;min-height:34px;color:var(--text);font:inherit}
+button{cursor:pointer}button:hover{border-color:var(--accent)}button:disabled{opacity:.4;cursor:default}
+button.primary{background:var(--accent);color:#082019;font-weight:700}
+button.danger{border-color:#7d4146;color:#ffb5b5}
+button.small{padding:5px 8px;min-height:27px;font-size:12px}
+select#playlist{flex:1;min-width:240px}
+input[type=search]{min-width:220px;flex:1}
+.muted{color:var(--muted)}.smalltext{font-size:12px;color:var(--muted)}
+#message{min-height:18px;font-size:12px;margin:10px 0;color:var(--muted)}
+#message.error{color:var(--red)}#message.ok{color:var(--accent)}
+.metrics{display:flex;flex-wrap:wrap;align-items:center;gap:20px}
+.metrics b{font-size:19px;margin-right:5px}.metrics span{font-size:12px;color:var(--muted)}
+.pill{padding:3px 7px;border-radius:6px;background:var(--surface);font-size:11px;color:var(--muted);white-space:nowrap}
+.pill.flag{color:var(--amber)}
+#profileFlags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.columns{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);gap:12px}
+.scroll{max-height:610px;overflow:auto}
+.item{display:flex;align-items:center;gap:8px;padding:9px 6px;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}.item.selected{background:#20333e}
+.meta{min-width:0;flex:1}.meta strong{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta small{display:block;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.score{font-size:12px;color:var(--muted);white-space:nowrap}
+.note{color:var(--amber);font-size:11px;margin-top:3px}
+#candidateList{min-height:120px}
+#draftList{max-height:180px;overflow:auto}
+#draftList div{font-size:12px;padding:5px 0;border-bottom:1px solid var(--line);color:var(--muted)}
+#draftList strong{color:var(--text)}
+footer{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+dialog{max-width:min(580px,94vw);width:100%;border:1px solid var(--line);border-radius:12px;color:var(--text);background:var(--panel);padding:20px}
+dialog::backdrop{background:#000a}#planChanges{max-height:250px;overflow:auto;color:var(--muted);font-size:13px}
+#planChanges p{margin:4px 0}#planChanges strong{color:var(--text)}
+audio{width:100%;height:35px;margin-top:8px}
+[hidden]{display:none!important}
+@media(max-width:850px){.columns{grid-template-columns:1fr}.scroll{max-height:450px}main{padding:12px}.row{flex-wrap:wrap}}
+</style>
+</head>
+<body><main>
+<header><a href="/">← Playlists</a><a href="/musical-coherence">AudioMuse analysis</a></header>
+<h1>Playlist Intelligence</h1>
+<section class="panel">
+  <div class="controls">
+    <select id="playlist" aria-label="Playlist"><option value="">Select playlist…</option></select>
+    <button id="reload" type="button">Refresh</button>
+  </div>
+  <p id="message" role="status" aria-live="polite"></p>
+  <div id="profile" hidden>
+    <div id="metrics" class="metrics"></div>
+    <div id="profileFlags"></div>
+  </div>
+</section>
+<div id="workspace" hidden>
+  <div class="columns">
+    <section class="panel">
+      <div class="row"><h2>Tracks</h2><div class="controls">
+        <select id="trackFilter" aria-label="Track filter"><option value="all">All</option><option value="review">Review</option><option value="analyzed">Analyzed</option></select>
+        <button id="addTrack" class="small" type="button">+ Add</button>
+      </div></div>
+      <input id="trackSearch" type="search" placeholder="Find track…" aria-label="Find track" style="width:100%;margin-bottom:6px">
+      <div id="trackList" class="scroll"></div>
+      <div class="row" style="margin-top:10px">
+        <span id="trackCount" class="smalltext"></span>
+        <div class="controls"><button id="prevTracks" class="small">Previous</button><button id="nextTracks" class="small">Next</button></div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="row"><h2 id="candidateHeading">Alternatives</h2><button id="clearTarget" class="small">All library</button></div>
+      <div class="controls">
+        <input id="candidateSearch" type="search" placeholder="Search Plex library…">
+        <button id="searchCandidates">Search</button>
+      </div>
+      <p class="smalltext" id="candidateHint"></p>
+      <div id="candidateList" class="scroll"></div>
+      <audio id="player" controls preload="none" hidden></audio>
+    </section>
+  </div>
+  <section class="panel">
+    <div class="row"><h2>Pending changes <span id="changeCount" class="pill">0</span></h2>
+      <div class="controls"><button id="undo" class="small">Undo</button><button id="clear" class="small">Clear</button></div></div>
+    <div id="draftList"></div>
+    <footer><button id="review" class="primary" disabled>Review changes</button></footer>
+  </section>
+</div>
+<dialog id="approval">
+  <h2>Review Plex changes</h2>
+  <p id="planSummary" class="smalltext"></p>
+  <div id="planChanges"></div>
+  <footer><button id="cancelApproval">Cancel</button><button id="approve" class="primary">Apply to Plex</button></footer>
+</dialog>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+let source=null,actions=[],target=null,chosen={},filteredPage=0,plan=null,busy=false;
+const PAGE=35;
+const el=(tag,txt,cls)=>{
+  const n=document.createElement(tag);
+  if(txt!==undefined)n.textContent=String(txt);
+  if(cls)n.className=cls;
+  return n;
+};
+const button=(text,fn,cls='small')=>{
+  const b=el('button',text,cls);b.type='button';b.onclick=fn;return b;
+};
+function message(text,error=false){
+  $('message').className=error?'error':'';
+  $('message').textContent=text;
+}
+async function api(url,options){
+  const r=await fetch(url,options);
+  let data;try{data=await r.json()}catch{throw new Error('Invalid server response '+r.status)}
+  if(!r.ok)throw new Error(data.detail||'HTTP '+r.status);
+  return data;
+}
+function bodyFor(){
+  return {name:source.name,version:source.version,snapshot:source.snapshot,operations:actions};
+}
+function post(url,data){
+  return api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+}
+function track(id){return chosen[id]||source.tracks.find(t=>t.id===id)||{id,title:id,artist:''}}
+function currentKeys(){
+  const arr=source.keys.slice();
+  for(const action of actions){
+    const k=action.track_id, newId=action.candidate_id;
+    if(action.type==='add'){if(!arr.includes(newId))arr.push(newId)}
+    if(action.type==='remove'){const i=arr.indexOf(k);if(i>=0)arr.splice(i,1)}
+    if(action.type==='replace'){const i=arr.indexOf(k);if(i>=0)arr[i]=newId}
+    if(action.type==='move'){
+      const i=arr.indexOf(k);
+      if(i>=0){arr.splice(i,1);arr.splice(action.after_id===null?0:arr.indexOf(action.after_id)+1,0,k)}
+    }
+  }
+  return arr;
+}
+function stage(change){
+  if(!source)return;
+  const before=currentKeys();
+  const key=change.track_id, candidate=change.candidate_id;
+  if(change.type==='add'||change.type==='replace'){
+    if(before.includes(candidate)){message('Track already in playlist',true);return;}
+  }
+  if(change.type==='replace'&&!before.includes(key)){message('Target missing',true);return;}
+  if(change.type==='remove'&&!before.includes(key)){message('Track missing',true);return;}
+  actions.push(change);
+  const after=currentKeys();
+  if(!after.length){actions.pop();message('Playlist cannot be empty',true);return;}
+  renderTracks();renderDraft();
+  message(actions.length+' change(s) staged. Nothing written to Plex.');
+}
+function listen(id){
+  const player=$('player');const url='/api/curation/audio/'+encodeURIComponent(id);
+  if(player.src.endsWith(url)&&!player.paused){player.pause();return;}
+  player.hidden=false;player.src=url;player.play().catch(()=>message('Audio preview unavailable',true));
+}
+function appendTrackCard(root,id,idx,keys){
+  const t=track(id);
+  const item=el('div',undefined,'item'+(target===id?' selected':''));
+  const meta=el('div',undefined,'meta');
+  meta.append(el('strong',t.title),el('small',t.artist+(t.album?' · '+t.album:'')));
+  if(t.review)meta.append(el('div',t.review.reason.join(' · '),'note'));
+  item.append(meta);
+  if(t.energy!==null&&t.energy!==undefined)item.append(el('span','E '+Number(t.energy).toFixed(2),'score'));
+  item.append(button('▶',()=>listen(id)));
+  item.append(button('Alternatives',()=>chooseTarget(id)));
+  item.append(button('↑',()=>{if(idx>0)stage({type:'move',track_id:id,after_id:idx>1?keys[idx-2]:null})}));
+  item.append(button('↓',()=>{if(idx<keys.length-1)stage({type:'move',track_id:id,after_id:keys[idx+1]})}));
+  item.append(button('×',()=>stage({type:'remove',track_id:id}),'small danger'));
+  root.append(item);
+}
+function renderTracks(){
+  if(!source)return;
+  const keys=currentKeys();
+  const search=$('trackSearch').value.toLowerCase();
+  const filter=$('trackFilter').value;
+  const shown=keys.filter(id=>{
+    const t=track(id);
+    if(filter==='review'&&!t.review)return false;
+    if(filter==='analyzed'&&!t.analyzed)return false;
+    return (t.title+' '+t.artist+' '+t.album).toLowerCase().includes(search);
+  });
+  const maxPage=Math.max(0,Math.ceil(shown.length/PAGE)-1);
+  filteredPage=Math.min(filteredPage,maxPage);
+  $('trackCount').textContent=shown.length+' tracks';
+  $('prevTracks').disabled=filteredPage===0;
+  $('nextTracks').disabled=filteredPage===maxPage;
+  const list=$('trackList');list.replaceChildren();
+  for(const id of shown.slice(filteredPage*PAGE,(filteredPage+1)*PAGE)){
+    appendTrackCard(list,id,keys.indexOf(id),keys);
+  }
+  if(!shown.length)list.append(el('p','No matching tracks.','smalltext'));
+}
+function renderDraft(){
+  const root=$('draftList');root.replaceChildren();
+  for(let i=0;i<actions.length;i++){
+    const a=actions[i],t=track(a.track_id||a.candidate_id),c=track(a.candidate_id);
+    const desc=a.type==='replace'?t.title+' → '+c.title:
+      a.type==='add'?'Add '+c.title:a.type==='remove'?'Remove '+t.title:'Move '+t.title;
+    root.append(el('div',(i+1)+'. '+desc));
+  }
+  $('changeCount').textContent=actions.length;
+  $('review').disabled=actions.length===0||busy;
+  $('undo').disabled=actions.length===0||busy;
+  $('clear').disabled=actions.length===0||busy;
+}
+function chooseTarget(id){
+  target=id;
+  $('candidateSearch').value='';
+  $('candidateHeading').textContent=id?'Replace · '+track(id).title:'Add tracks';
+  $('candidateHint').textContent='';
+  renderTracks();
+  searchCandidates();
+}
+async function searchCandidates(){
+  if(!source)return;
+  const name=encodeURIComponent(source.name),q=encodeURIComponent($('candidateSearch').value.trim());
+  const url='/api/curation/candidates?name='+name+'&target='+encodeURIComponent(target||'')+'&q='+q+'&limit=30';
+  $('candidateHint').textContent='Searching…';
+  try{
+    const data=await api(url);
+    $('candidateHint').textContent=data.candidates.length+' results · ranked by musical fit when analyzed';
+    const list=$('candidateList');list.replaceChildren();
+    for(const t of data.candidates){
+      chosen[t.id]=t;
+      const row=el('div',undefined,'item'),meta=el('div',undefined,'meta');
+      meta.append(el('strong',t.title),el('small',t.artist+' · '+t.album));
+      row.append(meta);
+      row.append(el('span',t.match===null?'unscored':Math.round(t.match*100)+'%','score'));
+      row.append(button('▶',()=>listen(t.id)));
+      row.append(button(target?'Replace':'Add',()=>stage(target?
+        {type:'replace',track_id:target,candidate_id:t.id}:{type:'add',candidate_id:t.id}), 'small primary'));
+      list.append(row);
+    }
+    if(!data.candidates.length)list.append(el('p','No candidates found.','smalltext'));
+  }catch(e){$('candidateHint').textContent=e.message;message(e.message,true)}
+}
+async function loadNames(){
+  try{
+    const result=await api('/api/curation/playlists');
+    const sel=$('playlist'),was=sel.value;
+    sel.replaceChildren(el('option','Select playlist…'));
+    for(const name of result.playlists){
+      const opt=el('option',name);opt.value=name;sel.append(opt);
+    }
+    if(result.playlists.includes(was)){sel.value=was;await loadPlaylist()}
+  }catch(e){message(e.message,true)}
+}
+async function loadPlaylist(){
+  const name=$('playlist').value;
+  if(!name){source=null;$('workspace').hidden=true;$('profile').hidden=true;return}
+  busy=true;message('Loading Plex playlist…');
+  try{
+    source=await api('/api/curation/playlist/'+encodeURIComponent(name));
+    actions=[];chosen={};target=null;filteredPage=0;plan=null;
+    $('workspace').hidden=false;$('profile').hidden=false;
+    const m=$('metrics');m.replaceChildren();
+    for(const [title,value] of [
+      ['tracks',source.profile.tracks],['artists',source.profile.artists],
+      ['coverage',Math.round(100*source.profile.coverage)+'%'],
+      ['energy',source.profile.energy??'—'],
+      ['tempo',source.profile.tempo??'—']
+    ]){
+      const span=el('span');span.append(el('b',value),el('span',title));m.append(span);
+    }
+    const flags=$('profileFlags');flags.replaceChildren();
+    for(const f of source.flags)flags.append(el('span',f,'pill flag'));
+    if(!source.yaml_in_sync)flags.append(el('span','Plex differs from YAML','pill flag'));
+    if(source.profile.confidence==='limited')flags.append(el('span','Limited audio coverage','pill flag'));
+    $('trackSearch').value='';$('trackFilter').value='all';
+    $('candidateSearch').value='';$('candidateList').replaceChildren();
+    renderTracks();renderDraft();
+    message('Loaded · Plex playlist #'+source.playlist_id);
+  }catch(e){source=null;$('workspace').hidden=true;$('profile').hidden=true;message(e.message,true)}
+  finally{busy=false}
+}
+$('playlist').onchange=()=>{if(actions.length&&!confirm('Discard staged changes?'))return;loadPlaylist()};
+$('reload').onclick=()=>{if(actions.length&&!confirm('Discard staged changes?'))return;loadPlaylist()};
+$('trackSearch').oninput=()=>{filteredPage=0;renderTracks()};
+$('trackFilter').onchange=()=>{filteredPage=0;renderTracks()};
+$('prevTracks').onclick=()=>{filteredPage--;renderTracks()};
+$('nextTracks').onclick=()=>{filteredPage++;renderTracks()};
+$('addTrack').onclick=()=>chooseTarget(null);
+$('clearTarget').onclick=()=>chooseTarget(null);
+$('searchCandidates').onclick=searchCandidates;
+$('candidateSearch').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();searchCandidates()}};
+$('undo').onclick=()=>{actions.pop();renderTracks();renderDraft()};
+$('clear').onclick=()=>{actions=[];renderTracks();renderDraft()};
+$('review').onclick=async()=>{
+  if(!source||!actions.length)return;
+  busy=true;$('review').disabled=true;
+  try{
+    plan=await post('/api/curation/plan',bodyFor());
+    $('planSummary').textContent=plan.before_count+' → '+plan.after_count+
+      ' tracks · '+plan.added.length+' added · '+plan.removed.length+' removed';
+    const changes=$('planChanges');changes.replaceChildren();
+    for(const t of plan.added)changes.append(el('p','+ '+t.artist+' — '+t.title));
+    for(const t of plan.removed)changes.append(el('p','− '+t.artist+' — '+t.title));
+    if(!plan.added.length&&!plan.removed.length)changes.append(el('p','Reorder tracks'));
+    $('approval').showModal();
+  }catch(e){message(e.message,true)}
+  finally{busy=false;renderDraft()}
+};
+$('cancelApproval').onclick=()=>$('approval').close();
+$('approve').onclick=async()=>{
+  if(!plan||busy)return;
+  busy=true;$('approve').disabled=true;
+  try{
+    const result=await post('/api/curation/apply',{...bodyFor(),plan_id:plan.plan_id,approved:true});
+    $('approval').close();
+    await loadPlaylist();
+    message('Applied to Plex · '+result.after_count+' tracks · ID '+result.playlist_id);
+  }catch(e){message(e.message,true);$('approval').close()}
+  finally{busy=false;$('approve').disabled=false;renderDraft()}
+};
+loadNames();
+</script>
+</body></html>
