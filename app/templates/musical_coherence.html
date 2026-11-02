@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Musical coherence — Plex Playlist Manager</title>
+<style>
+:root{color-scheme:dark;--bg:#101113;--panel:#1b1d21;--line:#373941;--text:#f4f4f6;--muted:#aeb1b9;--accent:#e5a00d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,sans-serif}
+main{max-width:1040px;margin:auto;padding:24px 18px 60px}
+a{color:#e5a00d}h1{font-size:28px;margin:12px 0 4px}p{color:var(--muted)}
+header{display:flex;justify-content:space-between;gap:16px;align-items:center}
+.panel,details{border:1px solid var(--line);background:var(--panel);border-radius:11px;padding:16px;margin:12px 0}
+button,input{background:#303239;border:1px solid #55575e;border-radius:8px;padding:9px 12px;color:var(--text);font:inherit}
+button{cursor:pointer}button:disabled{opacity:.5;cursor:wait}
+#status{min-height:22px}#status.error{color:#ff9393}
+.metrics{display:flex;flex-wrap:wrap;gap:25px;margin:16px 0}
+.metrics strong{font-size:22px;display:block}.metrics span{font-size:12px;color:var(--muted)}
+.controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+input{min-width:240px;flex:1}select{background:#303239;color:var(--text);padding:9px;border:1px solid #55575e;border-radius:8px}
+details{padding:0;overflow:hidden}summary{cursor:pointer;list-style:none;padding:14px}
+summary::-webkit-details-marker{display:none}.heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.summary-note{font-size:12px;color:var(--muted)}.detail-body{border-top:1px solid var(--line);padding:14px}
+table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--line);padding:8px;text-align:left;font-size:13px}th{color:var(--muted)}
+.flag{color:#e8bb63}.dim{color:var(--muted)}.desc{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<header><a href="/">← Playlist Manager</a><small>READ-ONLY / AUDIO ANALYSIS</small></header>
+<h1>Musical coherence</h1>
+<p>AudioMuse-AI similarity analysis of tracks in saved YAML playlists. No automatic removal, additions or Plex sync.</p>
+<div class="panel">
+  <div class="controls">
+    <button id="refresh">Refresh cached report</button>
+    <button id="sync">Sync AudioMuse analysis</button>
+  </div>
+  <p id="status" role="status" aria-live="polite">Loading cache…</p>
+  <div id="metrics" class="metrics"></div>
+  <p class="desc">A score requires at least six analyzed tracks and 60% playlist coverage, with every item identified by a Plex rating key. Similarity scores are exploratory, not an objective quality rating.</p>
+</div>
+<div class="controls">
+  <input id="filter" type="search" placeholder="Find a playlist…" aria-label="Find a playlist">
+  <select id="visibility" aria-label="Report filter">
+    <option value="all">All playlists</option>
+    <option value="ready">With sufficient coverage</option>
+    <option value="insufficient">Insufficient coverage</option>
+  </select>
+</div>
+<div id="reports"></div>
+</main>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+let report = null;
+function element(tag, text, cls) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = String(text);
+  if (cls) node.className = cls;
+  return node;
+}
+function metric(label, value) {
+  const outer = element('div');
+  outer.append(element('strong', value), element('span', label));
+  return outer;
+}
+function render() {
+  if (!report) return;
+  const metrics = $('metrics');
+  metrics.replaceChildren(
+    metric('Analyzed tracks cached', report.cache.cached),
+    metric('Embeddings available', report.cache.with_embeddings),
+    metric('Playlists with sufficient coverage', report.summary.scorable + ' / ' + report.summary.playlists),
+    metric('Last sync (UTC)', report.cache.last_sync || 'Not yet synchronized')
+  );
+  const target = $('reports');
+  target.replaceChildren();
+  const filter = $('filter').value.trim().toLowerCase();
+  const visibility = $('visibility').value;
+  const playlists = report.playlists.filter((entry) =>
+    entry.name.toLowerCase().includes(filter) && (visibility === 'all' || entry.status === visibility));
+  for (const playlist of playlists) {
+    const details = element('details');
+    const summary = element('summary');
+    const heading = element('div', undefined, 'heading');
+    heading.append(element('strong', playlist.name));
+    const coverage = Math.round(100 * playlist.coverage);
+    heading.append(element('span',
+      playlist.embedded_tracks + '/' + playlist.total_explicit_tracks + ' embeddings · ' +
+      coverage + '% · ' + (playlist.status === 'ready' ?
+        'mean cosine ' + playlist.mean_pairwise_cosine : 'insufficient coverage'),
+      'summary-note'));
+    summary.append(heading);
+    details.append(summary);
+    const body = element('div', undefined, 'detail-body');
+    body.append(element('p', 'Analyzed: ' + playlist.analyzed_tracks +
+      ' · embeddings: ' + playlist.embedded_tracks +
+      ' · unresolved YAML items: ' + playlist.unresolved_items, 'desc'));
+    if (playlist.status !== 'ready') {
+      body.append(element('p', 'Not enough analyzed, identifiable music to evaluate this playlist.', 'flag'));
+    } else if (playlist.review_candidates.length === 0) {
+      body.append(element('p', 'No strong relative outliers detected within the analyzed subset. This does not establish musical fit.', 'dim'));
+    } else {
+      const caption = element('h3', 'Possible outliers — manual review only');
+      body.append(caption);
+      const table = element('table');
+      const head = element('tr');
+      for (const column of ['Artist', 'Track', 'Similarity to other analyzed tracks', 'Below median']) {
+        head.append(element('th', column));
+      }
+      const thead = element('thead'); thead.append(head); table.append(thead);
+      const tbody = element('tbody');
+      for (const candidate of playlist.review_candidates) {
+        const tr = element('tr');
+        for (const value of [candidate.artist, candidate.title,
+          candidate.similarity_to_others, candidate.gap_below_median]) {
+          tr.append(element('td', value));
+        }
+        tbody.append(tr);
+      }
+      table.append(tbody); body.append(table);
+    }
+    details.append(body);
+    target.append(details);
+  }
+  if (!playlists.length) target.append(element('p', 'No matching playlists.'));
+}
+async function request(url, options) {
+  const response = await fetch(url, options);
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.detail || 'Request failed (' + response.status + ')');
+  return payload;
+}
+async function load() {
+  try {
+    report = await request('/api/audiomuse/coherence');
+    $('status').className = '';
+    $('status').textContent = report.notice;
+    render();
+  } catch (error) {
+    $('status').className = 'error';
+    $('status').textContent = error.message;
+  }
+}
+$('refresh').addEventListener('click', load);
+$('filter').addEventListener('input', render);
+$('visibility').addEventListener('change', render);
+$('sync').addEventListener('click', async () => {
+  $('sync').disabled = true;
+  $('status').className = '';
+  $('status').textContent = 'Synchronizing analyzed tracks from AudioMuse. Your playlists will not change…';
+  try {
+    const data = await request('/api/audiomuse/sync', {method: 'POST'});
+    await load();
+    $('status').textContent = 'Sync complete: ' + data.cached + ' analyzed, ' +
+      data.new_or_updated + ' updated, ' + data.removed + ' removed from the feature cache.';
+  } catch (error) {
+    $('status').className = 'error';
+    $('status').textContent = error.message;
+  } finally {
+    $('sync').disabled = false;
+  }
+});
+load();
+</script>
+</body>
+</html>
