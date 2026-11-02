@@ -192,7 +192,7 @@ def _profile_context(keys, library, ff, intent, target):
 
 
 def _score_candidate(key, info, f, keys, lib, ff, intent, target, ctx,
-                     *, detailed):
+                     *, detailed, weights=None):
     base,sampled,centers,energy,artist_anchor=ctx
     fit=_sample_fit(f,sampled,centers,intent["variation"])
     if fit is None:
@@ -224,7 +224,7 @@ def _score_candidate(key, info, f, keys, lib, ff, intent, target, ctx,
     if detailed and target is None and position is None:
         position=len(base)   # No measured ordering signal: append, never prepend by accident.
     factors={"fit":fit,"diversity":diversity,"flow":flow,"intent":intention}
-    weights=SCORE_WEIGHTS[intent["variation"]]
+    weights=weights or SCORE_WEIGHTS[intent["variation"]]
     usable=[(key,value) for key,value in factors.items() if value is not None]
     score=sum(value*weights[k] for k,value in usable)/sum(weights[k] for k,_ in usable)
     evidence=["audio neighborhoods","artist/album diversity"]
@@ -253,7 +253,8 @@ def _score_candidate(key, info, f, keys, lib, ff, intent, target, ctx,
     }
 
 
-def rank_candidates(keys, library, cache, identity, *, target=None, query="",limit=20):
+def rank_candidates(keys, library, cache, identity, *, target=None, query="",limit=20,
+                    weights=None, feedback=None):
     if not 1<=limit<=MAX_CANDIDATES:
         raise ValueError("Limit must be between 1 and 30.")
     if target is not None and target not in keys:
@@ -263,6 +264,7 @@ def rank_candidates(keys, library, cache, identity, *, target=None, query="",lim
     ff=features_for(cache)
     intent=identity["values"] if "values" in identity else identity
     ctx=_profile_context(keys,library,ff,intent,target)
+    feedback=feedback or {}
     query_norm=normalize(query)
     pool=[]
     for key,info in library.items():
@@ -271,7 +273,8 @@ def rank_candidates(keys, library, cache, identity, *, target=None, query="",lim
             info["artist"],info["album"],info["title"]))):
             continue
         f=ff.get(key,{})
-        ranked=_score_candidate(key,info,f,keys,library,ff,intent,target,ctx,detailed=False)
+        ranked=_score_candidate(key,info,f,keys,library,ff,intent,target,ctx,
+                                detailed=False,weights=weights)
         pool.append((key,info,ranked))
     pool.sort(key=lambda x:(
         x[2]["match"] is None,
@@ -281,7 +284,19 @@ def rank_candidates(keys, library, cache, identity, *, target=None, query="",lim
     shortlisted=pool[:max(limit,SHORTLIST)]
     results=[]
     for key,info,_ in shortlisted:
-        item=_score_candidate(key,info,ff.get(key,{}),keys,library,ff,intent,target,ctx,detailed=True)
+        item=_score_candidate(key,info,ff.get(key,{}),keys,library,ff,intent,target,ctx,
+                              detailed=True,weights=weights)
+        human=feedback.get((target or "",key))
+        base_score=item["match"]
+        if human and base_score is not None:
+            # Keep model evidence separate and visible. A previous explicit
+            # rejection must not silently be proposed as the top improvement.
+            adjustment=.08 if human["verdict"]=="accept" else -.18
+            item["match"]=round(clamp(base_score+adjustment),4)
+            item["model_match"]=base_score
+            item["feedback_adjustment"]=round(adjustment,3)
+            item["human_review"]={"verdict":human["verdict"],"issue":human["issue"]}
+            item["reasons"].append("Previous listening verdict: "+human["verdict"])
         results.append({
             "id":key, "artist":info["artist"],"album":info["album"],"title":info["title"],
             "analyzed":key in ff and (ff[key].get("musicnn") is not None or
