@@ -99,6 +99,8 @@ body.site-navigation-open{overflow:hidden}
 }
 .site-nav-recent-form button:hover{border-color:#6cf5c2!important}
 .site-nav-topline {display:flex;align-items:center;gap:7px;min-width:0}
+.site-nav-page-header {display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap}
+.site-nav-page-header>a {white-space:normal;overflow-wrap:anywhere}
 @media(max-width:680px) {
   .site-nav-panel{top:8px;bottom:8px;left:8px;width:min(355px,calc(100vw - 16px))}
   .site-nav-toggle{width:39px;height:39px;min-width:39px;min-height:39px}
