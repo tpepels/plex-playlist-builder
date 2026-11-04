@@ -64,10 +64,17 @@ details.method{font-size:12px;color:var(--muted);margin-top:18px}
 [hidden]{display:none!important}
 @media(max-width:650px){.entry>summary{flex-wrap:wrap}.entry-name{min-width:calc(100% - 25px)}.entry-stats{text-align:left}.list-head input{order:3;max-width:none;min-width:100%}}
 </style>
+<link rel="stylesheet" href="/static/site-navigation.css">
 </head>
 <body>
 <main>
-<header><a href="/">← Playlists</a><a href="/playlist-intelligence">Playlist Intelligence</a></header>
+<header class="site-nav-page-header">
+<button id="siteNavigationToggle" class="site-nav-toggle" type="button"
+  aria-label="Open navigation menu" aria-expanded="false" aria-controls="siteNavigationPanel"
+  title="Open navigation menu"><span class="site-nav-lines" aria-hidden="true"><span></span><span></span><span></span></span></button>
+<a href="/">← Playlists</a><a href="/playlist-intelligence">Playlist Intelligence</a></header>
+{% include "_site_navigation.html" %}
+
 <h1>Musical coherence</h1>
 <section class="panel" aria-label="AudioMuse tools">
   <div class="controls">
@@ -295,5 +302,6 @@ $('sync').addEventListener('click', async () => {
 });
 load();
 </script>
+<script src="/static/site-navigation.js" defer></script>
 </body>
 </html>
