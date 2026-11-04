@@ -69,9 +69,16 @@ audio{width:100%;height:35px;margin-top:8px}
 #listeningReview textarea{min-height:55px;resize:vertical}
 .review-buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
 </style>
+<link rel="stylesheet" href="/static/site-navigation.css">
 </head>
 <body><main>
-<header><a href="/">← Playlists</a><a href="/musical-coherence">AudioMuse analysis</a></header>
+<header class="site-nav-page-header">
+<button id="siteNavigationToggle" class="site-nav-toggle" type="button"
+  aria-label="Open navigation menu" aria-expanded="false" aria-controls="siteNavigationPanel"
+  title="Open navigation menu"><span class="site-nav-lines" aria-hidden="true"><span></span><span></span><span></span></span></button>
+<a href="/">← Playlists</a><a href="/musical-coherence">AudioMuse analysis</a></header>
+{% include "_site_navigation.html" %}
+
 <h1>Playlist Intelligence</h1>
 <section class="panel">
   <div class="controls">
@@ -701,4 +708,5 @@ $('approve').onclick=async()=>{
 };
 loadNames();
 </script>
+<script src="/static/site-navigation.js" defer></script>
 </body></html>
