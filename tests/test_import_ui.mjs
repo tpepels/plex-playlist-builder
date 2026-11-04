@@ -24,7 +24,8 @@ function fakeElement() {
   };
 }
 
-function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false, albumFound = true } = {}) {
+function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false,
+  albumFound = true, initialUrl = null } = {}) {
   const elements = new Map();
   const rows = [];
   const cards = fakeElement();
@@ -209,7 +210,17 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     }
     return { ok: status < 400, status, json: async () => body };
   }
-  vm.runInNewContext(script, { document, fetch });
+  const route=initialUrl ? new URL(initialUrl,"http://media-server:5051") : null;
+  const windowObj=route ? {
+    location:{href:route.href,pathname:route.pathname,search:route.search,hash:route.hash},
+    history:{replaceState(_state,_title,path){
+      const next=new URL(path,"http://media-server:5051");
+      windowObj.location={href:next.href,pathname:next.pathname,
+                          search:next.search,hash:next.hash};
+    }}
+  } : undefined;
+  vm.runInNewContext(script, { document, fetch,
+    ...(windowObj?{window:windowObj,URL,URLSearchParams}:{}) });
   async function chooseFile() {
     // Let initial health/config fetches and DOM rendering settle.
     await new Promise((resolve) => setImmediate(resolve));
@@ -217,7 +228,8 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     input.files = [{ name: filename, text: async () => "playlists:\n  Beta: {}\n" }];
     await input.onchange();
   }
-  return { chooseFile, calls, requests, $, tabs, document, filename, get imported() { return imported; }, get synced() { return synced; } };
+  return { chooseFile, calls, requests, $, tabs, document, windowObj,
+    filename, get imported() { return imported; }, get synced() { return synced; } };
 }
 
 test("valid file immediately imports and syncs new playlists", async () => {
@@ -542,4 +554,23 @@ test("navigation drawer traps keyboard focus and does not expose hidden content"
   assert.equal(prevented,2);
   h.$("navigationClose").onclick();
   assert.equal(h.$("navigationPanel").hidden,true);
+});
+
+test("cross-page deep links activate the requested dashboard view", async () => {
+  for(const [view,id] of [["health","viewHealth"],["duplicates","viewDuplicates"],
+                          ["newmusic","viewNewmusic"],["isc","viewIsc"],["discover","viewDiscover"]]){
+    const h=makeHarness({initialUrl:"http://media-server:5051/?view="+view});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(h.$(id).hidden,false);
+    assert.equal(h.$("viewPlaylists").hidden,true);
+    assert.equal(h.tabs.find(t=>t.dataset.view===view)["aria-current"],"page");
+    await h.tabs.find(t=>t.dataset.view==="playlists").onclick();
+    assert.equal(h.$("viewPlaylists").hidden,false);
+    assert.equal(h.windowObj.location.search,"");
+  }
+});
+test("unknown deep-link views do not activate nonexisting sections", async () => {
+  const h=makeHarness({initialUrl:"http://media-server:5051/?view=unknown"});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.$("viewPlaylists").hidden,false);
 });
