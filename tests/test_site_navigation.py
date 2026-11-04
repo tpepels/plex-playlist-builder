@@ -36,6 +36,7 @@ def test_all_secondary_templates_render_the_same_navigation():
         rendered=env.get_template(page).render(
             artist="Bill Evans",album="Waltz for Debby",
             token="test",search_url="https://music.youtube.com/search?q=test",
+            downloader_url="http://media-server:4545",
         )
         assert rendered.count('id="siteNavigationToggle"')==1,page
         assert rendered.count('id="siteNavigationPanel"')==1,page
