@@ -1188,6 +1188,14 @@ document.addEventListener?.("keydown",event=>{
 });
 for (const b of document.querySelectorAll(".view-tab")) b.onclick = async () => {
   activeView = b.dataset.view;
+  // Keep deep links from the other application pages aligned with the active
+  // dashboard view. Do not reload the page or lose unsaved playlist state.
+  if (typeof window !== "undefined" && window.history?.replaceState) {
+    const target = new URL(window.location.href);
+    if (activeView === "playlists") target.searchParams.delete("view");
+    else target.searchParams.set("view", activeView);
+    window.history.replaceState(null, "", target.pathname + target.search + target.hash);
+  }
   for (const tab of document.querySelectorAll(".view-tab")) {
     tab.classList.toggle("active", tab===b);
     if(tab===b)tab.setAttribute("aria-current","page");
@@ -1208,6 +1216,15 @@ for (const b of document.querySelectorAll(".view-tab")) b.onclick = async () => 
     await loadIsc();
 };
 
+// Support navigation directly into any of the six dashboard views.
+if (typeof window !== "undefined") {
+  const requestedView = new URLSearchParams(window.location.search).get("view");
+  if (requestedView && Object.prototype.hasOwnProperty.call(NAVIGATION_TITLES, requestedView)) {
+    const viewButton = [...document.querySelectorAll(".view-tab")]
+      .find(button => button.dataset.view === requestedView);
+    if (viewButton) viewButton.onclick();
+  }
+}
 checkHealth();
 loadConfig().catch(e => { $("cards").innerHTML = `<div class="empty">Could not load playlists: ${esc(e.message)}</div>`; });
 </script>
