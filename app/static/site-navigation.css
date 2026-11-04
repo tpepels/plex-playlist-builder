@@ -1,0 +1,105 @@
+/* Shared navigation for every secondary Playlist Manager page.
+   All rules are scoped to site-nav-* to preserve page-specific styling. */
+.site-nav-toggle {
+  flex:0 0 42px;display:inline-grid;place-items:center;
+  width:42px;height:42px;min-width:42px;min-height:42px;
+  padding:0!important;margin:0 9px 0 0;
+  border-radius:11px!important;border:1px solid #34505a!important;
+  background:#142630!important;color:#eaf5f5!important;
+  cursor:pointer;
+}
+.site-nav-toggle:hover,.site-nav-toggle[aria-expanded="true"] {
+  border-color:#6cf5c2!important;background:#203a3c!important;
+}
+.site-nav-toggle:focus-visible,.site-nav-panel :focus-visible {
+  outline:2px solid #6cf5c2;outline-offset:3px;
+}
+.site-nav-lines {display:grid;gap:4px;width:19px}
+.site-nav-lines span {display:block;width:19px;height:2px;background:currentColor;border-radius:3px}
+.site-nav-backdrop {
+  position:fixed;inset:0;z-index:9990;
+  background:rgba(0,7,13,.74);
+  backdrop-filter:blur(3px);
+}
+.site-nav-panel {
+  position:fixed;z-index:9991;
+  top:12px;bottom:12px;left:max(10px,calc((100vw - 1160px)/2));
+  width:min(355px,calc(100vw - 20px));
+  overflow-y:auto;overscroll-behavior:contain;
+  padding:18px;border-radius:15px;
+  border:1px solid #304c55;background:#101d26;
+  box-shadow:0 24px 75px #000a;
+  color:#eaf5f5;font:14px/1.5 system-ui,-apple-system,sans-serif;
+}
+.site-nav-backdrop[hidden],.site-nav-panel[hidden]{display:none!important}
+body.site-navigation-open{overflow:hidden}
+.site-nav-head {
+  display:flex;align-items:center;justify-content:space-between;
+  gap:15px;padding-bottom:15px;
+  border-bottom:1px solid #304c55;
+}
+.site-nav-head strong{font-size:17px;color:#eaf5f5}
+.site-nav-close {
+  border:1px solid #34505a!important;border-radius:8px!important;
+  background:transparent!important;color:#aac1c9!important;
+  padding:5px 9px!important;font:inherit!important;cursor:pointer;
+}
+.site-nav-close span{font-size:19px;margin-left:5px;vertical-align:middle}
+.site-nav-links{display:flex!important;flex-direction:column;gap:2px;margin:0!important;padding:0!important}
+.site-nav-section {
+  display:block;color:#6fd9dc;font-size:10px;font-weight:750;
+  letter-spacing:.12em;margin:17px 9px 7px;
+}
+.site-nav-links a,.site-nav-export-links>a {
+  display:block!important;box-sizing:border-box;
+  width:100%;min-height:39px;padding:9px 12px!important;
+  color:#eaf5f5!important;font:500 14px/1.45 system-ui,-apple-system,sans-serif!important;
+  text-decoration:none!important;border-radius:8px;border:1px solid transparent;
+}
+.site-nav-links a:hover,.site-nav-export-links>a:hover {
+  background:#20373c!important;color:#6cf5c2!important;
+}
+.site-nav-links a[aria-current="page"] {
+  background:#1b3635!important;color:#6cf5c2!important;
+  border-color:#2e6255;font-weight:750!important;
+}
+.site-nav-exports {
+  border:0!important;border-top:1px solid #304c55!important;
+  border-radius:0!important;background:transparent!important;
+  margin:18px 0 0!important;padding:10px 0 0!important;
+  box-shadow:none!important;overflow:visible!important;
+}
+.site-nav-exports>summary{
+  display:flex;justify-content:space-between;align-items:center;
+  min-height:38px;padding:9px 12px!important;
+  color:#eaf5f5!important;font:650 14px/1.5 system-ui,sans-serif;
+  cursor:pointer;list-style:none;
+}
+.site-nav-exports>summary::-webkit-details-marker{display:none}
+.site-nav-exports[open]>summary span{transform:rotate(180deg)}
+.site-nav-export-links {display:grid;gap:3px}
+.site-nav-export-links>a{color:#aac1c9!important;font-size:13px!important}
+.site-nav-recent-form {
+  display:grid;gap:8px;padding:11px 10px;
+  margin:8px 0 0;border-top:1px solid #304c55;
+}
+.site-nav-recent-form label {color:#aac1c9!important;font-size:12px!important}
+.site-nav-recent-form input,.site-nav-recent-form select {
+  width:100%!important;min-width:0!important;max-width:100%!important;
+  height:35px!important;padding:6px 10px!important;margin:0!important;
+  background:#192b35!important;border:1px solid #34505a!important;
+  border-radius:8px!important;color:#eaf5f5!important;
+  font:13px system-ui,sans-serif!important;
+}
+.site-nav-recent-form button {
+  justify-self:start;padding:7px 11px!important;
+  background:#1d353c!important;border:1px solid #34505a!important;
+  border-radius:8px!important;color:#eaf5f5!important;
+  font:13px system-ui,sans-serif!important;cursor:pointer;
+}
+.site-nav-recent-form button:hover{border-color:#6cf5c2!important}
+.site-nav-topline {display:flex;align-items:center;gap:7px;min-width:0}
+@media(max-width:680px) {
+  .site-nav-panel{top:8px;bottom:8px;left:8px;width:min(355px,calc(100vw - 16px))}
+  .site-nav-toggle{width:39px;height:39px;min-width:39px;min-height:39px}
+}
