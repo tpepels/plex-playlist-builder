@@ -282,6 +282,40 @@
       </div>
     </details>
   </section>
+  <details class="panel vpn-panel" id="youtube-cookie-panel">
+    <summary><span>YouTube cookies</span><span class="vpn-count" id="youtube-cookie-state">{{ "Configured" if youtube_cookies_ready else "Not configured" }}</span></summary>
+    <div class="vpn-body">
+      <p class="vpn-intro">If YouTube asks you to sign in or confirm that you are not a bot, export the cookies from youtube.com in Netscape/Mozilla cookies.txt format. Upload the file here; yt-dlp automatically uses it for subsequent downloads and retries.</p>
+      <div class="vpn-statusbar">
+        <span class="vpn-status-pill {{ '' if youtube_cookies_ready else 'vpn-disconnected' }}">{{ "YouTube cookies installed" if youtube_cookies_ready else "No YouTube cookies installed" }}</span>
+      </div>
+      {% if youtube_cookie_notice %}
+      <p class="vpn-feedback" role="status" aria-live="polite" id="youtube-cookie-feedback">
+        {% if youtube_cookie_notice == "saved" %}YouTube cookies saved. Future downloads and retries will use them automatically.
+        {% elif youtube_cookie_notice == "removed" %}Saved YouTube cookies removed.
+        {% elif youtube_cookie_notice == "busy" %}Wait until queued and running downloads finish before changing cookies.
+        {% elif youtube_cookie_notice == "size" %}The cookie file is empty or larger than 1 MB.
+        {% elif youtube_cookie_notice == "missing" %}Select a cookie file containing entries for youtube.com.
+        {% elif youtube_cookie_notice == "format" %}Invalid format. Export a Netscape/Mozilla cookies.txt file, not JSON.
+        {% else %}Cookie file could not be saved or removed. Check the state directory permissions.
+        {% endif %}
+      </p>
+      {% endif %}
+      <form id="youtube-cookie-upload-form" action="/youtube/cookies/upload" method="post" enctype="multipart/form-data" class="vpn-fields">
+        <input type="hidden" name="_cookie_token" value="{{ youtube_cookie_token }}">
+        <label for="youtube-cookie-file">Exported cookies.txt file</label>
+        <input type="file" id="youtube-cookie-file" name="cookies" accept=".txt,text/plain" required>
+        <button type="submit" id="youtube-cookie-upload-button">Upload cookies</button>
+      </form>
+      {% if youtube_cookies_ready %}
+      <form action="/youtube/cookies/remove" method="post" class="vpn-actions">
+        <input type="hidden" name="_cookie_token" value="{{ youtube_cookie_token }}">
+        <button type="submit" id="youtube-cookie-remove-button" class="vpn-secondary">Remove saved cookies</button>
+      </form>
+      {% endif %}
+      <p class="vpn-muted">Only YouTube cookies are retained. Other sites' cookies are discarded. The file is kept in your existing persistent downloader state volume with owner-only permissions. Cookies can expire or be rejected by YouTube.</p>
+    </div>
+  </details>
   <details class="panel vpn-panel" id="vpn-panel">
     <summary><span>Surfshark VPN</span><span class="vpn-count" id="vpn-count">Checking…</span></summary>
     <div class="vpn-body">

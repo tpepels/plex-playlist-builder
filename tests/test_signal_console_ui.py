@@ -13,6 +13,8 @@ def test_downloader_keeps_core_controls_and_adds_theme():
     assert 'id="jobs"' in HTML
     assert 'id="history-results"' in HTML
     assert 'id="vpn-panel"' in HTML
+    assert 'id="youtube-cookie-panel"' in HTML
+    assert 'id="youtube-cookie-upload-button"' in HTML
     assert 'id="signal-theme-toggle"' in HTML
     assert "signal-console.css" in HTML
     assert "signal-console.js" in HTML

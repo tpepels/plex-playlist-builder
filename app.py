@@ -28,6 +28,7 @@ from album_submission import clean_match_audit, submission_key
 from job_diagnostics import explain_job
 from surfshark_vpn import rotate_if_enabled
 from vpn_ui import register as register_vpn_manager
+from youtube_cookies import cookie_path, register as register_youtube_cookies
 
 app = Flask(__name__)
 
@@ -36,7 +37,7 @@ MUSIC_ROOT = Path(os.getenv("MUSIC_ROOT", "/data/music"))
 IMPORT_SUBDIR = os.getenv("IMPORT_SUBDIR", "YT-DLP Imports").strip("/\\")
 STATE_DIR = Path(os.getenv("STATE_DIR", "/data/state"))
 TEMP_DIR = Path(os.getenv("TEMP_DIR", "/data/tmp"))
-COOKIES_FILE = os.getenv("COOKIES_FILE", "").strip()
+COOKIES_FILE = str(cookie_path(STATE_DIR, os.getenv("COOKIES_FILE", "")))
 MAX_QUEUE = int(os.getenv("MAX_QUEUE", "50"))
 # No automatic history deletion; old MAX_HISTORY values no longer prune jobs.
 MAX_HISTORY = 0
@@ -71,6 +72,7 @@ archived_jobs = {}
 album_submissions = {}
 jobs_lock = threading.Lock()
 register_vpn_manager(app, jobs, jobs_lock)
+register_youtube_cookies(app, jobs, jobs_lock, COOKIES_FILE)
 probe_cache = {}
 probe_cache_lock = threading.Lock()
 download_queue = queue.Queue(maxsize=MAX_QUEUE)
@@ -168,7 +170,7 @@ def current_software_version():
     """Fingerprint deployed downloader code and toolchain, not historical retries."""
     digest = hashlib.sha256()
     for name in ("app.py", "staging.py", "album_completeness.py",
-                 "retry_queue.py", "download_resilience.py",
+                 "retry_queue.py", "download_resilience.py", "youtube_cookies.py",
                  "album_submission.py", "job_diagnostics.py",
                  "surfshark_vpn.py", "vpn_ui.py", "vpn_gateway.py",
                  "static/vpn-manager.js", "templates/index.html"):

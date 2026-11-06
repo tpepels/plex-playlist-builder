@@ -645,15 +645,13 @@ The **Ignore archive and overwrite existing file** checkbox deliberately bypasse
 
 ## Cookies
 
-Some sites may require authentication. Export a Netscape-format `cookies.txt`, place it at:
-
-    /srv/yt-dlp-server/state/cookies.txt
-
-and add:
-
-    COOKIES_FILE: /data/state/cookies.txt
-
-to the service environment. Treat the cookie file as a secret.
+Open the **YouTube cookies** panel in the downloader webinterface on port 4545.
+Export cookies for youtube.com from your browser in Netscape/Mozilla `cookies.txt` format (not JSON), select the file, then click **Upload cookies**.
+The app validates the file, retains only YouTube cookie entries, and stores the result in `/data/state/cookies.txt` with `0600` permissions. The state volume persists between rebuilds.
+All yt-dlp YouTube download, probe and retry commands and spotDL commands reuse that one configured cookie file. Remove it with the button in the same panel.
+Uploads and removal are blocked while jobs are queued or running. Forms use a random server-side token to prevent cross-site submissions; no password or login is required on this single-user LAN installation.
+If `COOKIES_FILE` is explicitly set, the upload replaces that configured path instead. Do not expose port 4545 to the public internet.
+Cookies can expire, and YouTube may still require further verification. yt-dlp recommends exporting YouTube cookies from a dedicated private browsing session to avoid rotation; using an account for automated downloads can trigger account restrictions.
 
 ## Updating yt-dlp and spotDL
 
@@ -676,7 +674,7 @@ Watchtower does not rebuild locally built images, so it cannot update yt-dlp ins
 | `IMPORT_SUBDIR` | `YT-DLP Imports` | Isolated directory inside the music root |
 | `STATE_DIR` | `/data/state` | Persistent archives, queue and job history |
 | `TEMP_DIR` | `/data/tmp` | Persistent staging and temporary files; keep this outside `MUSIC_ROOT` |
-| `COOKIES_FILE` | empty | Optional Netscape-format cookies file |
+| `COOKIES_FILE` | `/data/state/cookies.txt` | Optional override for the web-uploaded YouTube cookies file |
 | `MAX_QUEUE` | `50` | Maximum waiting jobs |
 | `MAX_HISTORY` | ignored | Deprecated: history is now permanent; this variable cannot prune failed downloads |
 | `PROBE_TIMEOUT` | `30` | Maximum link-inspection time in seconds |
