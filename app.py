@@ -27,15 +27,7 @@ from download_resilience import (
 from album_submission import clean_match_audit, submission_key
 from job_diagnostics import explain_job
 from surfshark_vpn import rotate_if_enabled
-from vpn_ui import (
-    register as register_vpn_manager, gateway_call,
-    set_direct_fallback_active,
-)
-from youtube_auth import (
-    cookie_path, direct_fallback_enabled,
-    register as register_youtube_auth,
-)
-from direct_transport import temporary_direct_connection, DirectFallbackError
+from vpn_ui import register as register_vpn_manager
 
 app = Flask(__name__)
 
@@ -44,8 +36,7 @@ MUSIC_ROOT = Path(os.getenv("MUSIC_ROOT", "/data/music"))
 IMPORT_SUBDIR = os.getenv("IMPORT_SUBDIR", "YT-DLP Imports").strip("/\\")
 STATE_DIR = Path(os.getenv("STATE_DIR", "/data/state"))
 TEMP_DIR = Path(os.getenv("TEMP_DIR", "/data/tmp"))
-# One canonical cookie path is shared by the uploader, yt-dlp and spotDL.
-COOKIE_FILE = cookie_path(STATE_DIR)
+COOKIES_FILE = os.getenv("COOKIES_FILE", "").strip()
 MAX_QUEUE = int(os.getenv("MAX_QUEUE", "50"))
 # No automatic history deletion; old MAX_HISTORY values no longer prune jobs.
 MAX_HISTORY = 0
@@ -80,7 +71,6 @@ archived_jobs = {}
 album_submissions = {}
 jobs_lock = threading.Lock()
 register_vpn_manager(app, jobs, jobs_lock)
-register_youtube_auth(app, jobs, jobs_lock, STATE_DIR)
 probe_cache = {}
 probe_cache_lock = threading.Lock()
 download_queue = queue.Queue(maxsize=MAX_QUEUE)
@@ -179,11 +169,9 @@ def current_software_version():
     digest = hashlib.sha256()
     for name in ("app.py", "staging.py", "album_completeness.py",
                  "retry_queue.py", "download_resilience.py",
-                 "youtube_auth.py", "direct_transport.py",
                  "album_submission.py", "job_diagnostics.py",
                  "surfshark_vpn.py", "vpn_ui.py", "vpn_gateway.py",
-                 "static/vpn-manager.js",
-                 "templates/index.html"):
+                 "static/vpn-manager.js", "templates/index.html"):
         path = Path(__file__).resolve().parent / name
         digest.update(name.encode())
         digest.update(path.read_bytes())
@@ -383,8 +371,6 @@ def normalize_persisted_job(raw):
         "automatic_bot_restarts": int(raw.get("automatic_bot_restarts") or 0),
         "automatic_vpn_rotations": int(raw.get("automatic_vpn_rotations") or 0),
         "recovered_bot_challenge": bool(raw.get("recovered_bot_challenge", False)),
-        "direct_fallback_attempted": bool(raw.get("direct_fallback_attempted", False)),
-        "direct_fallback_succeeded": bool(raw.get("direct_fallback_succeeded", False)),
         "retry_of": raw.get("retry_of"),
         "attempt": int(raw.get("attempt") or 1),
         "software_version": str(raw.get("software_version") or "legacy"),
@@ -713,8 +699,8 @@ def album_playlist_metadata_args(compilation=False):
 
 
 def cookie_args():
-    if COOKIE_FILE.is_file():
-        return ["--cookies", str(COOKIE_FILE)]
+    if COOKIES_FILE and Path(COOKIES_FILE).is_file():
+        return ["--cookies", COOKIES_FILE]
     return []
 
 
@@ -1011,8 +997,8 @@ def build_fallback_track_command(query, output_dir):
         "--yt-dlp-args",
         spotdl_ytdlp_args(),
     ]
-    if COOKIE_FILE.is_file():
-        cmd.extend(["--cookie-file", str(COOKIE_FILE)])
+    if COOKIES_FILE and Path(COOKIES_FILE).is_file():
+        cmd.extend(["--cookie-file", COOKIES_FILE])
     return cmd
 
 
@@ -1054,8 +1040,8 @@ def build_spotdl_command(job):
 
     if not job["force"]:
         cmd.extend(["--archive", str(SPOTDL_ARCHIVE_FILE)])
-    if COOKIE_FILE.is_file():
-        cmd.extend(["--cookie-file", str(COOKIE_FILE)])
+    if COOKIES_FILE and Path(COOKIES_FILE).is_file():
+        cmd.extend(["--cookie-file", COOKIES_FILE])
 
     return cmd
 
@@ -1460,73 +1446,6 @@ def run_job(job_id):
             time.sleep(delay)
             restart_index = next_restart
 
-        # A distinct, last-resort network route is used only for an explicit
-        # YouTube bot challenge. The gateway permits only this downloader UID
-        # to leave over the normal Docker network and restores WireGuard
-        # before the worker moves to finalization or the next queued job.
-        direct_eligible = (
-            youtube and not snapshot.get("force") and returncode != 0
-            and failure_kind == BOT_CHALLENGE
-            and os.getenv("VPN_GATEWAY_ENABLED") == "1"
-            and direct_fallback_enabled(STATE_DIR)
-        )
-        if direct_eligible:
-            set_direct_fallback_active(True)
-            try:
-                with jobs_lock:
-                    current = jobs[job_id]
-                    current["message"] = (
-                        "YouTube bot verification on VPN; trying once without VPN"
-                    )
-                    current["log"].append(
-                        "RECOVERY: Temporarily disconnecting WireGuard for one "
-                        "direct IPv4 attempt. The server's normal public IP will "
-                        "be visible to YouTube. VPN restoration follows."
-                    )
-                    current["log"] = current["log"][-40:]
-                    persist_jobs_locked()
-                with temporary_direct_connection(gateway_call) as direct_ip:
-                    with jobs_lock:
-                        current = jobs[job_id]
-                        current["http_403"] = False
-                        current["failure_kind"] = None
-                        current["direct_fallback_attempted"] = True
-                        current["log"].append(
-                            "RECOVERY: Direct exit IPv4 verified; starting one "
-                            "fresh yt-dlp process with the existing cookie configuration."
-                        )
-                        current["log"] = current["log"][-40:]
-                        persist_jobs_locked()
-                        direct_snapshot = dict(current)
-                    cmd = build_command(direct_snapshot, player_client=YOUTUBE_PLAYER_CLIENT)
-                    process = subprocess.Popen(
-                        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                        text=True, bufsize=1,
-                    )
-                    assert process.stdout is not None
-                    for line in process.stdout:
-                        append_log(job_id, line)
-                    returncode = process.wait()
-                with jobs_lock:
-                    current = jobs[job_id]
-                    current["direct_fallback_succeeded"] = returncode == 0
-                    current["log"].append(
-                        "RECOVERY: WireGuard restored after the direct retry."
-                    )
-                    current["log"] = current["log"][-40:]
-                    persist_jobs_locked()
-            except DirectFallbackError as exc:
-                with jobs_lock:
-                    current = jobs[job_id]
-                    current["log"].append("RECOVERY: Direct retry unavailable: " + str(exc))
-                    current["log"] = current["log"][-40:]
-                    current["direct_fallback_succeeded"] = False
-                    persist_jobs_locked()
-                if current.get("direct_fallback_attempted"):
-                    returncode = 1
-            finally:
-                set_direct_fallback_active(False)
-
         with jobs_lock:
             current = jobs[job_id]
             if returncode == 0 and (had_http_403 or had_bot_challenge):
@@ -1632,12 +1551,7 @@ def run_job(job_id):
                         job["message"] = f"spotDL failed; {max(1, job['failed_items'])} track(s) failed"
                 elif job.get("failure_kind") == BOT_CHALLENGE and is_youtube_url(job["url"]):
                     retries = int(job.get("automatic_bot_restarts") or 0)
-                    if job.get("direct_fallback_attempted"):
-                        job["message"] = (
-                            "YouTube still requires verification after the "
-                            "direct no-VPN retry; saved files are retained."
-                        )
-                    elif rotation_failure:
+                    if rotation_failure:
                         job["message"] = (
                             f"YouTube bot verification; VPN exit IP could not be changed "
                             f"after {retries} automatic restart(s). "
@@ -2076,8 +1990,6 @@ def download():
         "automatic_bot_restarts": 0,
         "automatic_vpn_rotations": 0,
         "recovered_bot_challenge": False,
-        "direct_fallback_attempted": False,
-        "direct_fallback_succeeded": False,
         "retry_of": None,
         "attempt": 1,
         "software_version": SOFTWARE_VERSION,
