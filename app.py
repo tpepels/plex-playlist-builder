@@ -182,7 +182,7 @@ def current_software_version():
                  "youtube_auth.py", "direct_transport.py",
                  "album_submission.py", "job_diagnostics.py",
                  "surfshark_vpn.py", "vpn_ui.py", "vpn_gateway.py",
-                 "static/vpn-manager.js", "static/youtube-settings.js",
+                 "static/vpn-manager.js",
                  "templates/index.html"):
         path = Path(__file__).resolve().parent / name
         digest.update(name.encode())
