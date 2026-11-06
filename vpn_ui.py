@@ -19,7 +19,15 @@ from flask import Blueprint, jsonify, request
 
 GATEWAY = "http://127.0.0.1:8787"
 TEST_LOCK = threading.Lock()
+DIRECT_ACTIVE = threading.Event()
 test_active = False
+
+
+def set_direct_fallback_active(active):
+    if active:
+        DIRECT_ACTIVE.set()
+    else:
+        DIRECT_ACTIVE.clear()
 _PRIVATE_KEY_DIRECTIVE = re.compile(r"(?m)^([ \t]*PrivateKey[ \t]*=[ \t]*)([^\r\n]*)(\r?)$")
 _SURFSHARK_PLACEHOLDER = "<insert_your_private_key_here>"
 
@@ -82,7 +90,8 @@ def control_token():
 
 
 def gateway_call(path, payload=None):
-    if path not in {"/profiles", "/rotate", "/test"} and not (
+    if path not in {"/profiles", "/rotate", "/test",
+                    "/direct/start", "/direct/renew", "/direct/end"} and not (
         path.startswith("/activate/") or path.startswith("/delete/")
     ):
         raise ValueError("Unsupported VPN gateway operation")
@@ -96,7 +105,7 @@ def gateway_call(path, payload=None):
                            "Content-Type": "application/json"},
                   method="POST" if data is not None else "GET")
     try:
-        with urlopen(req, timeout=(8 if path == "/profiles" else 240 if path == "/rotate" else 70)) as response:
+        with urlopen(req, timeout=(8 if path in {"/profiles", "/direct/renew"} else 240 if path == "/rotate" else 90)) as response:
             return json.load(response), response.status
     except HTTPError as exc:
         try:
@@ -129,6 +138,8 @@ def register(app, jobs, jobs_lock):
                              (path.endswith("/retry") or path.endswith("/resolve"))))
         if not is_job_change:
             return None
+        if DIRECT_ACTIVE.is_set():
+            return jsonify(error="Direct YouTube retry in progress; new requests are temporarily blocked"), 409
         global test_active
         with TEST_LOCK:
             running = test_active
