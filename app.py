@@ -1755,6 +1755,7 @@ def start_runtime_workers():
 if not MAINTENANCE_ONLY:
     start_runtime_workers()
 
+
 def request_root_id_locked(job):
     current = job
     seen = set()
@@ -1915,6 +1916,7 @@ def download_chrome_extension():
         archive, mimetype="application/zip", as_attachment=True,
         download_name=filename, max_age=0,
     )
+
 
 @app.get("/")
 def index():

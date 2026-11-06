@@ -53,3 +53,24 @@ def test_app_maintenance_command_skips_runtime_worker_start():
     assert "    start_runtime_workers()" in source
     assert 'sys.argv[1] == "repair-library"' in source
     assert "repair_library(sys.argv[2:])" in source
+
+
+def test_repair_entrypoint_help_runs_without_a_server(tmp_path):
+    import os
+    import subprocess
+    import sys
+    env = os.environ.copy()
+    env.update({
+        "MUSIC_ROOT": str(tmp_path / "music"),
+        "TEMP_DIR": str(tmp_path / "temp"),
+        "STATE_DIR": str(tmp_path / "state"),
+    })
+    command = [sys.executable, "-m", "app", "repair-library", "--help"]
+    result = subprocess.run(
+        command, cwd=ROOT, env=env, text=True,
+        capture_output=True, timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--apply" in result.stdout
+    assert "--refresh-metadata" in result.stdout
+    assert not (tmp_path / "state" / "jobs.json").exists()

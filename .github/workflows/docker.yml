@@ -102,6 +102,18 @@ jobs:
                             "options.html", "options.js", "README.md"):
                   assert archive.read(entry) == (Path("/app/chrome-extension") / entry).read_bytes()
           PY
+      - name: Verify packaged library-repair command
+        run: |
+          docker run --rm --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e TEMP_DIR=/tmp/work \
+            -e STATE_DIR=/tmp/state \
+            yt-dlp-server:test sh -ec '
+              mkdir -p /tmp/state
+              printf "{\"jobs\":[]}" > /tmp/state/jobs.json
+              python -m app repair-library --help | grep -q -- --apply
+              python -m app repair-library | grep -q "No legacy playlist files found"
+            '
       - name: Validate Plex post-publish nudge
         run: |
           docker run --rm --user 1000:1000 \
