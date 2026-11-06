@@ -126,3 +126,52 @@ def test_verification_rejects_active_jobs(client, monkeypatch):
     response = c.post("/youtube/cookies/verify", data={"_cookie_token": token})
     assert response.status_code == 409
     assert response.json["status"] == "inconclusive"
+
+
+@pytest.mark.parametrize("html,expected", [
+    (b'<script>ytcfg.set({"LOGGED_IN":true,"HL":"en"});</script>', True),
+    (b'<script>ytcfg.set({"LOGGED_IN":false});</script>', False),
+    (b'<html>Unrecognizable consent response</html>', None),
+    (b'<script>{"LOGGED_IN":true,"LOGGED_IN":false}</script>', None),
+])
+def test_login_recognition_uses_youtube_page_not_cookie_presence(
+    tmp_path, monkeypatch, html, expected,
+):
+    path = cookie_file(tmp_path)
+    class Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def geturl(self):
+            return yc.LOGIN_PAGE_URL
+        def read(self, limit):
+            assert limit == 2_000_000
+            return html
+
+    class Opener:
+        def open(self, request, timeout):
+            assert request.full_url == yc.LOGIN_PAGE_URL
+            assert timeout == 12
+            return Response()
+
+    monkeypatch.setattr(yc, "build_opener", lambda *args: Opener())
+    assert yc.youtube_login_state(path) is expected
+
+
+def test_account_redirect_to_google_is_rejected(tmp_path, monkeypatch):
+    path = cookie_file(tmp_path)
+    class Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def geturl(self):
+            return "https://accounts.google.com/ServiceLogin"
+        def read(self, limit):
+            pytest.fail("Do not inspect cross-origin sign-in form")
+    class Opener:
+        def open(self, request, timeout):
+            return Response()
+    monkeypatch.setattr(yc, "build_opener", lambda *args: Opener())
+    assert yc.youtube_login_state(path) is False
