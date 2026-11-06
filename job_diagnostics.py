@@ -28,8 +28,9 @@ def explain_job(job, repeated_requests=0):
     tone = "neutral"
     heading = "Checking status"
 
-    if status == "running" and str(job.get("message") or "").startswith("YouTube HTTP 403; waiting"):
-        heading = "Recovering from HTTP 403"
+    if status == "running" and str(job.get("message") or "").startswith(("YouTube HTTP 403;", "YouTube bot verification;")):
+        heading = ("Recovering from YouTube bot verification"
+                   if "bot verification" in job["message"] else "Recovering from HTTP 403")
         explanation = str(job.get("message"))
         action = "Automatic retry is scheduled. Previously saved tracks are retained."
         tone = "warning"
@@ -121,4 +122,7 @@ def explain_job(job, repeated_requests=0):
         "has_published_directory": bool(job.get("final_dir")),
         "automatic_403_restarts": int(job.get("automatic_403_restarts") or 0),
         "recovered_http_403": bool(job.get("recovered_http_403")),
+        "automatic_bot_restarts": int(job.get("automatic_bot_restarts") or 0),
+        "automatic_vpn_rotations": int(job.get("automatic_vpn_rotations") or 0),
+        "recovered_bot_challenge": bool(job.get("recovered_bot_challenge")),
     }

@@ -21,7 +21,8 @@ from job_history import history_records
 from retry_queue import failed_candidates, build_retry
 from download_resilience import (
     recovery_policy, retry_delay, player_client_for_attempt,
-    track_pacing_args, should_restart,
+    track_pacing_args, should_restart, needs_vpn_rotation,
+    youtube_failure_kind, HTTP_403, BOT_CHALLENGE,
 )
 from album_submission import clean_match_audit, submission_key
 from job_diagnostics import explain_job
@@ -366,6 +367,10 @@ def normalize_persisted_job(raw):
         "http_403": bool(raw.get("http_403", False)),
         "automatic_403_restarts": int(raw.get("automatic_403_restarts") or 0),
         "recovered_http_403": bool(raw.get("recovered_http_403", False)),
+        "failure_kind": raw.get("failure_kind") if raw.get("failure_kind") in {HTTP_403, BOT_CHALLENGE} else None,
+        "automatic_bot_restarts": int(raw.get("automatic_bot_restarts") or 0),
+        "automatic_vpn_rotations": int(raw.get("automatic_vpn_rotations") or 0),
+        "recovered_bot_challenge": bool(raw.get("recovered_bot_challenge", False)),
         "retry_of": raw.get("retry_of"),
         "attempt": int(raw.get("attempt") or 1),
         "software_version": str(raw.get("software_version") or "legacy"),
@@ -1105,8 +1110,13 @@ def append_log(job_id, line):
             return
 
         job["last_activity_at"] = time.time()
-        if "HTTP Error 403" in line or "HTTP 403" in line:
-            job["http_403"] = True
+        failure_kind = youtube_failure_kind(line) if job.get("source") != "spotify" else None
+        if failure_kind:
+            # A bot challenge takes precedence over a generic HTTP 403.
+            if failure_kind == BOT_CHALLENGE or not job.get("failure_kind"):
+                job["failure_kind"] = failure_kind
+            if failure_kind == HTTP_403:
+                job["http_403"] = True
         if (
             "has already been recorded in the archive" in line.lower()
             or ("[download]" in line and "has already been downloaded" in line.lower())
@@ -1165,7 +1175,7 @@ def append_log(job_id, line):
         job["log"] = job["log"][-40:]
         # Failures must survive a sudden server restart, even when yt-dlp
         # has not yet returned a final process exit code.
-        if line.startswith("ERROR:") or job.get("http_403"):
+        if line.startswith("ERROR:") or failure_kind:
             persist_jobs_locked()
 
 def finalize_staged_job(job_id):
@@ -1339,12 +1349,14 @@ def run_job(job_id):
     try:
         restart_index = 0
         had_http_403 = False
+        had_bot_challenge = False
+        rotation_failure = False
         while True:
             with jobs_lock:
                 current = jobs[job_id]
-                # Each fresh process has its own failure result; a previous
-                # attempt's HTTP 403 cannot trigger another retry by itself.
+                # Errors from an earlier process cannot trigger another retry.
                 current["http_403"] = False
+                current["failure_kind"] = None
                 persist_jobs_locked()
                 snapshot = dict(current)
             client = player_client_for_attempt(
@@ -1366,63 +1378,85 @@ def run_job(job_id):
 
             with jobs_lock:
                 current = jobs[job_id]
-                got_http_403 = bool(current.get("http_403"))
-                had_http_403 = had_http_403 or got_http_403
+                failure_kind = current.get("failure_kind")
+                had_http_403 = had_http_403 or failure_kind == HTTP_403
+                had_bot_challenge = had_bot_challenge or failure_kind == BOT_CHALLENGE
                 retry = should_restart(
                     youtube=youtube, spotify=is_spotify,
                     forced=bool(snapshot.get("force")),
-                    returncode=returncode, got_http_403=got_http_403,
+                    returncode=returncode, failure_kind=failure_kind,
                     already_restarted=restart_index, policy=policy,
                 )
-                if retry:
-                    delay = retry_delay(restart_index + 1, policy)
-                    next_client = player_client_for_attempt(
-                        YOUTUBE_PLAYER_CLIENT, restart_index + 1, policy,
-                    )
-                    current["automatic_403_restarts"] = restart_index + 1
-                    current["message"] = (
-                        f"YouTube HTTP 403; waiting {delay}s to retry with "
-                        f"a fresh media URL ({restart_index + 2}/"
-                        f"{policy['restarts'] + 1} attempts, "
-                        f"client {next_client})."
-                    )
-                    current["log"].append(
-                        f"RECOVERY: {current['message']} Completed files "
-                        "will be kept and skipped via the download archive."
-                    )
-                    current["log"] = current["log"][-40:]
-                    persist_jobs_locked()
             if not retry:
                 break
-            # Optional final-stage fallback after repeated 403s. The subprocess
-            # has already exited, so no media transfer is interrupted.
-            if youtube and restart_index + 1 == policy["restarts"]:
+
+            # The subprocess has exited, so switching VPN cannot interrupt
+            # any currently downloading track. Never retry a bot block on
+            # the same public IP if rotation was unavailable.
+            next_restart = restart_index + 1
+            if needs_vpn_rotation(failure_kind, next_restart, policy):
+                with jobs_lock:
+                    current = jobs[job_id]
+                    current["message"] = (
+                        "YouTube bot verification; switching VPN endpoint"
+                        if failure_kind == BOT_CHALLENGE else
+                        "YouTube HTTP 403; attempting a new VPN endpoint"
+                    )
+                    persist_jobs_locked()
                 vpn_result = rotate_if_enabled()
-                if vpn_result is not None:
-                    with jobs_lock:
-                        current = jobs[job_id]
-                        if vpn_result.get("changed"):
-                            note = ("Surfshark changed exit IP before the last "
-                                    "retry; a new yt-dlp process will extract "
-                                    "fresh stream URLs.")
-                        else:
-                            note = ("Surfshark IP switch was unavailable or "
-                                    "the exit IP did not change.")
-                        current["log"].append("RECOVERY: " + note)
-                        current["log"] = current["log"][-40:]
-                        persist_jobs_locked()
-            # Restart yt-dlp itself. This re-extracts the video/stream URL;
-            # replaying the same expired URL is not an effective recovery.
+                changed = bool(vpn_result and vpn_result.get("changed"))
+                with jobs_lock:
+                    current = jobs[job_id]
+                    if changed:
+                        current["automatic_vpn_rotations"] = (
+                            int(current.get("automatic_vpn_rotations") or 0) + 1
+                        )
+                        country = str(vpn_result.get("country") or "another endpoint")
+                        note = f"VPN exit IP changed ({country}); a new yt-dlp process will extract fresh URLs."
+                    else:
+                        note = "VPN exit IP did not change; rotation unavailable or failed."
+                    current["log"].append("RECOVERY: " + note)
+                    current["log"] = current["log"][-40:]
+                    persist_jobs_locked()
+                if failure_kind == BOT_CHALLENGE and not changed:
+                    rotation_failure = True
+                    break
+
+            delay = retry_delay(next_restart, policy)
+            next_client = player_client_for_attempt(
+                YOUTUBE_PLAYER_CLIENT, next_restart, policy,
+            )
+            with jobs_lock:
+                current = jobs[job_id]
+                field = ("automatic_bot_restarts" if failure_kind == BOT_CHALLENGE
+                         else "automatic_403_restarts")
+                current[field] = int(current.get(field) or 0) + 1
+                label = ("bot verification" if failure_kind == BOT_CHALLENGE else "HTTP 403")
+                current["message"] = (
+                    f"YouTube {label}; waiting {delay}s to retry "
+                    f"({next_restart + 1}/{policy['restarts'] + 1} attempts, "
+                    f"client {next_client})."
+                )
+                current["log"].append(
+                    f"RECOVERY: {current['message']} Completed files "
+                    "will be kept and skipped via the download archive."
+                )
+                current["log"] = current["log"][-40:]
+                persist_jobs_locked()
             time.sleep(delay)
-            restart_index += 1
+            restart_index = next_restart
 
         with jobs_lock:
             current = jobs[job_id]
-            if returncode == 0 and had_http_403:
-                current["recovered_http_403"] = True
+            if returncode == 0 and (had_http_403 or had_bot_challenge):
+                if had_http_403:
+                    current["recovered_http_403"] = True
+                if had_bot_challenge:
+                    current["recovered_bot_challenge"] = True
                 current["http_403"] = False
+                current["failure_kind"] = None
                 current["log"].append(
-                    "RECOVERY: The download completed after automatic HTTP 403 recovery."
+                    "RECOVERY: Download completed after automatic YouTube recovery."
                 )
                 current["log"] = current["log"][-40:]
                 persist_jobs_locked()
@@ -1515,6 +1549,19 @@ def run_job(job_id):
                         )
                     else:
                         job["message"] = f"spotDL failed; {max(1, job['failed_items'])} track(s) failed"
+                elif job.get("failure_kind") == BOT_CHALLENGE and is_youtube_url(job["url"]):
+                    retries = int(job.get("automatic_bot_restarts") or 0)
+                    if rotation_failure:
+                        job["message"] = (
+                            f"YouTube bot verification; VPN exit IP could not be changed "
+                            f"after {retries} automatic restart(s). "
+                            "Check that several WireGuard profiles are connected and verified."
+                        )
+                    else:
+                        job["message"] = (
+                            f"YouTube bot verification after {retries} automatic restart(s) "
+                            "with VPN endpoint rotation. YouTube still requires verification."
+                        )
                 elif job["http_403"] and is_youtube_url(job["url"]):
                     retries = int(job.get("automatic_403_restarts") or 0)
                     if BGUTIL_SERVER_HOME.is_dir():
@@ -1939,6 +1986,10 @@ def download():
         "finished_at": None,
         "returncode": None,
         "http_403": False,
+        "failure_kind": None,
+        "automatic_bot_restarts": 0,
+        "automatic_vpn_rotations": 0,
+        "recovered_bot_challenge": False,
         "retry_of": None,
         "attempt": 1,
         "software_version": SOFTWARE_VERSION,

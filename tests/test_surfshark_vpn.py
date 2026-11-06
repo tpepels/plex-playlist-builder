@@ -97,7 +97,7 @@ def test_gateway_403_rotation_enabled_by_default(monkeypatch, tmp_path):
     result = vpn.rotate_if_enabled()
     assert result == {"changed": True, "new_ip": "198.51.100.6",
                       "country": "Sweden"}
-    assert calls == [("http://127.0.0.1:8787/rotate", "POST", 38)]
+    assert calls == [("http://127.0.0.1:8787/rotate", "POST", 240)]
 
 
 def test_explicit_zero_disables_default_rotation(monkeypatch):

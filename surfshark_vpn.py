@@ -102,7 +102,7 @@ def rotate_if_enabled():
                       data=b"{}", method="POST",
                       headers={"X-VPN-Key": key, "Content-Type": "application/json"})
         try:
-            with urlopen(req, timeout=38) as response:
+            with urlopen(req, timeout=240) as response:
                 obj = json.load(response)
             return {"changed": bool(obj.get("changed_ip")),
                     "new_ip": obj.get("ip", ""), "country": obj.get("country", "")}

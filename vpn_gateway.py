@@ -620,6 +620,11 @@ def delete_profile(profile_id):
 
 
 def rotate():
+    """Try alternate profiles in order until a different exit IP is verified.
+
+    A failed tunnel or same-IP endpoint is never reported as successful.
+    Every candidate is attempted at most once; MAX_PROFILES bounds work.
+    """
     with LOCK:
         if TASK["running"]:
             raise RuntimeError("VPN rotation test is running")
@@ -627,16 +632,32 @@ def rotate():
         choices = data["profiles"]
         if not choices:
             raise ValueError("Upload a WireGuard profile first")
-        current = next((i for i,p in enumerate(choices)
-                        if p["id"] == data["active"]), -1)
-        target = choices[(current + 1) % len(choices)]
         previous = data.get("active")
+        if previous and len(choices) < 2:
+            raise ValueError("Upload at least two WireGuard profiles for automatic rotation")
+        current = next((i for i, p in enumerate(choices)
+                        if p["id"] == previous), -1)
+        order = choices[current + 1:] + choices[:current + 1]
+        candidates = [item for item in order if item["id"] != previous]
         old_ip = probe()["ip"] if previous else None
-        result = _activate(target["id"])
-        changed_ip = old_ip is None or old_ip != result["ip"]
-        return {"profile": target, **result,
-                "changed_profile": previous != target["id"],
-                "changed_ip": changed_ip}
+        for candidate in candidates:
+            try:
+                result = _activate(candidate["id"])
+            except (VPNConnectionError, RuntimeError, OSError, subprocess.TimeoutExpired):
+                continue
+            if old_ip is None or result["ip"] != old_ip:
+                return {"profile": candidate, **result,
+                        "changed_profile": previous != candidate["id"],
+                        "changed_ip": True}
+        if previous and metadata().get("active") != previous:
+            try:
+                _activate(previous)
+            except (VPNConnectionError, RuntimeError, OSError, subprocess.TimeoutExpired):
+                raise VPNConnectionError(
+                    "restore", "No alternate VPN exit IP was verified and the previous "
+                    "tunnel could not be restored; downloads remain fail-closed.") from None
+        raise VPNConnectionError(
+            "exit_ip", "No other WireGuard profile produced a different verified exit IP")
 
 
 def test_worker():

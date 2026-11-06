@@ -96,7 +96,7 @@ def gateway_call(path, payload=None):
                            "Content-Type": "application/json"},
                   method="POST" if data is not None else "GET")
     try:
-        with urlopen(req, timeout=8 if path == "/profiles" else 70) as response:
+        with urlopen(req, timeout=(8 if path == "/profiles" else 240 if path == "/rotate" else 70)) as response:
             return json.load(response), response.status
     except HTTPError as exc:
         try:

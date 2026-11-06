@@ -8,7 +8,8 @@ import pytest
 import app as server
 from download_resilience import (
     player_client_for_attempt, recovery_policy, retry_delay,
-    should_restart, track_pacing_args,
+    should_restart, track_pacing_args, needs_vpn_rotation,
+    youtube_failure_kind, HTTP_403, BOT_CHALLENGE,
 )
 
 
@@ -32,11 +33,11 @@ def test_bounded_policy_and_recovery_client_selection():
 def test_does_not_retry_forced_downloads_or_non403_errors():
     policy = recovery_policy({})
     args = dict(youtube=True, spotify=False, forced=False,
-                returncode=1, got_http_403=True,
+                returncode=1, failure_kind=HTTP_403,
                 already_restarted=0, policy=policy)
     assert should_restart(**args)
     assert not should_restart(**{**args, "forced": True})
-    assert not should_restart(**{**args, "got_http_403": False})
+    assert not should_restart(**{**args, "failure_kind": None})
     assert not should_restart(**{**args, "youtube": False})
     assert not should_restart(**{**args, "returncode": 0})
     assert not should_restart(**{**args, "already_restarted": 2})
@@ -173,3 +174,71 @@ def test_other_failure_never_triggers_403_recovery(isolated_job, monkeypatch):
     server.run_job(isolated_job["id"])
     assert calls == ["run"]
     assert isolated_job["status"] == "failed"
+
+
+def test_bot_challenge_and_http_403_share_classifier():
+    assert youtube_failure_kind(
+        "ERROR: [youtube] IzsJqQ31gA4: Sign in to confirm you’re not a bot."
+    ) == BOT_CHALLENGE
+    assert youtube_failure_kind("ERROR: HTTP Error 403: Forbidden") == HTTP_403
+    assert youtube_failure_kind("ERROR: private recording") is None
+
+
+def test_bot_rotation_immediate_but_generic_403_rotation_final():
+    policy = recovery_policy({})
+    assert needs_vpn_rotation(BOT_CHALLENGE, 1, policy)
+    assert not needs_vpn_rotation(HTTP_403, 1, policy)
+    assert needs_vpn_rotation(HTTP_403, policy["restarts"], policy)
+    assert should_restart(youtube=True, spotify=False, forced=False, returncode=1,
+                          failure_kind=BOT_CHALLENGE, already_restarted=0, policy=policy)
+
+
+def test_bot_challenge_rotates_before_fresh_process(isolated_job, monkeypatch):
+    policy = recovery_policy({"YOUTUBE_403_RESTARTS": "1",
+                              "YOUTUBE_403_BACKOFF_SECONDS": "5"})
+    monkeypatch.setattr(server, "recovery_policy", lambda: policy)
+    events = []
+    monkeypatch.setattr(server.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
+    monkeypatch.setattr(server, "rotate_if_enabled", lambda: (
+        events.append(("rotate",)) or
+        {"changed": True, "new_ip": "198.51.100.22", "country": "Sweden"}
+    ))
+    class BotProcess:
+        def __init__(self, fail):
+            events.append(("spawn", fail))
+            self.stdout = iter([
+                "ERROR: [youtube] IzsJqQ31gA4: Sign in to confirm you're not a bot.\n"
+            ] if fail else [])
+            self.exit = 1 if fail else 0
+        def wait(self): return self.exit
+    monkeypatch.setattr(server.subprocess, "Popen",
+                        lambda *a, **kw: BotProcess(
+                            len([e for e in events if e[0] == "spawn"]) == 0))
+    server.run_job(isolated_job["id"])
+    assert events == [("spawn", True), ("rotate",), ("sleep", 5), ("spawn", False)]
+    assert isolated_job["status"] == "succeeded"
+    assert isolated_job["automatic_bot_restarts"] == 1
+    assert isolated_job["automatic_vpn_rotations"] == 1
+    assert isolated_job["recovered_bot_challenge"] is True
+
+
+def test_bot_challenge_never_retries_unchanged_ip(isolated_job, monkeypatch):
+    monkeypatch.setattr(server, "recovery_policy",
+                        lambda: recovery_policy({"YOUTUBE_403_RESTARTS": "2"}))
+    monkeypatch.setattr(server, "rotate_if_enabled",
+                        lambda: {"changed": False, "error": "no new IP"})
+    calls = []
+    class BotProcess:
+        stdout = iter([
+            "ERROR: [youtube] IzsJqQ31gA4: Sign in to confirm you're not a bot.\n"
+        ])
+        def wait(self): return 1
+    monkeypatch.setattr(server.subprocess, "Popen",
+                        lambda *a, **kw: calls.append(1) or BotProcess())
+    monkeypatch.setattr(server.time, "sleep",
+                        lambda seconds: pytest.fail("Blocked IP must not be retried"))
+    server.run_job(isolated_job["id"])
+    assert calls == [1]
+    assert isolated_job["status"] == "failed"
+    assert isolated_job.get("automatic_vpn_rotations", 0) == 0
+    assert "could not be changed" in isolated_job["message"]

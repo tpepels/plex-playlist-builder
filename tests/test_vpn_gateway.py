@@ -660,3 +660,63 @@ def test_vpn_dashboard_has_public_key_view_without_private_key_controls():
     assert "item.client_public_key" in js
     assert "different client keys" in js.lower()
     assert "PrivateKey =" not in js
+
+
+def test_rotation_skips_same_ip_and_uses_next_verified_profile(monkeypatch, tmp_path):
+    import vpn_gateway as g
+    monkeypatch.setattr(g, "ROOT", tmp_path)
+    monkeypatch.setattr(g, "META_FILE", tmp_path / "profiles.json")
+    g.TASK.update(running=False, done=True)
+    profiles = [{"id": k, "filename": k + ".conf", "country": k} for k in "abc"]
+    g.save_metadata({"profiles": profiles, "active": "a"})
+    monkeypatch.setattr(g, "probe", lambda: {"ip": "198.51.100.10"})
+    tried = []
+    def activate(pid):
+        tried.append(pid)
+        data = g.metadata()
+        data["active"] = pid
+        g.save_metadata(data)
+        return {"ip": "198.51.100.20" if pid == "c" else "198.51.100.10", "country": pid}
+    monkeypatch.setattr(g, "_activate", activate)
+    result = g.rotate()
+    assert tried == ["b", "c"]
+    assert result["profile"]["id"] == "c"
+    assert result["changed_ip"] is True
+    assert g.metadata()["active"] == "c"
+
+
+def test_rotation_restores_original_when_no_new_ip(monkeypatch, tmp_path):
+    import vpn_gateway as g
+    monkeypatch.setattr(g, "ROOT", tmp_path)
+    monkeypatch.setattr(g, "META_FILE", tmp_path / "profiles.json")
+    g.TASK.update(running=False, done=True)
+    profiles = [{"id": k, "filename": k + ".conf", "country": k} for k in "abc"]
+    g.save_metadata({"profiles": profiles, "active": "a"})
+    monkeypatch.setattr(g, "probe", lambda: {"ip": "198.51.100.10"})
+    tried = []
+    def activate(pid):
+        tried.append(pid)
+        data = g.metadata()
+        data["active"] = pid
+        g.save_metadata(data)
+        return {"ip": "198.51.100.10", "country": pid}
+    monkeypatch.setattr(g, "_activate", activate)
+    with pytest.raises(g.VPNConnectionError, match="different verified exit IP"):
+        g.rotate()
+    assert tried == ["b", "c", "a"]
+    assert g.metadata()["active"] == "a"
+
+
+def test_rotation_skips_failed_endpoint(monkeypatch, tmp_path):
+    import vpn_gateway as g
+    monkeypatch.setattr(g, "ROOT", tmp_path)
+    monkeypatch.setattr(g, "META_FILE", tmp_path / "profiles.json")
+    g.TASK.update(running=False, done=True)
+    profiles = [{"id": k, "filename": k + ".conf", "country": k} for k in "abc"]
+    g.save_metadata({"profiles": profiles, "active": "a"})
+    monkeypatch.setattr(g, "probe", lambda: {"ip": "198.51.100.10"})
+    def activate(pid):
+        if pid == "b": raise g.VPNConnectionError("handshake", "No response")
+        return {"ip": "198.51.100.21", "country": pid}
+    monkeypatch.setattr(g, "_activate", activate)
+    assert g.rotate()["profile"]["id"] == "c"

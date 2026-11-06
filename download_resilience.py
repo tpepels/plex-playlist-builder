@@ -1,12 +1,25 @@
-"""Conservative YouTube HTTP 403 recovery policy, independent of Flask.
+"""Bounded, source-aware YouTube download recovery policy.
 
-A new process re-extracts the stream URL; retrying the rejected URL alone
-may repeat the same 403. Completed tracks are protected by yt-dlp's archive
-and --no-overwrites. All settings are bounded to avoid accidental retry storms.
+A new yt-dlp process re-extracts stream URLs on HTTP 403 or an explicit bot
+challenge. Completed tracks remain protected by the download archive.
 """
 from __future__ import annotations
 
 import os
+
+HTTP_403 = "http_403"
+BOT_CHALLENGE = "bot_challenge"
+RECOVERABLE = frozenset({HTTP_403, BOT_CHALLENGE})
+
+
+def youtube_failure_kind(line):
+    """Single classification for YouTube recovery, routing and diagnostics."""
+    value = str(line).casefold()
+    if "not a bot" in value and ("sign in to confirm" in value or "confirm you" in value):
+        return BOT_CHALLENGE
+    if "http error 403" in value or "http 403" in value:
+        return HTTP_403
+    return None
 
 
 def _number(value, default, low, high):
@@ -30,7 +43,7 @@ def recovery_policy(environ=None):
 
 
 def retry_delay(restart_index, policy):
-    """First restart waits 30 s by default; second waits 90 s."""
+    """First restart waits 30 seconds by default, second waits 90 seconds."""
     restart_index = max(1, int(restart_index))
     return min(900, policy["backoff_seconds"] * (3 ** (restart_index - 1)))
 
@@ -55,8 +68,14 @@ def track_pacing_args(policy):
     return args
 
 
-def should_restart(*, youtube, spotify, forced, returncode, got_http_403,
+def should_restart(*, youtube, spotify, forced, returncode, failure_kind,
                    already_restarted, policy):
     return (youtube and not spotify and not forced and
-            returncode != 0 and got_http_403 and
+            returncode != 0 and failure_kind in RECOVERABLE and
             already_restarted < policy["restarts"])
+
+
+def needs_vpn_rotation(failure_kind, next_restart, policy):
+    """Bot verification switches immediately; HTTP 403 switches on final retry."""
+    return (failure_kind == BOT_CHALLENGE or
+            (failure_kind == HTTP_403 and next_restart == policy["restarts"]))
