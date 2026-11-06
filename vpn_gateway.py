@@ -31,6 +31,10 @@ TOKEN = ""
 FIREWALL_ENABLED = False
 LOCK = threading.RLock()
 TASK = {"running": False, "results": [], "message": "Idle", "done": True}
+# A single short-lived direct download is deliberately restricted to the
+# unprivileged downloader UID. Unrenewed leases expire and restore the VPN.
+DIRECT_SESSION = None
+DIRECT_LEASE_SECONDS = 120
 COUNTRY_CODES = {
     "netherlands": "NL", "germany": "DE", "portugal": "PT", "france": "FR",
     "united states": "US", "usa": "US", "united kingdom": "GB", "uk": "GB",
@@ -417,8 +421,120 @@ def stop_tunnel():
         run("wg-quick", "down", str(ACTIVE_FILE))
 
 
+def direct_fallback_running():
+    return DIRECT_SESSION is not None
+
+
+def require_no_direct_fallback():
+    if direct_fallback_running():
+        raise RuntimeError("A direct YouTube recovery attempt is active")
+
+
+def _direct_owner_rule():
+    uid = int(os.getenv("VPN_DOWNLOADER_UID", "1000"))
+    if uid <= 0:
+        raise VPNConnectionError("direct", "Direct fallback requires an unprivileged downloader UID")
+    return ("-m", "owner", "--uid-owner", str(uid), "-j", "ACCEPT")
+
+
+def _restore_direct_locked():
+    """Revoke direct routing first, then restore the previous verified tunnel."""
+    global DIRECT_SESSION
+    current = DIRECT_SESSION
+    if not current:
+        return {"restored": True}
+    previous = current["profile"]
+    # firewall() flushes the temporary owner rule and restores default DROP
+    # before it attempts any remote network operation.
+    try:
+        firewall()
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        DIRECT_SESSION = None
+        raise VPNConnectionError(
+            "firewall", "Direct egress could not be safely revoked") from None
+    DIRECT_SESSION = None
+    try:
+        _activate(previous)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired, VPNConnectionError):
+        raise VPNConnectionError(
+            "restore", "Direct egress is blocked; the previous WireGuard tunnel "
+            "could not be verified after the download") from None
+    return {"restored": True}
+
+
+def start_direct_fallback():
+    """Disconnect the tunnel and allow only the download UID through IPv4.
+
+    Requires the authenticated gateway loopback API and a verified VPN.
+    Other gateway management actions cannot run while this lease is active.
+    """
+    global DIRECT_SESSION
+    with LOCK:
+        if TASK["running"] or direct_fallback_running():
+            raise RuntimeError("A VPN change or direct fallback is already running")
+        current = metadata().get("active")
+        if not current or not FIREWALL_ENABLED or not has_handshake():
+            raise VPNConnectionError("direct", "No verified VPN connection to temporarily disconnect")
+        previous_ip = probe()["ip"]
+        try:
+            stop_tunnel()
+            if run("ip", "link", "show", "wg0", check=False).returncode == 0:
+                raise RuntimeError("WireGuard interface remained active")
+            run("iptables", "-I", "OUTPUT", "1", *_direct_owner_rule())
+        except (RuntimeError, OSError, subprocess.TimeoutExpired, VPNConnectionError):
+            # Never allow direct downloads on an uncertain gateway state.
+            firewall()
+            try:
+                _activate(current)
+            except (RuntimeError, OSError, subprocess.TimeoutExpired, VPNConnectionError):
+                pass
+            raise VPNConnectionError(
+                "direct", "Direct fallback could not be enabled; normal VPN routing restored or blocked") from None
+        session = secrets.token_hex(16)
+        DIRECT_SESSION = {
+            "token": session, "profile": current,
+            "expires": time.monotonic() + DIRECT_LEASE_SECONDS,
+        }
+        return {"session": session, "vpn_ip": previous_ip, "lease_seconds": DIRECT_LEASE_SECONDS}
+
+
+def _check_direct_session(token):
+    if (not DIRECT_SESSION or not isinstance(token, str)
+            or not secrets.compare_digest(token, DIRECT_SESSION["token"])):
+        raise ValueError("Unknown or expired direct-fallback session")
+    if DIRECT_SESSION["expires"] <= time.monotonic():
+        _restore_direct_locked()
+        raise ValueError("Direct-fallback session expired")
+
+
+def renew_direct_fallback(token):
+    with LOCK:
+        _check_direct_session(token)
+        DIRECT_SESSION["expires"] = time.monotonic() + DIRECT_LEASE_SECONDS
+        return {"renewed": True}
+
+
+def end_direct_fallback(token):
+    with LOCK:
+        _check_direct_session(token)
+        return _restore_direct_locked()
+
+
+def direct_lease_watchdog():
+    while True:
+        time.sleep(10)
+        with LOCK:
+            if DIRECT_SESSION and DIRECT_SESSION["expires"] <= time.monotonic():
+                try:
+                    _restore_direct_locked()
+                except (VPNConnectionError, RuntimeError, OSError):
+                    # The firewall has already been restored to DROP.
+                    pass
+
+
 def activate(profile_id):
     with LOCK:
+        require_no_direct_fallback()
         if TASK["running"]:
             raise RuntimeError("VPN rotation test is running")
         return _activate(profile_id)
@@ -576,6 +692,7 @@ def list_profiles():
     status = {"running": TASK["running"], "done": TASK["done"],
               "message": TASK["message"], "results": list(TASK["results"])}
     return {"profiles": profiles, "active": value["active"],
+            "direct_fallback_active": direct_fallback_running(),
             "kill_switch": FIREWALL_ENABLED,
             "tunnel_ready": has_handshake() if FIREWALL_ENABLED else False,
             "test": status}
@@ -583,6 +700,7 @@ def list_profiles():
 
 def add_profile(filename, country, content):
     with LOCK:
+        require_no_direct_fallback()
         if TASK["running"]:
             raise RuntimeError("VPN rotation test is running")
         parsed = parse_profile(content)
@@ -604,6 +722,7 @@ def add_profile(filename, country, content):
 
 def delete_profile(profile_id):
     with LOCK:
+        require_no_direct_fallback()
         if TASK["running"]:
             raise RuntimeError("VPN rotation test is running")
         data = metadata()
@@ -626,6 +745,7 @@ def rotate():
     Every candidate is attempted at most once; MAX_PROFILES bounds work.
     """
     with LOCK:
+        require_no_direct_fallback()
         if TASK["running"]:
             raise RuntimeError("VPN rotation test is running")
         data = metadata()
@@ -722,6 +842,7 @@ def test_worker():
 
 def start_test():
     with LOCK:
+        require_no_direct_fallback()
         if TASK["running"]:
             raise RuntimeError("A rotation test is already running")
         if not metadata()["profiles"]:
@@ -763,6 +884,12 @@ class Handler(BaseHTTPRequestHandler):
                                          payload["content"])
                 elif self.path == "/rotate":
                     result = rotate()
+                elif self.path == "/direct/start":
+                    result = start_direct_fallback()
+                elif self.path == "/direct/renew":
+                    result = renew_direct_fallback(payload["session"])
+                elif self.path == "/direct/end":
+                    result = end_direct_fallback(payload["session"])
                 elif self.path == "/test":
                     result = start_test()
                 elif re.fullmatch(r"/activate/[0-9a-f]{32}", self.path):
@@ -842,6 +969,8 @@ def main():
         except Exception:
             # Fail closed: downloads cannot egress until a valid profile connects.
             pass
+    threading.Thread(target=direct_lease_watchdog,
+                     name="direct-fallback-watchdog", daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", 8787), Handler).serve_forever()
 
 
