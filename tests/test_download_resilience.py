@@ -62,7 +62,7 @@ def isolated_job(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "ARCHIVE_FILE", tmp_path / "archive.txt")
     job = {
         "id": "fake-403", "url": "https://music.youtube.com/playlist?list=OLAK5uy_test",
-        "status": "queued", "playlist": True, "album_mode": True,
+        "status": "queued", "playlist": True, "album_mode": False,
         "collection_mode": True, "compilation": False, "force": False,
         "source": "yt-dlp", "created_at": 1, "attempt": 1,
         "completed_items": 0, "total_items": 2, "files": [], "log": [],
