@@ -1,4 +1,5 @@
-# Installed automatically by scripts/enable-vpn-ui.sh for ~/media-stack.
+# Compose override for the shared ~/media-stack deployment.
+# Existing symlinks to this file remain valid after the old installer is removed.
 # No secrets or user configuration required. Must be applied to the SAME
 # parent Compose project as the existing downloader and playlist manager.
 services:

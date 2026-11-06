@@ -137,24 +137,21 @@ def test_normal_compose_provides_gateway_without_env_or_overrides():
     assert 'id="vpn-test-button"' in html
 
 
-def test_shared_parent_compose_override_and_safe_installer():
+def test_shared_parent_compose_override_survives_script_removal():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     overlay = (root / "compose.parent-vpn.yaml").read_text()
-    script = (root / "scripts/enable-vpn-ui.sh").read_text()
+    docs = (root / "README.md").read_text()
     assert "wireguard-gateway:" in overlay
     assert 'network_mode: "service:wireguard-gateway"' in overlay
     assert "ports: !reset []" in overlay
     assert "SURFSHARK_CONTROL_API_KEY" not in overlay
     assert 'VPN_GATEWAY_ENABLED: "1"' in overlay
-    assert "docker-compose.override.yml" in script
-    assert "ps -q yt-dlp-server" in script
-    assert "api/jobs" in script
-    assert "active_resolution_tracks" in script
-    assert "docker compose" in script
-    assert "stop yt-dlp-server" in script
-    assert "up -d --build --force-recreate wireguard-gateway yt-dlp-server" in script
-    assert "will not be overwritten" in script
+    assert "docker-compose.override.yml" in docs
+    assert "docker compose config --quiet" in docs
+    assert "docker compose up -d --build --force-recreate wireguard-gateway yt-dlp-server" in docs
+    assert not (root / "scripts").exists()
+    assert not (root / "tools").exists()
 
 
 def test_surfshark_template_requires_registered_client_private_key():

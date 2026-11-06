@@ -75,26 +75,39 @@ docker compose up -d --build
 
 ### Your existing shared media-stack deployment
 
-For the existing `~/media-stack/docker-compose.yml` deployment, the
-repository also includes a **one-command migration script**. Run only when
-download jobs are idle:
+The parent `~/media-stack/docker-compose.yml` deployment uses
+`compose.parent-vpn.yaml` as its Compose override. An already installed
+`~/media-stack/docker-compose.override.yml` symlink remains valid after
+removing the old installer. **Do not delete it.** There is no deployment
+script to maintain.
+
+Before recreating containers, inspect the **Downloads** page and ensure
+no queued or running jobs are present. The following read-only check
+must succeed while the existing downloader is running:
 
 ```sh
-cd ~/media-stack/yt-dlp-server
-git pull --ff-only
-bash scripts/enable-vpn-ui.sh
+docker exec yt-dlp-server python -c 'import json,sys,urllib.request; jobs=json.load(urllib.request.urlopen("http://127.0.0.1:4545/api/jobs",timeout=5)); active=[j for j in jobs if j.get("status") in {"queued","running","finalizing"} or j.get("active_resolution_tracks")]; print(f"Active/queued jobs: {len(active)}"); sys.exit(bool(active))'
 ```
 
-The script places a symlink to `compose.parent-vpn.yaml` in the parent
-media-stack as its standard Compose override, validates the merged Compose,
-checks for active downloader jobs and then rebuilds **only** the gateway and
-downloader. Existing music, staging, history, the playlist manager and other
-media services are preserved. Subsequent normal `docker compose` commands
-inside `~/media-stack` automatically use the installed override.
+For first-time integration, inspect any existing
+`~/media-stack/docker-compose.override.yml`. If it belongs to another
+service, manually merge the VPN override; **never overwrite that file**.
+If the override does not exist, create the symlink once:
 
-If `~/media-stack/docker-compose.override.yml` already exists with other
-customizations, the script stops without overwriting it; that environment
-needs a safe merge instead. It cannot blindly replace another override.
+```sh
+cd ~/media-stack
+ln -s yt-dlp-server/compose.parent-vpn.yaml docker-compose.override.yml
+docker compose config --quiet
+docker compose stop yt-dlp-server
+docker compose up -d --build --force-recreate wireguard-gateway yt-dlp-server
+```
+
+For subsequent updates, pull changes in
+`~/media-stack/yt-dlp-server`, then return to `~/media-stack`.
+When no jobs are active, run `docker compose config --quiet` and
+`docker compose up -d --build --no-deps yt-dlp-server`. Rebuild the gateway
+too when its source changes. Mounted music, WireGuard profiles, staging
+and job history survive image rebuilds.
 
 The playlist manager continues reaching `http://yt-dlp-server:4545` on the
 existing project network. No other media container is routed through the VPN.
@@ -220,11 +233,14 @@ profiles in the web UI.
 
 ## Chrome extension
 
-The running web app also exposes the same ZIP directly from the page through the **Chrome extension** button. The download is served by the yt-dlp server itself at `/chrome-extension.zip`, so users do not need GitHub access once the server is running.
+The running web app builds the extension ZIP directly from the
+canonical `chrome-extension/` source files when you click **Chrome
+extension**. Download the current package from `/chrome-extension.zip`
+on your media server. There is no standalone packaging script or prebuilt
+ZIP dependency inside Docker.
 
-A ready-to-share package is available directly from the repository:
-
-[Download Chrome extension v1.0.0](https://github.com/tpepels/yt-dlp-server/raw/refs/heads/main/dist/yt-dlp-server-chrome-extension-v1.0.0.zip)
+The older v1.0.0 ZIP remains in the repository as a historical release
+snapshot, but production packages now come from the current sources.
 
 Recipients only need to unzip it, open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the unzipped folder.
 
@@ -450,14 +466,14 @@ Versions before the staging pipeline may already have created uploader folders, 
 First run a **dry run**:
 
     docker compose exec yt-dlp-server \
-      python /app/tools/repair_legacy_imports.py
+      python -m app repair-library
 
 It probes the original YouTube/YouTube Music URLs again, groups the files by the original collection, prints the intended `Artist/Album` destination, and reports anything it cannot resolve. Album repair deliberately performs a **full per-track metadata probe** rather than yt-dlp's flat-playlist probe: this is slower, but it recovers `album_artist`, `artist`, and stable `Artist - Topic` channel metadata that flat playlist data often omits. Successful full probes are cached under `/data/state/repair-metadata-cache/`, so the later `--apply` reuses the exact metadata reviewed in the dry run instead of querying every track again. Add `--refresh-metadata` if the source has changed and you intentionally want to rebuild that cache. It does not modify music files without `--apply`.
 
 After reviewing the plan:
 
     docker compose exec yt-dlp-server \
-      python /app/tools/repair_legacy_imports.py --apply
+      python -m app repair-library --apply
 
 For each collection, the repair tool first copies and retags all replacement files into a hidden incoming directory. Only after the whole replacement collection is prepared successfully does it publish the corrected album and remove the old scattered copies. Arbitrary uploader names are never used as artists here either.
 
@@ -684,3 +700,20 @@ Watchtower does not rebuild locally built images, so it cannot update yt-dlp ins
 ## Security
 
 This interface has no login and is intended for a trusted LAN. Do not expose port 4545 directly to the public internet.
+
+
+## Standalone script policy
+
+The `scripts/` and `tools/` launchers have been removed. Docker Compose
+is the deployment mechanism; the Flask application serves its own current
+Chrome extension ZIP. The existing `app.py` entrypoint also exposes
+`python -m app repair-library` for historical data repair, including the
+original dry-run-first and explicit `--apply`, `--url`,
+`--include-singles`, `--refresh-metadata`, `--music-root`,
+`--import-subdir`, and `--state-dir` options. In maintenance mode
+download workers are not started, queued jobs are not resumed, and no
+server port is opened.
+
+Original scripts and the historical ZIP remain recoverable in Git history.
+The cleanup does not delete music, WireGuard profiles, job history, archives,
+staging files or cached metadata.

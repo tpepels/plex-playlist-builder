@@ -20,7 +20,7 @@ jobs:
         run: docker build -t yt-dlp-server:test .
       - name: Smoke-test installed tools
         run: |
-          docker run --rm yt-dlp-server:test python -m py_compile /app/app.py /app/staging.py /app/tools/repair_legacy_imports.py
+          docker run --rm yt-dlp-server:test python -m py_compile /app/app.py /app/staging.py /app/library_repair.py /app/extension_package.py
           docker run --rm yt-dlp-server:test yt-dlp --version
           docker run --rm yt-dlp-server:test deno --version
           docker run --rm yt-dlp-server:test ffmpeg -version
@@ -61,38 +61,46 @@ jobs:
             -v "$PWD/chrome-extension:/extension:ro" \
             yt-dlp-server:test deno eval \
             'new Function(await Deno.readTextFile("/extension/service-worker.js")); new Function(await Deno.readTextFile("/extension/options.js"));'
-      - name: Validate packaged Chrome extension ZIP
+      - name: Verify deterministic ZIP from current extension sources
         run: |
-          test -s dist/yt-dlp-server-chrome-extension-v1.0.0.zip
-          unzip -t dist/yt-dlp-server-chrome-extension-v1.0.0.zip
-          tmp="$(mktemp -d)"
-          unzip -q dist/yt-dlp-server-chrome-extension-v1.0.0.zip -d "$tmp"
-          for file in manifest.json service-worker.js options.html options.js README.md; do
-            cmp "chrome-extension/$file" "$tmp/$file"
-          done
-          test -f "$tmp/manifest.json"
-          python -m json.tool "$tmp/manifest.json" >/dev/null
-      - name: Validate site extension download
+          python - <<'PY'
+          import io
+          import zipfile
+          from pathlib import Path
+          from extension_package import FILES, package_extension
+
+          root = Path("chrome-extension")
+          name, buffer = package_extension(root)
+          other_name, other_buffer = package_extension(root)
+          assert name == other_name == "yt-dlp-server-chrome-extension-v1.0.0.zip"
+          assert buffer.getvalue() == other_buffer.getvalue()
+          with zipfile.ZipFile(io.BytesIO(buffer.getvalue())) as archive:
+              assert archive.namelist() == list(FILES)
+              for entry in FILES:
+                  assert archive.read(entry) == (root / entry).read_bytes()
+          PY
+      - name: Verify extension download from Docker serves current sources
         run: |
           grep -q "download_chrome_extension" templates/index.html
-          grep -q "Chrome extension" templates/index.html
-          grep -q "COPY dist ./dist" Dockerfile
+          grep -q "COPY chrome-extension ./chrome-extension" Dockerfile
           docker run --rm --user 1000:1000 \
             -e MUSIC_ROOT=/tmp/music \
             -e STATE_DIR=/tmp/state \
             -e TEMP_DIR=/tmp/work \
             yt-dlp-server:test python - <<'PY'
+          import io
+          import zipfile
+          from pathlib import Path
           import app
 
-          assert app.CHROME_EXTENSION_ZIP.is_file(), app.CHROME_EXTENSION_ZIP
-          client = app.app.test_client()
-          response = client.get("/chrome-extension.zip")
+          response = app.app.test_client().get("/chrome-extension.zip")
           assert response.status_code == 200, response.data
-          assert response.data[:2] == b"PK", response.data[:16]
-          disposition = response.headers.get("Content-Disposition", "")
-          assert "attachment" in disposition.lower(), disposition
-          assert "yt-dlp-server-chrome-extension-v1.0.0.zip" in disposition, disposition
-          assert response.mimetype == "application/zip", response.mimetype
+          assert response.mimetype == "application/zip"
+          assert "attachment" in response.headers.get("Content-Disposition", "").lower()
+          with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+              for entry in ("manifest.json", "service-worker.js",
+                            "options.html", "options.js", "README.md"):
+                  assert archive.read(entry) == (Path("/app/chrome-extension") / entry).read_bytes()
           PY
       - name: Validate Plex post-publish nudge
         run: |
@@ -605,7 +613,7 @@ jobs:
             -e STATE_DIR=/tmp/state \
             -e TEMP_DIR=/tmp/work \
             yt-dlp-server:test python - <<'PY'
-          import tools.repair_legacy_imports as repair
+          import library_repair as repair
 
           # Regression: a bogus generic "Release - Topic" channel must not
           # beat the real artist shared across the track credits.
