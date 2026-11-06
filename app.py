@@ -79,7 +79,6 @@ archived_jobs = {}
 album_submissions = {}
 jobs_lock = threading.Lock()
 register_vpn_manager(app, jobs, jobs_lock)
-register_youtube_cookies(app, jobs, jobs_lock, COOKIES_FILE)
 probe_cache = {}
 probe_cache_lock = threading.Lock()
 download_queue = queue.Queue(maxsize=MAX_QUEUE)
@@ -181,7 +180,7 @@ def current_software_version():
                  "library_repair.py", "extension_package.py",
                  "album_submission.py", "job_diagnostics.py",
                  "surfshark_vpn.py", "vpn_ui.py", "vpn_gateway.py",
-                 "static/vpn-manager.js", "templates/index.html",
+                 "static/vpn-manager.js", "static/youtube-cookies.js", "templates/index.html",
                  "chrome-extension/manifest.json", "chrome-extension/service-worker.js",
                  "chrome-extension/options.html", "chrome-extension/options.js",
                  "chrome-extension/README.md"):
@@ -579,6 +578,11 @@ def youtube_extractor_args(url, player_client=None):
         ])
 
     return args
+
+
+# The cookie verification probe must use the same YouTube extractor settings
+# as ordinary downloads. Register after the shared arguments are defined.
+register_youtube_cookies(app, jobs, jobs_lock, COOKIES_FILE, youtube_extractor_args)
 
 
 def spotdl_ytdlp_args():

@@ -308,6 +308,10 @@
         <button type="submit" id="youtube-cookie-upload-button">Upload cookies</button>
       </form>
       {% if youtube_cookies_ready %}
+      <div class="vpn-actions">
+        <button id="youtube-cookie-verify-button" type="button" class="vpn-secondary">Verify cookies</button>
+        <span id="youtube-cookie-verify-result" class="vpn-feedback" role="status" aria-live="polite"></span>
+      </div>
       <form action="/youtube/cookies/remove" method="post" class="vpn-actions">
         <input type="hidden" name="_cookie_token" value="{{ youtube_cookie_token }}">
         <button type="submit" id="youtube-cookie-remove-button" class="vpn-secondary">Remove saved cookies</button>
@@ -1433,5 +1437,6 @@
 </script>
 <script src="{{ url_for('static', filename='signal-console.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vpn-manager.js', v=versions.server) }}" defer></script>
+<script src="{{ url_for('static', filename='youtube-cookies.js', v=versions.server) }}" defer></script>
 </body>
 </html>
