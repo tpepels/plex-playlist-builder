@@ -6,6 +6,7 @@ import re
 import subprocess
 import threading
 import shutil
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -28,7 +29,13 @@ from album_submission import clean_match_audit, submission_key
 from job_diagnostics import explain_job
 from surfshark_vpn import rotate_if_enabled
 from vpn_ui import register as register_vpn_manager
+from extension_package import package_extension
 from youtube_cookies import cookie_path, register as register_youtube_cookies
+
+MAINTENANCE_ONLY = (
+    __name__ == "__main__" and len(sys.argv) > 1
+    and sys.argv[1] == "repair-library"
+)
 
 app = Flask(__name__)
 
@@ -58,7 +65,7 @@ ARCHIVE_FILE = STATE_DIR / "archive.txt"
 SPOTDL_ARCHIVE_FILE = STATE_DIR / "spotdl-archive.txt"
 JOBS_STATE_FILE = STATE_DIR / "jobs.json"
 IGNORED_TRACKS_FILE = STATE_DIR / "ignored-tracks.json"
-CHROME_EXTENSION_ZIP = Path(app.root_path) / "dist" / "yt-dlp-server-chrome-extension-v1.0.0.zip"
+EXTENSION_ROOT = Path(app.root_path) / "chrome-extension"
 
 for directory in (IMPORT_ROOT, STATE_DIR, TEMP_DIR):
     directory.mkdir(parents=True, exist_ok=True)
@@ -171,9 +178,13 @@ def current_software_version():
     digest = hashlib.sha256()
     for name in ("app.py", "staging.py", "album_completeness.py",
                  "retry_queue.py", "download_resilience.py", "youtube_cookies.py",
+                 "library_repair.py", "extension_package.py",
                  "album_submission.py", "job_diagnostics.py",
                  "surfshark_vpn.py", "vpn_ui.py", "vpn_gateway.py",
-                 "static/vpn-manager.js", "templates/index.html"):
+                 "static/vpn-manager.js", "templates/index.html",
+                 "chrome-extension/manifest.json", "chrome-extension/service-worker.js",
+                 "chrome-extension/options.html", "chrome-extension/options.js",
+                 "chrome-extension/README.md"):
         path = Path(__file__).resolve().parent / name
         digest.update(name.encode())
         digest.update(path.read_bytes())
@@ -1710,36 +1721,39 @@ def staged_jobs_to_finalize_after_restore():
     return finalize_ids
 
 
-restored_queue_ids = load_persisted_jobs()
-restored_finalize_ids = staged_jobs_to_finalize_after_restore()
+def start_runtime_workers():
+    restored_queue_ids = load_persisted_jobs()
+    restored_finalize_ids = staged_jobs_to_finalize_after_restore()
 
-for restored_id in restored_finalize_ids:
-    finalize_staged_job(restored_id)
+    for restored_id in restored_finalize_ids:
+        finalize_staged_job(restored_id)
 
-for restored_id in restored_queue_ids:
-    try:
-        download_queue.put_nowait(restored_id)
-    except queue.Full:
-        with jobs_lock:
-            restored_job = jobs.get(restored_id)
-            if restored_job:
-                restored_job["status"] = "failed"
-                restored_job["message"] = "Could not restore queued job - queue capacity exceeded"
-                restored_job["finished_at"] = time.time()
-                persist_jobs_locked()
+    for restored_id in restored_queue_ids:
+        try:
+            download_queue.put_nowait(restored_id)
+        except queue.Full:
+            with jobs_lock:
+                restored_job = jobs.get(restored_id)
+                if restored_job:
+                    restored_job["status"] = "failed"
+                    restored_job["message"] = "Could not restore queued job - queue capacity exceeded"
+                    restored_job["finished_at"] = time.time()
+                    persist_jobs_locked()
 
-threading.Thread(target=worker, name="yt-dlp-worker", daemon=True).start()
-threading.Thread(
-    target=backfill_job_display_metadata,
-    name="job-display-metadata",
-    daemon=True,
-).start()
+    threading.Thread(target=worker, name="yt-dlp-worker", daemon=True).start()
+    threading.Thread(
+        target=backfill_job_display_metadata,
+        name="job-display-metadata",
+        daemon=True,
+    ).start()
 
-# A short startup nudge also repairs the specific upgrade case where files are
-# already in the library but Plex previously noticed them during another scan
-# and never queued a follow-up.
-schedule_library_change_nudge(delay=min(5, PLEX_RESCAN_NUDGE_SECONDS))
+    # A short startup nudge also repairs the specific upgrade case where files are
+    # already in the library but Plex previously noticed them during another scan
+    # and never queued a follow-up.
+    schedule_library_change_nudge(delay=min(5, PLEX_RESCAN_NUDGE_SECONDS))
 
+if not MAINTENANCE_ONLY:
+    start_runtime_workers()
 
 def request_root_id_locked(job):
     current = job
@@ -1893,17 +1907,14 @@ def public_jobs():
 
 @app.get("/chrome-extension.zip")
 def download_chrome_extension():
-    if not CHROME_EXTENSION_ZIP.is_file():
-        return jsonify({"ok": False, "error": "Chrome extension package is unavailable."}), 404
-
+    try:
+        filename, archive = package_extension(EXTENSION_ROOT)
+    except (OSError, ValueError, KeyError):
+        return jsonify({"ok": False, "error": "Chrome extension sources unavailable."}), 503
     return send_file(
-        CHROME_EXTENSION_ZIP,
-        mimetype="application/zip",
-        as_attachment=True,
-        download_name=CHROME_EXTENSION_ZIP.name,
-        max_age=0,
+        archive, mimetype="application/zip", as_attachment=True,
+        download_name=filename, max_age=0,
     )
-
 
 @app.get("/")
 def index():
@@ -2856,4 +2867,7 @@ def health():
 
 
 if __name__ == "__main__":
+    if MAINTENANCE_ONLY:
+        from library_repair import main as repair_library
+        raise SystemExit(repair_library(sys.argv[2:]))
     app.run(host="0.0.0.0", port=PORT)
