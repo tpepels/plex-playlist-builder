@@ -178,15 +178,19 @@ Internet access. Network access may therefore be interrupted while
 changing profiles. The dashboard rejects manual switches when downloads
 are active or queued. A VPN may not solve YouTube 403/PO-token problems.
 
-Automatic country switching after repeated YouTube HTTP 403 failures is
-**enabled by default** when a Surfshark VPN is configured. If both fresh
-yt-dlp attempts encounter an HTTP 403, the downloader switches to the next
-uploaded country once, after the failing yt-dlp process exits, before its
-final retry. It checks the resulting public IP and logs the outcome. It
-does not rotate for ordinary failures, Spotify downloads, or every request.
-A failed VPN change does not bypass the kill switch.
+Automatic endpoint switching on YouTube bot challenges and repeated HTTP
+403 errors is **enabled by default** when Surfshark WireGuard is configured.
+A `Sign in to confirm you're not a bot` error triggers an immediate endpoint
+change after yt-dlp exits, before the next attempt. For an ordinary media
+HTTP 403, the endpoint switch remains a final-retry fallback. The gateway
+tries the other uploaded profiles in order and accepts a switch only after
+verifying a **different public IP**; it skips dead tunnels and same-IP exits.
+If no different IP is available after a bot challenge, it stops retrying,
+reports the failure and preserves downloaded tracks. It never falls back
+to direct Internet access when the VPN kill switch is active.
 
-To disable automatic 403 rotation, set `SURFSHARK_ROTATE_ON_403=0` in
+To disable automatic VPN rotation for both failure types, set
+`SURFSHARK_ROTATE_ON_403=0` in
 the parent Compose project's `.env` (or the downloader environment), then
 recreate `yt-dlp-server`. Any existing explicit `0` overrides the
 default-on setting.
@@ -375,7 +379,7 @@ Automatic HTTP 403 recovery and pacing apply to every retried YouTube job.
 An earlier successful download, even if it later disappeared from Plex,
 must be examined with the disk-to-Plex audit rather than requeued blindly.
 
-## Automatic HTTP 403 recovery and request pacing
+## Automatic YouTube 403/bot verification recovery and request pacing
 
 YouTube album downloads use the currently recommended `mweb` client with
 BgUtils PO-token generation. The app now also avoids repeated rapid requests
@@ -390,12 +394,19 @@ and recovers automatically when YouTube rejects a media stream:
 3. If the second attempt also fails with a 403, wait 90 seconds and make a
    final attempt with yt-dlp's maintained `default` player-client selection.
    This avoids assuming the older `web_safari` HLS path is available.
-4. Record the exact number of automatic restarts; show a recovering state
-   during backoff, and keep the job failed with its staging files untouched
-   if all attempts fail. A later manual retry remains possible.
+4. For an explicit YouTube bot challenge, rotate the VPN endpoint before
+   the first retry (and again if the next attempt is also blocked). If no
+   different public exit IP can be verified, stop rather than repeatedly
+   requesting the same video from the blocked IP.
+5. Record separate HTTP 403 and bot-challenge restart counts and successful
+   VPN rotations; show the recovering state during backoff. Keep staged files
+   untouched if all attempts fail. A manual retry remains possible.
 
 These retries are bounded. They do not run for Spotify, non-YouTube sources,
-non-403 failures, or explicitly forced/overwriting jobs. YouTube downloads
+failures other than HTTP 403 or explicit bot verification, or forced/overwriting
+jobs. The normal standalone `docker exec yt-dlp-server yt-dlp ...` command does
+not use the app's queue and therefore does not trigger automatic rotation.
+YouTube downloads
 with many tracks are expected to run slower than before.
 
 | Environment variable | Default | Purpose |
