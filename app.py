@@ -1555,7 +1555,7 @@ def run_job(job_id):
                         job["message"] = (
                             f"YouTube bot verification; VPN exit IP could not be changed "
                             f"after {retries} automatic restart(s). "
-                            "Check that several WireGuard profiles are connected and verified."
+                            "Check that at least two WireGuard profiles are uploaded and usable."
                         )
                     else:
                         job["message"] = (
