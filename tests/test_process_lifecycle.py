@@ -95,3 +95,32 @@ def test_ffmpeg_timeout_keeps_original_media_and_cleans_temp(tmp_path, monkeypat
 
     assert file.read_bytes() == b"original-track"
     assert list(tmp_path.iterdir()) == [file]
+
+
+
+def test_exception_cleanup_terminates_hung_child(monkeypatch):
+    events = []
+    class Child:
+        def poll(self): return None
+        def terminate(self): events.append("term")
+        def kill(self): events.append("kill")
+        def wait(self, timeout):
+            assert timeout == 5
+            raise subprocess.TimeoutExpired("yt-dlp", timeout)
+
+    life.stop_process(Child())
+    assert events == ["term", "kill"]
+
+
+def test_abort_signals_full_process_group_not_only_parent(monkeypatch):
+    import signal
+    sent = []
+    child = type("Child", (), {"pid": 12345})()
+    monkeypatch.setattr(life.os, "killpg",
+                        lambda pid, sig: sent.append((pid, sig)))
+    life._signal(child, signal.SIGTERM)
+    life._signal(child, signal.SIGKILL)
+    assert sent == [
+        (12345, signal.SIGTERM),
+        (12345, signal.SIGKILL),
+    ]
