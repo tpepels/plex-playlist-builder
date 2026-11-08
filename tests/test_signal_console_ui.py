@@ -20,12 +20,15 @@ def test_shared_theme_assets_present_and_respect_reduced_motion():
 
 
 def test_all_pages_load_theme_and_brand():
+    from jinja2 import Environment, FileSystemLoader
+    engine = Environment(loader=FileSystemLoader(str(TEMPLATES)),autoescape=True)
     for filename in ("index.html", "album_download.html", "disk_audit.html",
-                     "download_audit.html"):
-        html = (TEMPLATES / filename).read_text()
+                     "download_audit.html", "home.html", "playlist_generator.html",
+                     "playlist_intelligence.html", "musical_coherence.html"):
+        html = engine.get_template(filename).render(artist="A", album="B", token="test")
         assert "/static/signal-console.css" in html, filename
         assert "/static/signal-console.js" in html, filename
-        assert "signal-theme-toggle" in html, filename
+        assert html.count('id="signal-theme-toggle"') == 1, filename
         assert "signal-mark.svg" in html, filename
 
 
