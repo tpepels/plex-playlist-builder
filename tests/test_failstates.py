@@ -253,3 +253,100 @@ def test_staging_media_files_ignore_symlinked_outside_audio(tmp_path):
     outside.write_bytes(b"outside")
     (staging_root / "foreign.opus").symlink_to(outside)
     assert staging.media_files(staging_root) == []
+
+
+
+def test_direct_mode_repairs_stale_iptables_drop_even_when_flag_is_false(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(gateway, "META_FILE", tmp_path / "profiles.json")
+    monkeypatch.setattr(gateway, "FIREWALL_ENABLED", False)
+    monkeypatch.setattr(gateway, "stop_tunnel", lambda: None)
+    events = []
+
+    def fake_run(*args, **kwargs):
+        events.append(args)
+        if args == ("ip", "link", "show", "wg0"):
+            return SimpleNamespace(returncode=1, stdout="")
+        if args == ("ip", "-4", "route", "get", "1.1.1.1"):
+            return SimpleNamespace(returncode=0, stdout="1.1.1.1 via 172.18.0.1 dev eth0")
+        if args == ("iptables", "-S", "OUTPUT"):
+            return SimpleNamespace(returncode=0, stdout="-P OUTPUT DROP\n")
+        if args == ("ip6tables", "-S", "OUTPUT"):
+            return SimpleNamespace(returncode=0, stdout="-P OUTPUT ACCEPT\n")
+        if "-C" in args:
+            return SimpleNamespace(returncode=1, stdout="")
+        return SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr(gateway, "run", fake_run)
+    assert gateway.direct()["direct"] is True
+    assert ("iptables", "-P", "OUTPUT", "DROP") in events
+    assert ("iptables", "-P", "OUTPUT", "ACCEPT") in events
+    assert events.index(("iptables", "-P", "OUTPUT", "DROP")) < events.index(
+        ("iptables", "-P", "OUTPUT", "ACCEPT")
+    )
+
+
+def test_direct_keeps_output_blocked_when_profile_metadata_write_fails(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(gateway, "META_FILE", tmp_path / "profiles.json")
+    monkeypatch.setattr(gateway, "FIREWALL_ENABLED", True)
+    events = []
+
+    def fake_run(*args, **kw):
+        events.append(args)
+        if args == ("ip", "link", "show", "wg0"):
+            return SimpleNamespace(returncode=1, stdout="")
+        if args == ("ip", "-4", "route", "get", "1.1.1.1"):
+            return SimpleNamespace(returncode=0, stdout="1.1.1.1 dev eth0")
+        return SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr(gateway, "run", fake_run)
+    monkeypatch.setattr(gateway, "stop_tunnel", lambda: None)
+    monkeypatch.setattr(gateway, "save_metadata",
+                        lambda data: (_ for _ in ()).throw(OSError("disk full")))
+    monkeypatch.setattr(gateway, "firewall",
+                        lambda: events.append(("fallback-firewall",)))
+    with pytest.raises(gateway.VPNConnectionError, match="outbound"):
+        gateway.direct()
+    assert ("fallback-firewall",) in events
+    assert ("iptables", "-P", "OUTPUT", "ACCEPT") not in events
+    assert ("ip6tables", "-P", "OUTPUT", "ACCEPT") not in events
+
+
+def test_boot_recovery_preserves_unknown_incoming_directories_and_symlinks(tmp_path):
+    import_root = tmp_path / "music"
+    incoming = import_root / ".incoming"
+    abandoned = incoming / "safe-job-12abcdef"
+    abandoned.mkdir(parents=True)
+    (abandoned / "copy.opus").write_bytes(b"copied")
+    unknown = incoming / "external-project"
+    unknown.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "important").write_bytes(b"keep")
+    (incoming / "linked").symlink_to(outside, target_is_directory=True)
+    assert staging.cleanup_interrupted_publications(import_root) == 1
+    assert not abandoned.exists()
+    assert unknown.exists()
+    assert (outside / "important").read_bytes() == b"keep"
+    assert (incoming / "linked").is_symlink()
+
+
+def test_staging_recovery_error_leaves_download_dashboard_accessible(monkeypatch):
+    monkeypatch.setattr(server, "STATE_FAULT", None)
+    monkeypatch.setattr(server, "direct_if_enabled", lambda: None)
+    monkeypatch.setattr(server, "load_ignored_tracks", lambda: {})
+    monkeypatch.setattr(server, "load_persisted_jobs", lambda: [])
+    monkeypatch.setattr(staging, "cleanup_interrupted_publications", lambda root: 0)
+    monkeypatch.setattr(
+        server, "staged_jobs_to_finalize_after_restore",
+        lambda: (_ for _ in ()).throw(ValueError("invalid stored staging ID")),
+    )
+    server.start_runtime_workers()
+    assert "Recovery of incomplete staged downloads failed" in server.STATE_FAULT
+    with server.app.test_client() as client:
+        assert client.get("/").status_code == 200
+        assert client.get("/health").status_code == 503
+        assert client.post("/api/probe", json={"url": "https://youtube.com"}).status_code == 503
