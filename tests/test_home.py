@@ -16,10 +16,11 @@ def test_home_is_application_root_and_has_full_navigation():
         response = client.get("/")
         assert response.status_code == 200
         html = response.text
-        assert "Your music." in html
+        assert "Add music. Build playlists." in html
         assert html.count('id="siteNavigationPanel"') == 1
         assert html.count('id="siteNavigationToggle"') == 1
-        assert 'aria-current="page">Overview' in html
+        assert 'id="workspaceTopbar"' in html
+        assert 'href="/" data-nav="home"' in html
         assert 'href="/downloads"' in html
         assert 'href="/playlists"' in html
         assert 'href="/playlist-generator"' in html
@@ -30,6 +31,10 @@ def test_home_is_application_root_and_has_full_navigation():
         assert 'href="/static/home.css"' in html
         assert 'src="/static/site-navigation.js"' in html
         assert "media-server:4545" not in html
+        assert 'id="home-playlist-file"' in html
+        assert 'id="home-download-form"' in html
+        assert 'action="/downloads/engine/download"' in html
+        assert 'src="/static/home-intake.js"' in html
 
 
 def test_full_dashboard_stays_at_canonical_and_legacy_bookmarks():
@@ -71,4 +76,4 @@ def test_home_status_is_read_only_and_has_failure_states():
     assert "textContent" in code
     assert "innerHTML" not in code
     assert "document.hidden" in code
-    assert "@media(max-width:530px)" in CSS.read_text()
+    assert "@media(max-width:520px)" in CSS.read_text()
