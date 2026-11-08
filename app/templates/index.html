@@ -541,13 +541,6 @@ async function checkHealth() {
     $("health").innerHTML = `<span class="dot"></span><span>Plex connection failed: ${esc(e.message)}</span>`;
   }
 }
-$("recentMode").addEventListener("change", () => {
-  const albums = $("recentMode").value === "albums";
-  const input = $("recentLimit");
-  input.value = albums ? "20" : "48";
-  input.max = albums ? "200" : "8760";
-  input.setAttribute("aria-label", albums ? "Number of albums" : "Number of hours");
-});
 $("searchPlaylists").addEventListener("input", applyListFilters);
 $("onlyPending").addEventListener("change", applyListFilters);
 $("expandAll").onclick = () => {
