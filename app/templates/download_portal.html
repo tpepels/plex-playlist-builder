@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Downloads · Plex Playlist Manager</title>
+  <link rel="icon" href="/static/signal-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/signal-console.css">
+  <link rel="stylesheet" href="/static/site-navigation.css">
+  <style>
+    :root {color-scheme:dark;font-family:system-ui,sans-serif;background:#101113;color:#f3f4f6}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;background:#101113}
+    .download-shell{width:min(1600px,100%);margin:auto;padding:14px 18px 20px}
+    .download-head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:space-between}
+    .download-brand{display:flex;gap:12px;align-items:center}
+    h1{font-size:20px;margin:0}
+    .sub{font-size:12px;color:#a9b3be;margin:3px 0 0}
+    .download-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+    a.action,button.action{display:inline-flex;align-items:center;padding:8px 12px;
+      font:inherit;font-size:13px;color:#e0e6ef;text-decoration:none;
+      background:#252a32;border:1px solid #3f4855;border-radius:8px;cursor:pointer}
+    button.action:disabled{opacity:.6;cursor:wait}
+    a.action:hover,button.action:hover{background:#333c48}
+    .engine-status{font-size:12px;color:#bac3d0;margin:12px 0;min-height:19px}
+    .engine-status.error{color:#ffb5b5}
+    .engine-frame{display:block;width:100%;height:calc(100vh - 165px);
+      min-height:670px;border:1px solid #38414c;border-radius:12px;
+      background:#111820}
+    .scan-result{margin:6px 0 10px;font-size:12px;color:#c3d2be;min-height:18px}
+    .scan-result.error{color:#ffb5b5}
+    [hidden]{display:none!important}
+    @media(max-width:700px){.download-shell{padding:10px 7px}
+      .engine-frame{height:calc(100vh - 230px)}.download-actions{width:100%}}
+  </style>
+</head>
+<body>
+  {% include "_site_navigation.html" %}
+  <main class="download-shell">
+    <header class="download-head">
+      <div class="download-brand">
+        <button id="siteNavigationToggle" class="site-nav-toggle" type="button"
+          aria-label="Open navigation menu" aria-expanded="false"
+          aria-controls="siteNavigationPanel" title="Navigation">
+          <span class="site-nav-lines" aria-hidden="true"><span></span><span></span><span></span></span>
+        </button>
+        <img src="/static/signal-mark.svg" width="43" height="43" alt="">
+        <div>
+          <h1>Downloads</h1>
+          <p class="sub">Download engine and Plex library workflow · one workspace</p>
+        </div>
+      </div>
+      <div class="download-actions">
+        <button id="scan-plex" class="action" type="button">Scan Plex for new music</button>
+        <a class="action" href="/?view=newmusic">Review new music</a>
+        <a class="action" href="/playlist-intelligence">Add tracks to playlists</a>
+        <a class="action" href="/downloads-audit">Import audit</a>
+      </div>
+    </header>
+    <div id="engine-status" class="engine-status" role="status" aria-live="polite">
+      Connecting to the download engine…
+    </div>
+    <div id="scan-result" class="scan-result" role="status" aria-live="polite"></div>
+    <iframe id="download-engine" class="engine-frame"
+      src="{{ engine_url }}" title="yt-dlp downloads, retries, logs, cookies and VPN controls"
+      referrerpolicy="same-origin"></iframe>
+  </main>
+  <script src="/static/download-portal.js" defer></script>
+  <script src="/static/site-navigation.js" defer></script>
+  <script src="/static/signal-console.js" defer></script>
+</body>
+</html>
