@@ -185,6 +185,25 @@ async def proxy_downloader(request: Request, path: str):
         await client.aclose()
         raise
 
+    if extension and path == "download" and remote.status_code in (302, 303):
+        # The extension must not follow a browser redirect to the HTML page:
+        # that page is intentionally outside its narrowly granted CORS paths.
+        # Confirm the job ID in yt-dlp's Location instead.
+        from urllib.parse import parse_qs
+        location = _rewrite_location(remote.headers.get("location", ""), origin)
+        job_id = parse_qs(urlsplit(location).query).get("job", [""])[0]
+        await remote.aclose()
+        await client.aclose()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", job_id):
+            return JSONResponse(
+                {"ok": False, "error": "Download status was not confirmed; inspect the queue."},
+                status_code=502, headers=_extension_headers(extension),
+            )
+        return JSONResponse(
+            {"ok": True, "job_id": job_id, "download_url": "/downloads?job=" + job_id},
+            headers={**_extension_headers(extension), "Cache-Control": "no-store"},
+        )
+
     async def chunks():
         try:
             async for chunk in remote.aiter_bytes():
