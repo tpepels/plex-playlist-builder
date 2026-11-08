@@ -2370,7 +2370,7 @@ def download():
             error="Download queue is full.",
         ), 429
 
-    return redirect(url_for("index"))
+    return redirect(url_for("index", job=job_id))
 
 
 @app.post("/api/albums")
