@@ -8,6 +8,8 @@ control methods run without a background monitor.
 from __future__ import annotations
 
 import os
+import signal
+import subprocess
 import threading
 import time
 
@@ -19,6 +21,43 @@ def inactivity_limit(environ=None):
     except (ValueError, TypeError, OverflowError):
         seconds = 900
     return max(120, min(3600, seconds))
+
+
+def _signal(process, sig):
+    """Signal the dedicated downloader process group, including ffmpeg."""
+    pid = getattr(process, "pid", None)
+    if isinstance(pid, int) and pid > 0:
+        try:
+            os.killpg(pid, sig)
+        except ProcessLookupError:
+            pass
+    else:
+        # Unit-test processes may not expose PIDs; never signal a guessed PGID.
+        operation = "terminate" if sig == signal.SIGTERM else "kill"
+        method = getattr(process, operation, None)
+        if callable(method):
+            method()
+
+
+def stop_process(process, grace=5):
+    """Never leave a child downloader running after a job exception."""
+    poll = getattr(process, "poll", None)
+    if not callable(poll) or poll() is not None:
+        return
+    _signal(process, signal.SIGTERM)
+    wait = getattr(process, "wait", None)
+    if not callable(wait):
+        return
+    try:
+        wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        _signal(process, signal.SIGKILL)
+        try:
+            wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            # The child cannot be reaped; retain the job failure and let
+            # the container supervisor perform the remaining cleanup.
+            pass
 
 
 class InactivityGuard:
@@ -38,14 +77,19 @@ class InactivityGuard:
     def _watch(self):
         while not self._stop.wait(self.interval):
             try:
-                if self.process.poll() is not None:
-                    return
+                # Parent yt-dlp may have exited while ffmpeg still holds
+                # stdout open. Only the completed *reading context* confirms
+                # that the whole process group has finished; keep monitoring
+                # silence rather than relying solely on parent poll().
                 if time.monotonic() - self._last < self.seconds:
                     continue
                 self.timed_out = True
-                self.process.terminate()
-                if not self._stop.wait(self.grace) and self.process.poll() is None:
-                    self.process.kill()
+                _signal(self.process, signal.SIGTERM)
+                if not self._stop.wait(self.grace):
+                    pid = getattr(self.process, "pid", None)
+                    if (isinstance(pid, int) and pid > 0
+                            or self.process.poll() is None):
+                        _signal(self.process, signal.SIGKILL)
                 return
             except (OSError, ProcessLookupError):
                 # The process may have exited between poll and terminate.
