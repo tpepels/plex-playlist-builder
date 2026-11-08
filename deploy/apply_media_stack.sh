@@ -23,8 +23,7 @@ docker compose version >/dev/null 2>&1 || error "Docker Compose plugin required"
 step "Preflight: refuse migration while downloads are active or queued"
 engine_running="$(docker container inspect --format '{{.State.Running}}' yt-dlp-server 2>/dev/null || true)"
 if [ "$engine_running" = "true" ]; then
-  docker exec -i yt-dlp-server python - <<'PY' ||
-    error "Could not confirm an idle downloader; nothing was changed. Check port 4545 and the job queue."
+  if ! docker exec -i yt-dlp-server python - <<'PY'
 import json
 import sys
 from urllib.request import urlopen
@@ -45,6 +44,9 @@ except Exception as exc:
 print(f"Active/queued downloads: {len(active)}")
 sys.exit(1 if active else 0)
 PY
+  then
+    error "Could not confirm an idle downloader; nothing was changed. Check port 4545 and the job queue."
+  fi
 fi
 
 step "Fast-forward both repositories"
