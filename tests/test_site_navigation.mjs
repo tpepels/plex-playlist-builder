@@ -44,9 +44,10 @@ function harness(page="http://media-server:5051/playlist-generator") {
   more.contains=(target)=>target===more||target===summary;
   more.querySelector=(selector)=>selector==="summary"?summary:null;
   const mode=node("siteNavRecentMode"),limit=node("siteNavRecentLimit");
-  const links=[...html.matchAll(/<a\b[^>]*href="([^"]+)"/g)].map(([,href])=>{
+  const navMarkup=html.split('<nav id="siteNavigationPanel"',2)[1].split("</nav>",1)[0];
+  const links=[...navMarkup.matchAll(/<a\b[^>]*href="([^"]+)"/g)].map(([,href])=>{
     const link=node("link-"+href);link.attrs.href=href;
-    link.inMore=html.indexOf('href="'+href+'"')>html.indexOf('id="workspaceMore"');
+    link.inMore=navMarkup.indexOf('href="'+href+'"')>navMarkup.indexOf('id="workspaceMore"');
     return link;
   });
   panel.querySelectorAll=selector=>selector==="a[href]"?links:[];
