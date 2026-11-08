@@ -7,15 +7,18 @@ origin at /downloads/engine/. No arbitrary target URLs are accepted.
 from __future__ import annotations
 
 import os
+import re
 from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse, Response
 
 PREFIX = "/downloads/engine"
 MAX_REQUEST = 12 * 1024 * 1024
-METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE")
+METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+EXTENSION_PATHS = frozenset({"health", "api/probe", "download"})
+CHROME_ID = re.compile(r"[a-p]{32}\Z")
 REQUEST_HEADERS = ("accept", "content-type", "origin", "range", "if-none-match",
                    "if-modified-since", "x-requested-with")
 RESPONSE_HEADERS = ("content-type", "content-disposition", "cache-control",
@@ -44,6 +47,29 @@ def _check_same_origin(request):
         actual = urlsplit(raw)
         if actual.scheme != expected.scheme or actual.netloc != expected.netloc:
             raise HTTPException(status_code=403, detail="Cross-origin downloader mutation blocked")
+
+
+def _extension_origin(request, path):
+    """Allow the installed Chrome extension only its three existing actions."""
+    origin = request.headers.get("origin", "")
+    parts = urlsplit(origin)
+    if (parts.scheme == "chrome-extension" and
+            CHROME_ID.fullmatch(parts.netloc or "") and
+            not parts.path and not parts.query and not parts.fragment and
+            path in EXTENSION_PATHS):
+        return origin
+    return None
+
+
+def _extension_headers(origin):
+    return {
+        "access-control-allow-origin": origin,
+        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-headers": "Content-Type",
+        "access-control-allow-private-network": "true",
+        "access-control-max-age": "600",
+        "vary": "Origin",
+    }
 
 
 def _upstream_headers(request):
@@ -104,7 +130,14 @@ async def downloader_without_slash(request: Request):
 
 @router.api_route(PREFIX + "/{path:path}", methods=METHODS, include_in_schema=False)
 async def proxy_downloader(request: Request, path: str):
-    if request.method not in {"GET", "HEAD"}:
+    extension = _extension_origin(request, path)
+    if request.method == "OPTIONS":
+        # Chrome's preflight for JSON probes or local-network access.
+        if extension:
+            return Response(status_code=204,
+                            headers=_extension_headers(extension))
+        return Response(status_code=403)
+    if request.method not in {"GET", "HEAD"} and not extension:
         _check_same_origin(request)
     declared = request.headers.get("content-length")
     if declared:
@@ -160,9 +193,11 @@ async def proxy_downloader(request: Request, path: str):
             await remote.aclose()
             await client.aclose()
 
+    headers = _outgoing_headers(remote, origin)
+    if extension:
+        headers.update(_extension_headers(extension))
     return StreamingResponse(
-        chunks(), status_code=remote.status_code,
-        headers=_outgoing_headers(remote, origin),
+        chunks(), status_code=remote.status_code, headers=headers,
     )
 
 
