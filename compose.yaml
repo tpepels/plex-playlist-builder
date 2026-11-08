@@ -1,49 +1,18 @@
-# Normal downloader deployment: managed WireGuard is available in the UI.
-# No additional .env file, override, VPN token or command-line setup is needed.
-# Existing staging, history, download and music volumes remain unchanged.
+# Single managed container: root WireGuard controller, unprivileged web/yt-dlp.
+# Persistent music, state, staging, and profile mounts are unchanged.
 services:
-  wireguard-gateway:
-    build:
-      context: .
-      dockerfile: Dockerfile.vpn-gateway
-    container_name: yt-dlp-wireguard-gateway
-    cap_add:
-      - NET_ADMIN
-    # wg-quick full-tunnel policy routing requires this in Docker's network
-    # namespace, before the interface is brought up.
-    sysctls:
-      net.ipv4.conf.all.src_valid_mark: "1"
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    ports:
-      - "4545:4545"
-    environment:
-      VPN_PROFILE_DIR: /profiles
-      VPN_CONTROL_TOKEN_FILE: /data/state/.vpn-control-token
-      VPN_DOWNLOADER_UID: ${UID:-1000}
-      VPN_DOWNLOADER_GID: ${GID:-1000}
-    volumes:
-      - /srv/yt-dlp-server/wireguard-profiles:/profiles
-      - /srv/yt-dlp-server/state:/data/state
-    networks:
-      default:
-        aliases:
-          - yt-dlp-server
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8787),timeout=2); s.close()"]
-      interval: 10s
-      timeout: 3s
-      retries: 6
-    restart: unless-stopped
-
   yt-dlp-server:
     build: .
     container_name: yt-dlp-server
-    user: "${UID:-1000}:${GID:-1000}"
-    network_mode: "service:wireguard-gateway"
-    depends_on:
-      wireguard-gateway:
-        condition: service_healthy
+    user: "0:0"
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: "1"
+    ports:
+      - "4545:4545"
     environment:
       TZ: ${TZ:-Europe/Lisbon}
       PORT: 4545
@@ -52,12 +21,14 @@ services:
       STATE_DIR: /data/state
       TEMP_DIR: /data/tmp
       VPN_GATEWAY_ENABLED: "1"
+      VPN_PROFILE_DIR: /profiles
       VPN_CONTROL_TOKEN_FILE: /data/state/.vpn-control-token
+      VPN_DOWNLOADER_UID: ${UID:-1000}
+      VPN_DOWNLOADER_GID: ${GID:-1000}
       SURFSHARK_ROTATE_ON_403: ${SURFSHARK_ROTATE_ON_403:-1}
-      # Optional:
-      # COOKIES_FILE: /data/state/cookies.txt
     volumes:
       - /srv/completed/music:/data/music
       - /srv/yt-dlp-server/state:/data/state
       - /srv/yt-dlp-server/tmp:/data/tmp
+      - /srv/yt-dlp-server/wireguard-profiles:/profiles
     restart: unless-stopped

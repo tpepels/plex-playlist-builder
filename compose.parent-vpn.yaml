@@ -1,49 +1,22 @@
-# Compose override for the shared ~/media-stack deployment.
-# Existing symlinks to this file remain valid after the old installer is removed.
-# No secrets or user configuration required. Must be applied to the SAME
-# parent Compose project as the existing downloader and playlist manager.
+# Same existing ~/media-stack/docker-compose.override.yml symlink.
+# Extends only the existing downloader service. No gateway service.
+# The parent Compose file retains the port 4545 mapping and project network.
 services:
-  wireguard-gateway:
-    build:
-      context: ./yt-dlp-server
-      dockerfile: Dockerfile.vpn-gateway
-    container_name: yt-dlp-wireguard-gateway
+  yt-dlp-server:
+    user: "0:0"
     cap_add:
       - NET_ADMIN
-    # wg-quick full-tunnel policy routing requires this in Docker's network
-    # namespace, before the interface is brought up.
-    sysctls:
-      net.ipv4.conf.all.src_valid_mark: "1"
     devices:
       - /dev/net/tun:/dev/net/tun
-    ports:
-      - "4545:4545"
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: "1"
     environment:
+      VPN_GATEWAY_ENABLED: "1"
       VPN_PROFILE_DIR: /profiles
       VPN_CONTROL_TOKEN_FILE: /data/state/.vpn-control-token
       VPN_DOWNLOADER_UID: ${UID:-1000}
       VPN_DOWNLOADER_GID: ${GID:-1000}
+      SURFSHARK_ROTATE_ON_403: ${SURFSHARK_ROTATE_ON_403:-1}
     volumes:
       - /srv/yt-dlp-server/wireguard-profiles:/profiles
       - /srv/yt-dlp-server/state:/data/state
-    networks:
-      default:
-        aliases: [yt-dlp-server]
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8787),timeout=2); s.close()"]
-      interval: 10s
-      timeout: 3s
-      retries: 6
-    restart: unless-stopped
-
-  yt-dlp-server:
-    # Remove the original host-port publication; the gateway owns 4545.
-    ports: !reset []
-    network_mode: "service:wireguard-gateway"
-    environment:
-      VPN_GATEWAY_ENABLED: "1"
-      VPN_CONTROL_TOKEN_FILE: /data/state/.vpn-control-token
-      SURFSHARK_ROTATE_ON_403: ${SURFSHARK_ROTATE_ON_403:-1}
-    depends_on:
-      wireguard-gateway:
-        condition: service_healthy

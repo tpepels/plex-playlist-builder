@@ -1,7 +1,7 @@
-"""Administrator-only API bridging the unprivileged UI to the VPN gateway.
+"""Loopback API between the unprivileged web and root-owned VPN controller.
 
-No uploaded WireGuard secret is persisted in downloader state or job logs.
-Only the isolated gateway can modify the VPN network namespace.
+They share one Docker network namespace, but only the gateway process has
+NET_ADMIN privileges. VPN keys stay in root-owned profile files.
 """
 from __future__ import annotations
 

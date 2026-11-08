@@ -18,7 +18,12 @@ COPY --from=deno_bin /deno /usr/local/bin/deno
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg ca-certificates git \
+      iptables iproute2 wireguard-tools gosu \
     && rm -rf /var/lib/apt/lists/*
+
+# Docker /proc/sys may be read-only when src_valid_mark is already 1.
+# Fail the build if the version of wg-quick changes unexpectedly.
+RUN python -c 'from pathlib import Path; p=Path("/usr/bin/wg-quick"); s=p.read_text(); old="[[ $proto == -4 ]] && cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1"; new="[[ $proto == -4 && $(sysctl -n net.ipv4.conf.all.src_valid_mark) != 1 ]] && cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1"; assert old in s, "Unknown wg-quick sysctl handling"; p.write_text(s.replace(old, new))'
 
 RUN git clone --depth 1 --branch "${BGUTIL_VERSION}" \
       https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git \
@@ -40,14 +45,15 @@ RUN rm -rf "$HOME" "$XDG_CACHE_HOME" "$DENO_DIR" \
     && mkdir -p "$HOME" "$XDG_CACHE_HOME" "$DENO_DIR" \
     && chmod 1777 "$HOME" "$XDG_CACHE_HOME" "$DENO_DIR"
 
-COPY app.py staging.py album_completeness.py album_submission.py job_diagnostics.py disk_inventory.py job_history.py download_resilience.py retry_queue.py surfshark_vpn.py vpn_ui.py vpn_gateway.py youtube_cookies.py library_repair.py extension_package.py album_failure.py ./
+COPY app.py staging.py album_completeness.py album_submission.py job_diagnostics.py disk_inventory.py job_history.py download_resilience.py retry_queue.py surfshark_vpn.py vpn_ui.py vpn_gateway.py youtube_cookies.py library_repair.py extension_package.py album_failure.py container_runtime.py ./
 COPY chrome-extension ./chrome-extension
 COPY templates ./templates
 COPY static ./static
 
 EXPOSE 4545
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4545/health', timeout=2)"
+HEALTHCHECK --interval=30s --timeout=4s --start-period=40s --retries=3 \
+  CMD python -c "import socket,urllib.request; s=socket.create_connection(('127.0.0.1',8787),timeout=1);s.close();urllib.request.urlopen('http://127.0.0.1:4545/health',timeout=2)"
 
-CMD ["gunicorn", "--workers", "1", "--threads", "4", "--bind", "0.0.0.0:4545", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
+# PID 1 supervises both OS processes; a failed one stops the other.
+CMD ["python", "-u", "/app/container_runtime.py"]
