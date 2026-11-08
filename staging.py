@@ -458,6 +458,8 @@ def _publish_album_tree(import_root, incoming_parent, job, artist, album, files)
     if final_dir.is_symlink() or final_dir.parent.is_symlink():
         raise RuntimeError("Refusing to publish through a symlinked library album")
     final_dir.parent.mkdir(parents=True, exist_ok=True)
+    if incoming_parent.is_symlink():
+        raise RuntimeError("Refusing symlinked hidden publication directory")
     incoming_parent.mkdir(parents=True, exist_ok=True)
     incoming = incoming_parent / f"{staging_owner_id(job)}-{uuid.uuid4().hex[:8]}"
     incoming.mkdir(parents=True, exist_ok=False)
@@ -500,7 +502,7 @@ def _cleanup_incoming_parent(incoming_parent):
         pass
 
 
-def publish_spotdl_stage(temp_dir, import_root, job):
+def publish_spotdl_stage(temp_dir, import_root, job, *, defer_cleanup=False):
     """Publish each Spotify album atomically, preserving other albums on error."""
     stage = stage_dir(temp_dir, job)
     files = media_files(stage)
@@ -538,7 +540,8 @@ def publish_spotdl_stage(temp_dir, import_root, job):
         final_dirs.append(directory)
         final_files.extend(paths)
 
-    shutil.rmtree(stage, ignore_errors=True)
+    if not defer_cleanup:
+        shutil.rmtree(stage, ignore_errors=True)
     _cleanup_incoming_parent(incoming_parent)
     ordered_dirs = sorted(set(final_dirs))
     return {
@@ -557,9 +560,12 @@ def publish_spotdl_stage(temp_dir, import_root, job):
     }
 
 
-def publish_stage(temp_dir, import_root, job, artist=None, album=None):
+def publish_stage(temp_dir, import_root, job, artist=None, album=None,
+                  *, defer_cleanup=False):
     if job.get("source") == "spotify":
-        return publish_spotdl_stage(temp_dir, import_root, job)
+        return publish_spotdl_stage(
+            temp_dir, import_root, job, defer_cleanup=defer_cleanup,
+        )
 
     analysis = analyze_stage(temp_dir, job)
     artist = clean_artist_name(artist or analysis["artist"])
@@ -599,7 +605,8 @@ def publish_stage(temp_dir, import_root, job, artist=None, album=None):
          for record in analysis["records"]],
     )
     stage = stage_dir(temp_dir, job)
-    shutil.rmtree(stage, ignore_errors=True)
+    if not defer_cleanup:
+        shutil.rmtree(stage, ignore_errors=True)
     _cleanup_incoming_parent(incoming_parent)
 
     return {
