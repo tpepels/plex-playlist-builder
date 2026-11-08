@@ -59,6 +59,30 @@ git -C "$MANAGER" pull --ff-only ||
 [ -f "$ENGINE/Dockerfile" ] ||
     error "Monorepo checkout is missing yt-dlp-server after pull"
 
+# A stale JavaScript lookup can abort the entire playlist workspace before
+# either Plex health or YAML loading runs. Check the rendered HTML contract
+# before touching Compose or replacing any container.
+step "Verify playlist interface controls match their JavaScript references"
+python3 - "$MANAGER/app/templates/index.html" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+page = Path(sys.argv[1]).read_text(encoding="utf-8")
+if page.count("<script>") != 1:
+    raise SystemExit("Unexpected playlist bootstrap script count")
+script = page.split("<script>", 1)[1].split("</script>", 1)[0]
+ids = set(re.findall(r'\bid="([^"]+)"', page))
+lookups = set(re.findall(r'\$\("([^"]+)"\)', script))
+missing = sorted(lookups - ids)
+if missing:
+    raise SystemExit("Playlist bootstrap references missing HTML controls: " + ", ".join(missing))
+print("Playlist bootstrap DOM references: OK")
+PY
+if [ "$?" -ne 0 ]; then
+    error "Playlist JavaScript would fail initialization; no container changes made"
+fi
+
 step "Validate proposed Compose build paths and VPN override"
 python3 "$MANAGER/deploy/merge_media_stack.py" --stack "$STACK" ||
     error "Dry run failed; containers were not changed"
