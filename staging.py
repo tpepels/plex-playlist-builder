@@ -47,7 +47,11 @@ def clean_artist_name(value):
 
 
 def staging_owner_id(job):
-    return str(job.get("staging_owner_id") or job.get("id"))
+    """Never allow a saved job ID to escape the dedicated staging tree."""
+    ident = str(job.get("staging_owner_id") or job.get("id") or "")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", ident):
+        raise ValueError("Invalid job staging identity; refusing filesystem operation")
+    return ident
 
 
 def stage_dir(temp_dir, job):
@@ -56,6 +60,8 @@ def stage_dir(temp_dir, job):
 
 def ensure_stage_dir(temp_dir, job):
     path = stage_dir(temp_dir, job)
+    if path.is_symlink():
+        raise ValueError("Staging path must not be a symbolic link")
     path.mkdir(parents=True, exist_ok=True)
     (path / ".tmp").mkdir(parents=True, exist_ok=True)
     return path
@@ -85,6 +91,7 @@ def media_files(root):
     return sorted(
         path for path in root.rglob("*")
         if path.is_file()
+        and not path.is_symlink()
         and path.suffix.lower() in MEDIA_EXTENSIONS
         and ".tmp" not in path.parts
     )
@@ -440,13 +447,14 @@ def publish_spotdl_stage(temp_dir, import_root, job):
             destination.parent.mkdir(parents=True, exist_ok=True)
 
             if destination.exists():
-                if job.get("force"):
-                    destination.unlink()
-                else:
+                if not job.get("force"):
                     source.unlink()
                     final_files.append(str(destination))
                     final_dirs.add(str(destination.parent))
                     continue
+                # os.replace atomically overwrites the existing track.
+                # Do not unlink the previously published copy first:
+                # a failed rename must leave the old file intact.
 
             os.replace(source, destination)
             final_files.append(str(destination))
@@ -522,34 +530,40 @@ def publish_stage(temp_dir, import_root, job, artist=None, album=None):
     incoming = incoming_parent / f"{staging_owner_id(job)}-{uuid.uuid4().hex[:8]}"
     incoming.mkdir(parents=True, exist_ok=False)
 
-    copied = []
-    for record in analysis["records"]:
-        source = Path(record["path"])
-        destination = incoming / source.name
-        shutil.copy2(source, destination)
-        copied.append(destination)
+    try:
+        copied = []
+        for record in analysis["records"]:
+            source = Path(record["path"])
+            destination = incoming / source.name
+            shutil.copy2(source, destination)
+            copied.append(destination)
 
-    final_dir = import_root / safe_component(artist) / safe_component(album)
-    final_dir.parent.mkdir(parents=True, exist_ok=True)
+        final_dir = import_root / safe_component(artist) / safe_component(album)
+        final_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    final_files = []
-    if not final_dir.exists():
-        os.replace(incoming, final_dir)
-        final_files = [str(final_dir / path.name) for path in copied]
-    else:
-        final_dir.mkdir(parents=True, exist_ok=True)
-        for path in list(incoming.iterdir()):
-            destination = final_dir / path.name
-            if destination.exists():
-                if job.get("force"):
-                    destination.unlink()
-                else:
-                    path.unlink()
-                    final_files.append(str(destination))
-                    continue
-            os.replace(path, destination)
-            final_files.append(str(destination))
-        incoming.rmdir()
+        final_files = []
+        if not final_dir.exists():
+            os.replace(incoming, final_dir)
+            final_files = [str(final_dir / path.name) for path in copied]
+        else:
+            final_dir.mkdir(parents=True, exist_ok=True)
+            for path in list(incoming.iterdir()):
+                destination = final_dir / path.name
+                if destination.exists():
+                    if not job.get("force"):
+                        path.unlink()
+                        final_files.append(str(destination))
+                        continue
+                    # Atomic replacement retains the prior track on failure.
+                os.replace(path, destination)
+                final_files.append(str(destination))
+            incoming.rmdir()
+
+    except Exception:
+        # Publishing failures must not discard staged media. Remove only
+        # partial hidden copies; any already published files remain visible.
+        shutil.rmtree(incoming, ignore_errors=True)
+        raise
 
     stage = stage_dir(temp_dir, job)
     shutil.rmtree(stage, ignore_errors=True)
