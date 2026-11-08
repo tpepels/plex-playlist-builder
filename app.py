@@ -17,6 +17,7 @@ from flask import Flask, jsonify, redirect, render_template, request, send_file,
 
 import staging as library_staging
 from album_completeness import album_hold_reason, is_album_job
+from album_failure import diagnose_incomplete_album
 from disk_inventory import inventory_music, inventory_staging
 from job_history import history_records
 from retry_queue import failed_candidates, build_retry
@@ -178,6 +179,7 @@ def current_software_version():
     for name in ("app.py", "staging.py", "album_completeness.py",
                  "retry_queue.py", "download_resilience.py", "youtube_cookies.py",
                  "library_repair.py", "extension_package.py",
+                 "album_failure.py",
                  "album_submission.py", "job_diagnostics.py",
                  "surfshark_vpn.py", "vpn_ui.py", "vpn_gateway.py",
                  "static/vpn-manager.js", "static/youtube-cookies.js", "templates/index.html",
@@ -408,6 +410,13 @@ def normalize_persisted_job(raw):
         "album_submission_key": raw.get("album_submission_key"),
         "match_audit": clean_match_audit(raw.get("match_audit")),
         "archive_skipped_items": int(raw.get("archive_skipped_items") or 0),
+        "download_items_seen": int(raw.get("download_items_seen") or 0),
+        "last_download_error": str(raw.get("last_download_error") or "")[:600],
+        "last_source_warning": str(raw.get("last_source_warning") or "")[:400],
+        "failure_code": str(raw.get("failure_code") or ""),
+        "failure_reason": str(raw.get("failure_reason") or ""),
+        "failure_action": str(raw.get("failure_action") or ""),
+        "failure_evidence": str(raw.get("failure_evidence") or ""),
         "last_activity_at": raw.get("last_activity_at"),
     }
 
@@ -1067,6 +1076,10 @@ def build_command(job, *, player_client=None):
     stage = library_staging.ensure_stage_dir(TEMP_DIR, job)
     cmd = [
         "yt-dlp",
+        # --print before_dl/after_move can imply quiet or simulation.
+        # Downloads explicitly remain real and produce diagnostic progress.
+        "--no-quiet",
+        "--no-simulate",
         "--newline",
         "--no-color",
         "--progress",
@@ -1128,6 +1141,17 @@ def append_log(job_id, line):
 
         job["last_activity_at"] = time.time()
         failure_kind = youtube_failure_kind(line) if job.get("source") != "spotify" else None
+        # Preserve meaningful evidence even if the rolling 40-line log
+        # discards the first error on a long album/retry.
+        if line.startswith(("ERROR:", "FATAL:")):
+            job["last_download_error"] = line[:600]
+        if line.startswith("WARNING:") and any(
+            marker in line.lower() for marker in (
+                "unavailable", "hidden", "does not exist", "private",
+                "no video", "not available",
+            )
+        ):
+            job["last_source_warning"] = line[:400]
         if failure_kind:
             # A bot challenge takes precedence over a generic HTTP 403.
             if failure_kind == BOT_CHALLENGE or not job.get("failure_kind"):
@@ -1168,6 +1192,9 @@ def append_log(job_id, line):
             if separator and current.isdigit() and total.isdigit():
                 job["current_item"] = int(current)
                 job["total_items"] = int(total)
+                job["download_items_seen"] = max(
+                    int(job.get("download_items_seen") or 0), int(current)
+                )
             return
 
         if line.startswith("__YTDLP_FILE__="):
@@ -1183,6 +1210,10 @@ def append_log(job_id, line):
         if playlist_match:
             job["current_item"] = int(playlist_match.group(1))
             job["total_items"] = int(playlist_match.group(2))
+            job["download_items_seen"] = max(
+                int(job.get("download_items_seen") or 0),
+                int(playlist_match.group(1)),
+            )
 
         match = _progress_re.match(line)
         if match:
@@ -1633,8 +1664,14 @@ def run_job(job_id):
                 if hold_reason:
                     job["status"] = "partial" if staged_media else "failed"
                     job["staged_files"] = len(staged_media)
+                    # The safety gate explains why publication is forbidden.
+                    # Record the independent extractor/archive cause as well;
+                    # do not replace a specific failure with a generic count.
+                    diagnosis = diagnose_incomplete_album(job, len(staged_media))
+                    job.update(diagnosis)
                     job["message"] = (
-                        f"Album kept out of Plex: {hold_reason}. Retry to complete it."
+                        f"Album kept out of Plex: {hold_reason}. "
+                        f"Cause: {diagnosis['failure_reason']}"
                     )
                     should_finalize = False
             persist_jobs_locked()
@@ -1946,6 +1983,12 @@ def public_job_from_group_locked(root_id, members):
         "metadata_artist": first_value("metadata_artist"),
         "metadata_album": first_value("metadata_album"),
         "staged_files": representative.get("staged_files", 0),
+        "failure_code": representative.get("failure_code") or "",
+        "failure_reason": representative.get("failure_reason") or "",
+        "failure_action": representative.get("failure_action") or "",
+        "failure_evidence": representative.get("failure_evidence") or "",
+        "archive_skipped_items": int(representative.get("archive_skipped_items") or 0),
+        "download_items_seen": int(representative.get("download_items_seen") or 0),
         "final_dir": first_value("final_dir"),
         "album_submission_key": first_value("album_submission_key"),
         "match_audit": first_value("match_audit") or {},
