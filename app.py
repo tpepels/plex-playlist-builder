@@ -180,7 +180,7 @@ VERSIONS = {
 def current_software_version():
     """Fingerprint deployed downloader code and toolchain, not historical retries."""
     digest = hashlib.sha256()
-    for name in ("app.py", "staging.py", "album_completeness.py",
+    for name in ("app.py", "staging.py", "state_store.py", "album_completeness.py",
                  "retry_queue.py", "download_resilience.py", "youtube_cookies.py",
                  "library_repair.py", "extension_package.py",
                  "album_failure.py",
@@ -277,22 +277,33 @@ def persistent_state_context():
 
 
 def load_ignored_tracks():
-    if not IGNORED_TRACKS_FILE.is_file():
-        return {}
-    try:
-        data = json.loads(IGNORED_TRACKS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    # A damaged ignored-track file must never silently become an empty set,
+    # which would erase the user's decisions on the next update.
+    value, recovered = load_json(
+        IGNORED_TRACKS_FILE, default={},
+        validate=lambda data: isinstance(data, dict),
+    )
+    if recovered:
+        print("WARNING: ignored-tracks.json restored from backup.", flush=True)
+    return value
 
 
 def persist_ignored_tracks(ignored):
-    tmp_path = IGNORED_TRACKS_FILE.with_suffix(".json.tmp")
-    tmp_path.write_text(
-        json.dumps(ignored, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    os.replace(tmp_path, IGNORED_TRACKS_FILE)
+    global STATE_FAULT
+    if STATE_FAULT:
+        raise StateCorruption(STATE_FAULT)
+    try:
+        write_json(
+            IGNORED_TRACKS_FILE, ignored,
+            validate=lambda data: isinstance(data, dict),
+        )
+    except (OSError, ValueError, StateCorruption, TypeError):
+        STATE_FAULT = (
+            "Ignored-track history cannot be saved. New changes have been "
+            "blocked to preserve earlier decisions. Check available disk "
+            "space and ignored-tracks.json / ignored-tracks.json.bak."
+        )
+        raise StateCorruption(STATE_FAULT) from None
 
 
 def extract_youtube_missing_tracks(lines, ignored=None):
@@ -506,8 +517,12 @@ def load_persisted_jobs():
     restored = []
     for item in items:
         job = normalize_persisted_job(item)
-        if job is not None:
-            restored.append(job)
+        if job is None:
+            raise StateCorruption(
+                "An existing download record is invalid; do not overwrite "
+                "the history. Restore jobs.json from the last good backup."
+            )
+        restored.append(job)
 
     restored.sort(key=lambda item: item["created_at"])
     # Preserve all historical outcomes, including failed 403 downloads.
@@ -1879,12 +1894,13 @@ def start_runtime_workers():
                 flush=True,
             )
     try:
+        load_ignored_tracks()
         restored_queue_ids = load_persisted_jobs()
     except (StateCorruption, OSError, ValueError, TypeError):
         STATE_FAULT = (
-            "Download history is damaged and no usable backup was found. "
-            "The original files are preserved. Restore jobs.json or "
-            "jobs.json.bak from a known-good backup and restart this container."
+            "Persistent application state is damaged and no usable backup "
+            "was found. The original files are preserved. Restore the "
+            "affected .json or .json.bak in /data/state and restart."
         )
         print("ERROR: " + STATE_FAULT, flush=True)
         return
@@ -3005,14 +3021,14 @@ def api_import_audit():
 
 @app.get("/health")
 def health():
-    state_status = "degraded" if STATE_FAULT else "ok"
-    return jsonify(
+    worker_ok = bool(download_worker_thread and download_worker_thread.is_alive())
+    state_status = "degraded" if STATE_FAULT or not worker_ok else "ok"
+    response = jsonify(
         {
             "status": state_status,
             "state_error": STATE_FAULT,
             "state_recovered_from_backup": STATE_RECOVERED,
-            "worker_alive": bool(download_worker_thread and download_worker_thread.is_alive())
-                            if not MAINTENANCE_ONLY else None,
+            "worker_alive": worker_ok,
             "queue": download_queue.qsize(),
             "import_root": str(IMPORT_ROOT),
             "versions": VERSIONS,
@@ -3026,7 +3042,7 @@ def health():
             },
             "ignored_tracks": {
                 "path": str(IGNORED_TRACKS_FILE),
-                "count": len(load_ignored_tracks()),
+                "count": len(load_ignored_tracks()) if not STATE_FAULT else None,
             },
             "fallback_track": {
                 "enabled": VERSIONS.get("spotdl", "unavailable") != "unavailable",
@@ -3045,6 +3061,7 @@ def health():
             },
         }
     )
+    return response, (503 if state_status == "degraded" else 200)
 
 
 if __name__ == "__main__":
