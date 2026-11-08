@@ -67,14 +67,14 @@ function harness() {
   for (const id of [
     "vpn-feedback", "vpn-public-keys", "vpn-profiles", "vpn-test-results", "vpn-test-progress",
     "vpn-key-setup", "vpn-private-key", "vpn-count", "vpn-connection",
-    "vpn-upload-input", "vpn-test-button", "vpn-next-button",
+    "vpn-upload-input", "vpn-test-button", "vpn-next-button", "vpn-direct-button",
     "vpn-refresh", "vpn-upload",
   ]) panel.append(get(id));
   get("vpn-key-setup").hidden = true;
   let status = {
     profiles: [{id: "a".repeat(32), filename: "us-nyc.conf", country: "us-nyc",
       client_public_key: "A".repeat(43) + "="}],
-    active: null, kill_switch: true, tunnel_ready: false,
+    active: null, mode: "direct", kill_switch: false, tunnel_ready: false,
     test: {running: false, done: true, results: [], message: "Idle"},
   };
   let resolveConnect;
@@ -86,6 +86,10 @@ function harness() {
     }
     if (url.includes("/activate/")) {
       return new Promise(resolve => {resolveConnect = resolve;});
+    }
+    if (url.endsWith("/direct") && args.body) {
+      status = {...status, active: null, mode: "direct", kill_switch: false, tunnel_ready: false};
+      return fakeResponse({ok: true, direct: true, mode: "direct"});
     }
     throw Error("Unexpected request: " + url);
   }
@@ -173,4 +177,24 @@ test("The registered client public key appears in the normal VPN profile view", 
   assert.equal(field?.value, "A".repeat(43) + "=");
   assert.ok(ui.profile().children.some(item =>
     item.className === "vpn-profile-key"));
+});
+
+test("Direct is default and manual Disconnect VPN restores it", async () => {
+  const ui = harness();
+  await flush();
+  assert.match(ui.get("vpn-connection").textContent, /DIRECT CONNECTION · DEFAULT/);
+  assert.equal(ui.get("vpn-direct-button").disabled, true);
+  ui.setStatus({
+    profiles: [{id: "a".repeat(32), filename: "us-nyc.conf", country: "us-nyc"}],
+    active: "a".repeat(32), mode: "vpn", kill_switch: true, tunnel_ready: true,
+    test: {running: false, done: true, results: []},
+  });
+  ui.get("vpn-refresh").click();
+  await flush();
+  assert.equal(ui.get("vpn-direct-button").disabled, false);
+  ui.get("vpn-direct-button").click();
+  await flush();
+  await flush();
+  assert.match(ui.get("vpn-connection").textContent, /DIRECT CONNECTION · DEFAULT/);
+  assert.ok(ui.requests.some(r => r.url.endsWith("/direct") && r.method === "POST"));
 });

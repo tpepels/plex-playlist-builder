@@ -323,7 +323,7 @@
   <details class="panel vpn-panel" id="vpn-panel">
     <summary><span>Surfshark VPN</span><span class="vpn-count" id="vpn-count">Checking…</span></summary>
     <div class="vpn-body">
-      <p class="vpn-intro">Select your Surfshark WireGuard .conf files and upload them. The first location connects automatically. To check that switching works, press <strong>Test all countries once</strong>.</p>
+      <p class="vpn-intro">Downloads use your normal direct connection by default. Upload Surfshark WireGuard .conf files as standby recovery endpoints. They connect automatically only after persistent YouTube bot challenges or HTTP 403 errors. Test all countries to verify them; testing returns to direct mode.</p>
       <div class="vpn-statusbar">
         <span id="vpn-connection" class="vpn-status-pill vpn-disconnected">Checking VPN…</span>
         <button id="vpn-refresh" type="button" class="vpn-secondary">Refresh status</button>
@@ -346,7 +346,8 @@
       <div id="vpn-public-keys" class="vpn-public-keys" aria-label="Surfshark client public keys"></div>
       <div id="vpn-profiles" class="vpn-profiles"></div>
       <div class="vpn-actions">
-        <button id="vpn-next-button" class="vpn-secondary" type="button" disabled>Next country</button>
+        <button id="vpn-next-button" class="vpn-secondary" type="button" disabled>Try VPN endpoint</button>
+        <button id="vpn-direct-button" class="vpn-secondary" type="button">Disconnect VPN</button>
         <button id="vpn-test-button" type="button" disabled>Test all countries once</button>
       </div>
       <div id="vpn-test-progress" class="vpn-test-progress" role="status" aria-live="polite"></div>

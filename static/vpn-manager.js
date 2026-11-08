@@ -220,9 +220,9 @@
     const ready = Boolean(data.active && data.tunnel_ready);
     const blocked = Boolean(data.kill_switch && !ready);
     $("vpn-connection").textContent = ready
-      ? "WIREGUARD CONNECTED · " + activeName
+      ? "WIREGUARD CONNECTED · " + activeName + " (temporary)"
       : blocked ? "VPN NOT CONNECTED · DOWNLOADS BLOCKED"
-        : "DIRECT CONNECTION · VPN OFF";
+        : "DIRECT CONNECTION · DEFAULT";
     $("vpn-connection").classList.toggle("vpn-disconnected", !ready);
     $("vpn-connection").title = blocked
       ? "The VPN kill switch prevents direct outbound downloads until a VPN profile successfully connects."
@@ -279,7 +279,8 @@
         "vpn-muted"));
     }
     $("vpn-test-button").disabled = busy || Boolean(data.test?.running) || profiles.length < 1;
-    $("vpn-next-button").disabled = busy || Boolean(data.test?.running) || profiles.length < 2;
+    $("vpn-next-button").disabled = busy || Boolean(data.test?.running) || profiles.length < 1;
+    $("vpn-direct-button").disabled = busy || Boolean(data.test?.running) || !data.kill_switch;
   }
 
   async function refresh() {
@@ -320,7 +321,9 @@
         headers: {"Content-Type": "application/json"}});
       let text = "Profile updated.";
       let error = false;
-      if (path === "/rotate" && data.changed_ip === false) {
+      if (path === "/direct") {
+        text = "VPN disconnected. Normal direct connection restored.";
+      } else if (path === "/rotate" && data.changed_ip === false) {
         text = "The VPN profile switched, but its public IP did not change.";
         error = true;
       } else if (path === "/rotate" || path.startsWith("/activate/")) {
@@ -408,7 +411,9 @@
   $("vpn-upload-input").addEventListener("change", checkTemplates);
   $("vpn-refresh").addEventListener("click", refresh);
   $("vpn-next-button").addEventListener("click", () =>
-    act("/rotate", "Changing to the next WireGuard country…"));
+    act("/rotate", "Temporarily connecting to an alternate VPN exit…"));
+  $("vpn-direct-button").addEventListener("click", () =>
+    act("/direct", "Disconnecting WireGuard and restoring direct access…"));
 
   $("vpn-upload").addEventListener("click", async () => {
     const input = $("vpn-upload-input");
@@ -437,11 +442,8 @@
     try {
       const response = await api("/profiles", {method: "POST", body});
       const count = (response.uploaded || []).length;
-      message(count + " WireGuard " + (count === 1 ? "profile" : "profiles") + " uploaded. " +
-        (response.warning ? "Connection test failed: " + response.warning
-          : response.connected ? "First location connected: " +
-            (response.connected.country || "Unknown") + " · " + response.connected.ip
-            : "Existing VPN connection retained."), Boolean(response.warning));
+      message(count + " WireGuard " + (count === 1 ? "profile" : "profiles") +
+        " uploaded. Normal direct connection remains the default.", false);
       input.value = "";
       keyInput.value = "";
       keySetup.hidden = true;
@@ -459,7 +461,7 @@
 
   $("vpn-test-button").addEventListener("click", async () => {
     if (busy) return;
-    if (!window.confirm("Temporarily switch through each VPN country to verify exit IPs? Downloads will be blocked during the test, and the original connection will be restored.")) return;
+    if (!window.confirm("Test every VPN country? Downloads are paused during testing. Normal direct networking will be restored afterwards.")) return;
     testStarting = true;
     setBusy(true);
     message("Beginning VPN rotation test…");
