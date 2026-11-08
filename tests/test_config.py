@@ -95,14 +95,14 @@ def test_no_yaml_initializes_empty_configuration_without_plex(tmp_path, monkeypa
 
     monkeypatch.setattr(api, "connect", no_plex)
     response = api.get_config()
-    assert response["text"] == "playlists: {}\\n"
+    assert response["text"] == "playlists: {}\n"
     assert response["playlists"] == []
     assert response["definitions"] == {}
     assert response["version"]["counts"]["total"] == 0
-    assert filename.read_text(encoding="utf-8") == "playlists: {}\\n"
+    assert filename.read_text(encoding="utf-8") == "playlists: {}\n"
 
     # Existing imported YAML is never replaced by initialization.
-    filename.write_text("playlists:\\n  Existing:\\n    items:\\n      - rating_key: 123\\n")
+    filename.write_text("playlists:\n  Existing:\n    items:\n      - rating_key: 123\n")
     saved = api.get_config()
     assert saved["playlists"] == ["Existing"]
     assert filename.read_text().count("rating_key: 123") == 1
@@ -113,7 +113,7 @@ def test_yaml_configuration_available_when_plex_connection_fails(tmp_path, monke
     import app.main as api
 
     filename = tmp_path / "playlists.yml"
-    filename.write_text("playlists:\\n  Jazz:\\n    items:\\n      - rating_key: 42\\n")
+    filename.write_text("playlists:\n  Jazz:\n    items:\n      - rating_key: 42\n")
     monkeypatch.setattr(store, "PLAYLISTS_FILE", filename)
     monkeypatch.setattr(store, "STATE_FILE", tmp_path / "playlist-state.yml")
     monkeypatch.setattr(api, "connect", lambda: (_ for _ in ()).throw(
