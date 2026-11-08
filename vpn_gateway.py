@@ -439,13 +439,25 @@ def _direct():
     global FIREWALL_ENABLED
     data = metadata()
     if not FIREWALL_ENABLED and not data.get("active"):
-        # In-memory FIREWALL_ENABLED resets when this process restarts, but a
-        # surviving wg0 interface or broken routing table does not. Never
-        # claim direct mode from a Python boolean alone.
+        # A restarted controller cannot trust its own in-memory flag: the
+        # network namespace can retain wg0, stale policy rules or OUTPUT
+        # DROP. Verify *both* IP families and our mangle rule before calling
+        # the connection direct. Otherwise repair it in the blocked path.
         interface = run("ip", "link", "show", "wg0", check=False)
         route = run("ip", "-4", "route", "get", "1.1.1.1", check=False)
+        ipv4 = run("iptables", "-S", "OUTPUT", check=False)
+        ipv6 = run("ip6tables", "-S", "OUTPUT", check=False)
+        mark_match = ("-p", "tcp", "--sport", str(WEB_PORT),
+                      "-j", "MARK", "--set-mark", str(WG_FWMARK))
+        marked = run("iptables", "-t", "mangle", "-C", "OUTPUT",
+                     *mark_match, check=False)
         if (interface.returncode != 0 and route.returncode == 0
-                and "wg0" not in str(getattr(route, "stdout", ""))):
+                and "wg0" not in str(getattr(route, "stdout", ""))
+                and ipv4.returncode == 0
+                and "-P OUTPUT ACCEPT" in str(getattr(ipv4, "stdout", "")).splitlines()
+                and ipv6.returncode == 0
+                and "-P OUTPUT ACCEPT" in str(getattr(ipv6, "stdout", "")).splitlines()
+                and marked.returncode != 0):
             return {"direct": True, "mode": "direct"}
     # No direct egress may escape during tunnel teardown.
     try:
