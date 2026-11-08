@@ -6,13 +6,13 @@ set -u
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 STACK="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MANAGER="$STACK/plex-playlist-manager"
-ENGINE="$STACK/yt-dlp-server"
+ENGINE="$MANAGER/yt-dlp-server"
 
 error() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
 
 [ -d "$MANAGER/.git" ] || error "Missing Playlist Manager checkout: $MANAGER"
-[ -d "$ENGINE/.git" ] || error "Missing yt-dlp checkout: $ENGINE"
+[ -f "$ENGINE/Dockerfile" ] || error "Missing imported yt-dlp subtree: $ENGINE"
 command -v python3 >/dev/null 2>&1 || error "Python 3 is required"
 command -v docker >/dev/null 2>&1 || error "Docker is required"
 docker compose version >/dev/null 2>&1 || error "Docker Compose plugin required"
@@ -49,11 +49,13 @@ PY
   fi
 fi
 
-step "Fast-forward both repositories"
-git -C "$ENGINE" pull --ff-only || error "yt-dlp git pull failed; no Compose changes made"
-git -C "$MANAGER" pull --ff-only || error "Manager git pull failed; no Compose changes made"
+step "Fast-forward the single monorepo checkout"
+git -C "$MANAGER" pull --ff-only ||
+    error "Monorepo git pull failed; no Compose changes made"
+[ -f "$ENGINE/Dockerfile" ] ||
+    error "Monorepo checkout is missing yt-dlp-server after pull"
 
-step "Validate proposed Compose changes"
+step "Validate proposed Compose build paths and VPN override"
 python3 "$MANAGER/deploy/merge_media_stack.py" --stack "$STACK" ||
     error "Dry run failed; containers were not changed"
 
@@ -113,3 +115,4 @@ fi
 
 printf '\nWorkspace: http://<media-server>:5051/downloads\n'
 printf 'Existing Plex playlists are not changed automatically.\n'
+printf 'Legacy ~/media-stack/yt-dlp-server Git checkout is no longer used; do not delete it until you verify the new deployment.\n'
