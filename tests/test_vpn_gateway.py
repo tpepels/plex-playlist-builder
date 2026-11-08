@@ -66,8 +66,11 @@ def test_rotation_loop_records_each_verified_country_and_restores(monkeypatch, t
                 "country": "Netherlands" if pid == "a" else "Germany",
                 "country_code": "NL" if pid == "a" else "DE"}
     monkeypatch.setattr(gateway, "_activate", fake_activate)
+    monkeypatch.setattr(gateway, "_direct", lambda: (
+        called.append("direct") or {"direct": True}
+    ))
     gateway.test_worker()
-    assert called == ["a", "b", "a"]
+    assert called == ["a", "b", "direct"]
     assert gateway.TASK["done"] and not gateway.TASK["running"]
     assert len(gateway.TASK["results"]) == 2
     assert all(item["ok"] for item in gateway.TASK["results"])
@@ -221,7 +224,9 @@ def test_five_template_uploads_need_only_one_shared_key(monkeypatch):
         with_key = upload(client, KEY_A)
         assert with_key.status_code == 200
         assert len(with_key.json["uploaded"]) == 5
-        assert len(calls) == 6  # 5 uploads + status check
+        assert len(calls) == 5  # Profile upload must never connect the VPN.
+        assert with_key.json["default_mode"] == "direct"
+        assert with_key.json["connected"] is None
         assert KEY_A not in with_key.get_data(as_text=True)
 
 

@@ -79,7 +79,7 @@ def test_gateway_403_rotation_enabled_by_default(monkeypatch, tmp_path):
     monkeypatch.setenv("VPN_GATEWAY_ENABLED", "1")
     monkeypatch.delenv("SURFSHARK_VPN_ENABLED", raising=False)
     token = tmp_path / "control-token"
-    token.write_text("test-control-token")
+    token.write_text("test-control-token-with-more-than-32-characters")
     monkeypatch.setenv("VPN_CONTROL_TOKEN_FILE", str(token))
 
     calls = []
@@ -117,3 +117,43 @@ def test_compose_managed_gateway_defaults_to_rotation_without_env_override():
         assert "SURFSHARK_ROTATE_ON_403: ${SURFSHARK_ROTATE_ON_403:-1}" in source
     assert 'os.getenv("SURFSHARK_ROTATE_ON_403", "1")' in Path(
         vpn.__file__).read_text()
+
+
+def test_managed_gateway_restores_direct_with_authenticated_control(monkeypatch, tmp_path):
+    import io
+    monkeypatch.setenv("VPN_GATEWAY_ENABLED", "1")
+    token = tmp_path / "control"
+    token.write_text("internal-gateway-token-longer-than-32-characters")
+    monkeypatch.setenv("VPN_CONTROL_TOKEN_FILE", str(token))
+    requests = []
+
+    class Reply:
+        def __enter__(self):
+            return io.BytesIO(b'{"ok":true,"direct":true,"mode":"direct"}')
+        def __exit__(self, *_):
+            return False
+
+    def fake_urlopen(request, timeout):
+        requests.append((request.full_url, request.get_method(), timeout))
+        return Reply()
+
+    monkeypatch.setattr(vpn, "urlopen", fake_urlopen)
+    assert vpn.direct_if_enabled() == {"direct": True}
+    assert requests == [("http://127.0.0.1:8787/direct", "POST", 30)]
+
+
+def test_direct_restoration_failure_is_reported(monkeypatch, tmp_path):
+    monkeypatch.setenv("VPN_GATEWAY_ENABLED", "1")
+    token = tmp_path / "control"
+    token.write_text("internal-gateway-token-longer-than-32-characters")
+    monkeypatch.setenv("VPN_CONTROL_TOKEN_FILE", str(token))
+    monkeypatch.setattr(vpn, "urlopen",
+                        lambda *a, **kw: (_ for _ in ()).throw(OSError("offline")))
+    result = vpn.direct_if_enabled()
+    assert result["direct"] is False
+    assert "Could not restore" in result["error"]
+
+
+def test_no_managed_gateway_does_not_force_network_switch(monkeypatch):
+    monkeypatch.delenv("VPN_GATEWAY_ENABLED", raising=False)
+    assert vpn.direct_if_enabled() is None
