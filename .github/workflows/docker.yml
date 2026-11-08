@@ -376,7 +376,7 @@ jobs:
       - name: Verify playlist UI defaults and stable progress UI
         run: |
           grep -q 'id="playlist-input" type="checkbox" name="playlist" checked' templates/index.html
-          grep -q 'action="/download"' templates/index.html
+          grep -q "url_for('download')" templates/index.html
           grep -q '"/api/probe"' app.py
           grep -q 'openLogs' templates/index.html
           grep -q 'tracks saved' templates/index.html
