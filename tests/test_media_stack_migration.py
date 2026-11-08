@@ -19,11 +19,11 @@ ORIGINAL = """services:
     build:
       context: ./yt-dlp-server
     container_name: yt-dlp-server
-    user: "\${UID}:\${GID}"
+    user: "${UID}:${GID}"
     ports:
       - "4545:4545"
     environment:
-      TZ: \${TZ}
+      TZ: ${TZ}
       PORT: 4545
       MUSIC_ROOT: /data/music
       STATE_DIR: /data/state
@@ -41,7 +41,7 @@ ORIGINAL = """services:
     ports:
       - "5051:8000"
     environment:
-      TZ: \${TZ}
+      TZ: ${TZ}
       PLEX_URL: https://host.docker.internal:32400
       PLEX_LIBRARY: Music
       PLAYLISTS_FILE: /data/playlists.yml
@@ -90,7 +90,7 @@ def test_migration_is_idempotent_and_valid_yaml():
         "unrelated-finance",
     }
     assert data["yt-dlp-server"]["user"] == "0:0"
-    assert data["yt-dlp-server"]["ports"] if False else True
+    assert "ports" not in data["yt-dlp-server"]
     assert "NET_ADMIN" in data["yt-dlp-server"]["cap_add"]
     assert data["plex-playlist-manager"]["environment"]["YTDLP_SERVER_URL"] == (
         "http://yt-dlp-server:4545"
@@ -155,8 +155,8 @@ def test_bad_compose_does_not_modify_original_or_create_backup(tmp_path, monkeyp
 
 def test_legacy_gateway_networking_is_rejected_not_silently_bypassed():
     source = ORIGINAL.replace(
-        '    user: "\${UID}:\${GID}"',
-        '    user: "\${UID}:\${GID}"\n    network_mode: "service:wireguard-gateway"',
+        '    user: "${UID}:${GID}"',
+        '    user: "${UID}:${GID}"\n    network_mode: "service:wireguard-gateway"',
     )
     with pytest.raises(migration.MigrationError, match="network_mode"):
         migration.transform(source)
