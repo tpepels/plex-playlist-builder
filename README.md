@@ -179,28 +179,40 @@ failed after a successful handshake and DNS).
 
 The test checks for a real WireGuard handshake before looking up the
 public exit IP, and can fall back to a second HTTPS geolocation service.
-If all profiles fail, the dashboard shows **VPN NOT CONNECTED · DOWNLOADS
-BLOCKED** whenever the outbound kill switch is engaged. Do not interpret
-an absent active profile as proof that normal downloads work.
+If VPN setup fails, the dashboard shows **VPN NOT CONNECTED · DOWNLOADS
+BLOCKED** while its kill switch is engaged. Direct mode is reported
+separately; an absent active profile alone is not proof of direct access.
 
-Before the first profile is uploaded, downloads still use the usual
-**direct connection**. Once a VPN profile is selected, the gateway
-installs an outbound-deny kill switch; if VPN connection or verification
-fails, downloads remain blocked rather than silently reverting to direct
-Internet access. Network access may therefore be interrupted while
-changing profiles. The dashboard rejects manual switches when downloads
-are active or queued. A VPN may not solve YouTube 403/PO-token problems.
+**All downloads start on the normal direct Docker/ISP connection, even when
+Surfshark profiles are already uploaded.** The gateway returns to direct
+mode after container restarts; it does not reconnect an old profile.
+Uploading profiles only prepares standby recovery endpoints.
+Your regular public IP is visible to YouTube on each first attempt.
 
-Automatic endpoint switching on YouTube bot challenges and repeated HTTP
-403 errors is **enabled by default** when Surfshark WireGuard is configured.
-A `Sign in to confirm you're not a bot` error triggers an immediate endpoint
-change after yt-dlp exits, before the next attempt. For an ordinary media
-HTTP 403, the endpoint switch remains a final-retry fallback. The gateway
-tries the other uploaded profiles in order and accepts a switch only after
-verifying a **different public IP**; it skips dead tunnels and same-IP exits.
-If no different IP is available after a bot challenge, it stops retrying,
-reports the failure and preserves downloaded tracks. It never falls back
-to direct Internet access when the VPN kill switch is active.
+Temporary VPN fallback is enabled by default. An explicit
+`Sign in to confirm you're not a bot` error triggers a VPN connection only
+after the initial yt-dlp process exits. A repeated HTTP 403 triggers VPN
+only on the final permitted retry, because HTTP 403 can also indicate a
+media stream or PO-token problem. The gateway checks the new public exit IP
+and skips failed tunnels or exits that retain the previous public IP.
+Up to two additional processes are attempted by default.
+
+**After every download job, WireGuard disconnects and the downloader
+returns to its regular direct connection before the next job starts.**
+This applies to successful downloads, failed retries, and subprocess errors.
+If the direct route cannot be restored, the kill switch remains engaged
+and the job reports the network failure. Existing staged files are retained.
+
+The dashboard shows **DIRECT CONNECTION · DEFAULT** when idle.
+**Connect** and **Try VPN endpoint** are explicit manual overrides;
+**Disconnect VPN** switches back immediately. Starting a new download
+always restores direct mode first. **Test all countries once** temporarily
+connects to each profile and then returns to direct mode.
+
+The kill switch protects traffic while WireGuard is active or changing.
+Direct mode intentionally exposes the regular public IP. YouTube may
+challenge a login session when it suddenly appears from a different
+VPN location; a VPN is not guaranteed to improve access.
 
 To disable automatic VPN rotation for both failure types, set
 `SURFSHARK_ROTATE_ON_403=0` in
@@ -410,14 +422,14 @@ and recovers automatically when YouTube rejects a media stream:
 3. If the second attempt also fails with a 403, wait 90 seconds and make a
    final attempt with yt-dlp's maintained `default` player-client selection.
    This avoids assuming the older `web_safari` HLS path is available.
-4. For an explicit YouTube bot challenge, rotate the VPN endpoint before
-   the first retry (and again if the next attempt is also blocked). If no
-   different public exit IP can be verified, stop rather than repeatedly
-   requesting the same video from the blocked IP.
-5. Record separate HTTP 403 and bot-challenge restart counts and successful
-   VPN rotations; show the recovering state during backoff. Keep staged files
-   untouched if all attempts fail. A manual retry remains possible.
-
+4. Start each job on the direct connection. For a bot challenge, connect
+   to a verified Surfshark exit before the first retry. If another bot
+   challenge occurs, switch to a different VPN exit where available.
+5. A repeated HTTP 403 can use the VPN only for the final permitted
+   attempt. Nonrecoverable errors and Spotify jobs do not activate it.
+6. Disconnect WireGuard and restore the direct connection before
+   publication or the next job. On failed restoration, stop and retain
+   staged files. Record bot/403 restarts and successful VPN switches.
 These retries are bounded. They do not run for Spotify, non-YouTube sources,
 failures other than HTTP 403 or explicit bot verification, or forced/overwriting
 jobs. The normal standalone `docker exec yt-dlp-server yt-dlp ...` command does
@@ -434,7 +446,10 @@ with many tracks are expected to run slower than before.
 | `YOUTUBE_TRACK_PAUSE_MAX` | `10` | Maximum per-track delay (0-45 seconds) |
 | `YOUTUBE_REQUEST_PAUSE` | `1` | Delay between extraction requests (0-10 seconds) |
 
-**Limitations:** A PO-token provider directory existing does not establish
+**Limitations:** Switching authenticated YouTube cookies between your regular
+IP and a Surfshark exit may itself trigger a new bot challenge. Verify
+cookies through the web interface if necessary. A PO-token provider
+directory existing does not establish
 that a valid token was generated or accepted. The revised error message
 states this explicitly. Run yt-dlp with `-v` for a single failing item to
 verify both the detected provider and a line indicating actual token
