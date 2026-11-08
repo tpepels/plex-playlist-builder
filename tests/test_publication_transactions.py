@@ -241,3 +241,82 @@ def test_existing_album_tree_symlink_is_not_followed(tmp_path, monkeypatch):
         staging.publish_stage(temp, music, job)
     assert (external / "important.opus").read_bytes() == b"external-untouched"
     assert len(staging.media_files(stage)) == 1
+
+
+
+def test_publication_persists_success_before_discarding_staging(tmp_path, monkeypatch):
+    temp, staging_job, stage = yt_fixture(tmp_path, monkeypatch, n=1)
+    job = {
+        **staging_job, "url": "https://www.youtube.com/watch?v=videoid000",
+        "status": "succeeded", "album_mode": False,
+        "metadata_artist": "Artist", "metadata_album": "Album",
+        "completed_items": 1, "total_items": 1, "returncode": 0,
+        "files": [], "log": [], "failed_items": 0,
+    }
+    monkeypatch.setattr(server, "TEMP_DIR", temp)
+    monkeypatch.setattr(server, "IMPORT_ROOT", tmp_path / "music")
+    observed = []
+    def persist():
+        observed.append(("persist", job["status"],
+                         bool(job.get("publication_pending")), stage.exists()))
+        return True
+    monkeypatch.setattr(server, "persist_jobs_locked", persist)
+    original_discard = staging.discard_stage
+    def discard(temp_root, snapshot):
+        assert any(event[0] == "persist" and event[1] == "succeeded"
+                   and event[2] is False for event in observed)
+        assert stage.exists()
+        observed.append(("discard",))
+        return original_discard(temp_root, snapshot)
+    monkeypatch.setattr(staging, "discard_stage", discard)
+    monkeypatch.setattr(server, "schedule_library_change_nudge", lambda: None)
+    with server.jobs_lock:
+        existing = dict(server.jobs)
+        server.jobs.clear()
+        server.jobs[job["id"]] = job
+    try:
+        result = server.finalize_staged_job(job["id"])
+        assert result["status"] == "published"
+        assert job["status"] == "succeeded"
+        assert job["publication_pending"] is False
+        assert not stage.exists()
+        assert observed[-1] == ("discard",)
+    finally:
+        with server.jobs_lock:
+            server.jobs.clear()
+            server.jobs.update(existing)
+
+
+def test_publication_state_write_failure_keeps_stage_for_crash_replay(tmp_path, monkeypatch):
+    temp, staging_job, stage = yt_fixture(tmp_path, monkeypatch, n=1)
+    job = {
+        **staging_job, "url": "https://www.youtube.com/watch?v=videoid000",
+        "status": "succeeded", "album_mode": False,
+        "metadata_artist": "Artist", "metadata_album": "Album",
+        "completed_items": 1, "total_items": 1, "returncode": 0,
+        "files": [], "log": [], "failed_items": 0,
+    }
+    monkeypatch.setattr(server, "TEMP_DIR", temp)
+    monkeypatch.setattr(server, "IMPORT_ROOT", tmp_path / "music")
+    persist_count = 0
+    def fail_after_files_published():
+        nonlocal persist_count
+        persist_count += 1
+        if persist_count == 2:
+            raise OSError("state volume full after album commit")
+        return True
+    monkeypatch.setattr(server, "persist_jobs_locked", fail_after_files_published)
+    monkeypatch.setattr(server, "schedule_library_change_nudge", lambda: None)
+    with server.jobs_lock:
+        existing = dict(server.jobs)
+        server.jobs.clear()
+        server.jobs[job["id"]] = job
+    try:
+        with pytest.raises(OSError, match="state volume full"):
+            server.finalize_staged_job(job["id"])
+        assert (tmp_path / "music" / "Artist" / "Album").is_dir()
+        assert len(staging.media_files(stage)) == 1
+    finally:
+        with server.jobs_lock:
+            server.jobs.clear()
+            server.jobs.update(existing)
