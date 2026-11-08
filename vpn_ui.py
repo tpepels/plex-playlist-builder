@@ -82,7 +82,7 @@ def control_token():
 
 
 def gateway_call(path, payload=None):
-    if path not in {"/profiles", "/rotate", "/test"} and not (
+    if path not in {"/profiles", "/rotate", "/test", "/direct"} and not (
         path.startswith("/activate/") or path.startswith("/delete/")
     ):
         raise ValueError("Unsupported VPN gateway operation")
@@ -194,19 +194,10 @@ def register(app, jobs, jobs_lock):
                 return jsonify(error=item.get("error", "Upload failed"),
                                uploaded=results), status
             results.append({key: item[key] for key in ("id", "filename", "country")})
-        connected = None
-        warning = None
-        if results:
-            data, status = gateway_call("/profiles")
-            if status == 200 and not data.get("active"):
-                # Upload-and-go: connect the first profile automatically.
-                connected, connect_code = gateway_call(
-                    "/activate/" + results[0]["id"], {})
-                if connect_code != 200:
-                    warning = connected.get("error", "Could not verify VPN connection")
-                    connected = None
+        # Uploading profiles must never change the normal direct connection.
+        # They are held ready for explicit manual testing or failure recovery.
         return jsonify(ok=True, uploaded=results,
-                       connected=connected, warning=warning)
+                       connected=None, warning=None, default_mode="direct")
 
     @bp.post("/api/vpn/activate/<profile_id>")
     def activate(profile_id):
@@ -225,6 +216,12 @@ def register(app, jobs, jobs_lock):
         if not idle(jobs, jobs_lock):
             return jsonify(error="Wait until all downloads and retries are idle"), 409
         return gateway_call("/rotate", {})
+
+    @bp.post("/api/vpn/direct")
+    def direct():
+        if not idle(jobs, jobs_lock):
+            return jsonify(error="Wait for active downloads to finish"), 409
+        return gateway_call("/direct", {})
 
     @bp.post("/api/vpn/test")
     def test():
