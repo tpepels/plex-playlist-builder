@@ -170,6 +170,17 @@ input,textarea,select {accent-color:var(--workspace-accent)}
   margin-top:35px;color:var(--workspace-muted)!important;
   font-size:11px!important;letter-spacing:0!important;
 }
+.workspace-page-heading {margin:8px 0 15px}
+.workspace-page-label {
+  color:#8bd1c4;font:750 10px/1.5 ui-monospace,Consolas,monospace;
+  letter-spacing:.13em;
+}
+.workspace-page-heading h1 {
+  font-size:clamp(25px,2.8vw,33px)!important;
+  margin:5px 0 5px!important;
+  line-height:1.22;letter-spacing:-.04em;
+}
+.workspace-page-heading p {margin:0;color:var(--workspace-muted);font-size:13px}
 /* Page-local headings are content, never additional site navigation. */
 .workspace-heading {margin-top:10px}
 .workspace-view-tabs {display:none!important}
