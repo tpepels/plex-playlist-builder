@@ -18,6 +18,94 @@ A tiny local web service for defining Plex music playlists in YAML, previewing m
 - Exports recently added music directly as TSV: last X hours (new tracks only) or last N added albums (complete albums), with their Plex rating keys and addition timestamps.
 - Exports all current Plex audio playlists as importable YAML, preserving playlist order and exact Plex rating keys so the file can be uploaded in chat to avoid reusing tracks.
 
+## Unified downloads and Plex playlist workflow
+
+**Playlist Manager is the single browser entry point** on port **5051**.
+The yt-dlp downloader stays a separate, unprivileged media-processing
+application (with its internal root-owned WireGuard controller) on Docker's
+private network, rather than combining its processes and VPN permissions
+with playlist management.
+
+Open `http://media-server:5051/downloads` (substitute your LAN hostname).
+The Downloads page embeds the **complete current yt-dlp interface** over a
+same-origin proxy at `/downloads/engine/`, including:
+
+- Audio-only URL submission, album/playlist detection, queue progress, retry
+  all failed, per-job retries, discard, full download logs and historical jobs.
+- Missing Spotify/YouTube track resolution, metadata approval and safe
+  publishing of complete albums into `/srv/completed/music`.
+- YouTube `cookies.txt` upload, remove and online verification; the standby
+  Surfshark WireGuard profile manager and explicit VPN disconnect.
+- Browser Chrome-extension ZIP and its original download API. Set the
+  extension's server address to
+  `http://media-server:5051/downloads/engine`.
+
+Playlist Manager also displays a download health summary, lets you request
+a Plex Music scan and links to **New music**, **Download audit** and
+**Playlist Intelligence**. A background poller checks published downloader
+jobs every 30 seconds and requests a Plex Music scan after *new*
+successfully published releases. The first observation establishes a
+historical baseline rather than rescanning all old imports. The scan is
+requested, not claimed completed; Plex still indexes asynchronously.
+Successful scan requests are recorded idempotently in the mounted file
+`/data/downloader-bridge.json`, with a validated `.bak` and corrupt-state
+quarantine. If Plex is unavailable, the pending scan is persisted and retried.
+
+**Downloaded music is never automatically inserted into a playlist.**
+Review the new recordings in Plex and add them through Playlist Intelligence
+with the existing explicit approval and conflict checks. This maintains
+all current playlist identities, YAML rules and publication policies.
+
+### One-command migration for your existing media-stack
+
+The deployment uses the two already-present services
+`plex-playlist-manager` and `yt-dlp-server`. From the actual host:
+
+```bash
+cd ~/media-stack/plex-playlist-manager
+git pull --ff-only
+bash deploy/apply_media_stack.sh
+```
+
+The wrapper pulls both Git checkouts with fast-forward only, refuses an
+active/queued download, previews and validates a narrow update to the
+parent `docker-compose.yml`, retains an owner-readable private dated
+backup, builds both images while current services remain up, and recreates
+**only these two services**. The downloader's old external 4545 port is
+removed; the two services communicate via Docker DNS
+`http://yt-dlp-server:4545`. The existing 5051 binding remains. If the old
+standalone `yt-dlp-wireguard-gateway` container is present, the script
+removes that obsolete container only.
+
+The existing `docker-compose.override.yml` symlink to
+`yt-dlp-server/compose.parent-vpn.yaml` remains valid, and the script
+validates the **effective merged Compose configuration** including that
+override. Unrelated containers and services (Plex, Transmission, Pi-hole,
+Finance Dashboard, etc.) and the persisted music, jobs, staging, cookie,
+profile, playlist and AudioMuse mounts are left unchanged. The script never
+uses `docker compose down`, removes volumes or edits playlist YAML.
+
+Dry-run the Compose rewrite without changing files or containers:
+
+```bash
+python3 ~/media-stack/plex-playlist-manager/deploy/merge_media_stack.py \\
+  --stack ~/media-stack
+```
+
+If a migration validation or build fails, read the error; restore the
+`docker-compose.yml.pre-download-merge.<timestamp>.bak` file if needed.
+A failed container health check is reported rather than silently claiming
+success. After successful deployment visit `/downloads` on port 5051.
+Do not attempt migration while download jobs are active or queued.
+
+Security: Playlist Manager proxies only to the configured internal
+downloader origin, caps upload sizes and rejects cross-origin browser
+mutations. The Chrome extension has narrowly scoped CORS for
+`/health`, `/api/probe` and `/download`; extension origins cannot
+manage VPN profiles or cookies through that exception. Port 4545 should
+remain internal, because the native downloader does not have its own user
+authentication.
+
 ## Intelligent Playlist Generation (new playlists)
 
 Open **/playlist-generator** or choose **Create intelligent playlist** from the
@@ -212,6 +300,10 @@ must be performed only after the user approves the specific changes.
 
 ## Install into your existing media-stack
 
+**For an existing media-stack, use the one-command migration above instead
+of manually copying the service snippet.** The following older instructions
+are only relevant when setting up Playlist Manager from scratch.
+
 Assuming your compose file is in the directory that contains your other project directories:
 
 ```bash
@@ -251,7 +343,8 @@ http://media-server:5051
       PLEX_LIBRARY: Music
       PLAYLISTS_FILE: /data/playlists.yml
       YTDLP_SERVER_URL: http://yt-dlp-server:4545
-      YTDLP_PUBLIC_URL: http://media-server:4545
+      YTDLP_PUBLIC_URL: /downloads
+      DOWNLOAD_BRIDGE_SCAN_ENABLED: "1"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
