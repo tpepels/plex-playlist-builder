@@ -335,10 +335,24 @@ let stopRequested = false;
 let coverUploading = false;
 
 async function api(url, options={}) {
-  const r = await fetch(url, options);
-  const body = await r.json().catch(() => ({detail: `HTTP ${r.status}`}));
-  if (!r.ok) throw new Error(body.detail || body.error || JSON.stringify(body));
-  return body;
+  // The local YAML editor and Plex status must report errors independently.
+  // Do not allow a hung connection to leave either screen on "Connecting…".
+  const bounded = (url === "/api/config" || url === "/api/health")
+    && (options.method || "GET") === "GET"
+    && typeof AbortController !== "undefined" && typeof setTimeout === "function";
+  const controller = bounded ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 12000) : null;
+  try {
+    const r = await fetch(url, controller ? {...options, signal: controller.signal} : options);
+    const body = await r.json().catch(() => ({detail: `HTTP ${r.status}`}));
+    if (!r.ok) throw new Error(body.detail || body.error || JSON.stringify(body));
+    return body;
+  } catch (error) {
+    if (controller?.signal.aborted) throw new Error(`${url} timed out after 12 seconds`);
+    throw error;
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
 }
 function esc(value) {
   return String(value ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
@@ -356,7 +370,12 @@ function showNotice(message, error=false) {
 function clearNotice() { $("notice").hidden = true; }
 function renderVersion(v) {
   const last = v.last_import;
+  const empty = Number(v.counts?.total ?? 0) === 0;
   $("versionId").textContent = "ID " + v.id;
+  if (empty) {
+    $("versionName").textContent = "No saved playlists";
+    $("versionDetail").textContent = "Import a YAML collection or create a playlist. Other library tools remain available.";
+  } else {
   if (last?.matches_loaded) {
     $("versionName").textContent = last.filename;
     $("versionDetail").textContent = `Imported ${dateLabel(last.imported_at)}`;
@@ -366,6 +385,7 @@ function renderVersion(v) {
   } else {
     $("versionName").textContent = "Saved playlist definitions";
     $("versionDetail").textContent = `Saved ${dateLabel(v.file_modified_at)}`;
+  }
   }
   const counts = v.counts || {};
   $("versionMetrics").innerHTML = [
@@ -419,7 +439,7 @@ function renderCards(definitions, statuses={}) {
   cards.innerHTML = "";
   const entries = Object.entries(definitions || {});
   if (!entries.length) {
-    cards.innerHTML = '<div class="empty">No playlists defined.</div>';
+    cards.innerHTML = '<div class="empty"><strong>No playlist definitions yet.</strong> Use “Import & sync” above to load your existing YAML, or <a href="/playlist-generator">create a playlist</a>. Downloads, discovery, and library tools are still available.</div>';
     applyListFilters();
     updateActions();
     return;
@@ -1156,8 +1176,16 @@ if (typeof window !== "undefined") {
     if (viewButton) viewButton.onclick();
   }
 }
+// These are independent: a Plex outage cannot prevent local YAML editing.
 checkHealth();
-loadConfig().catch(e => { $("cards").innerHTML = `<div class="empty">Could not load playlists: ${esc(e.message)}</div>`; });
+loadConfig().catch(e => {
+  $("versionName").textContent = "Saved playlists unavailable";
+  $("versionDetail").textContent = "Check the saved YAML and /data volume. You can still use other workspace pages.";
+  $("versionMetrics").textContent = "";
+  $("cards").innerHTML = `<div class="empty" role="alert">Could not load playlists: ${esc(e.message)}</div>`;
+  $("saveState").textContent = "Playlist definitions could not be loaded.";
+  updateActions();
+});
 </script>
 <script src="/static/signal-console.js" defer></script>
 <script src="/static/site-navigation.js" defer></script>
