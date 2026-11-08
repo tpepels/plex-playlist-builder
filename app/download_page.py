@@ -18,7 +18,12 @@ _BODY_END = "</body>"
 
 # All commands and backend actions remain inside the native download form.
 # These are contextual actions, not a second page navigation menu.
-_ACTIONS = """<div class="download-native-actions">
+_ACTIONS = """<div class="workspace-page-heading">
+  <span class="workspace-page-label">MUSIC IMPORT</span>
+  <h1>Downloads</h1>
+  <p>Add a source or manage the queue, retries and completed imports.</p>
+</div>
+<div class="download-native-actions">
   <button id="scan-plex" type="button">Scan Plex for new music</button>
   <a href="/downloads/engine/chrome-extension.zip" download>Chrome extension</a>
 </div>
