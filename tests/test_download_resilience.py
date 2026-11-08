@@ -242,3 +242,85 @@ def test_bot_challenge_never_retries_unchanged_ip(isolated_job, monkeypatch):
     assert isolated_job["status"] == "failed"
     assert isolated_job.get("automatic_vpn_rotations", 0) == 0
     assert "could not be changed" in isolated_job["message"]
+
+
+def test_initial_download_direct_then_temporary_vpn_then_direct(isolated_job, monkeypatch):
+    policy = recovery_policy({"YOUTUBE_403_RESTARTS": "1",
+                              "YOUTUBE_403_BACKOFF_SECONDS": "5"})
+    monkeypatch.setattr(server, "recovery_policy", lambda: policy)
+    events = []
+    monkeypatch.setattr(server, "direct_if_enabled", lambda: (
+        events.append("direct") or {"direct": True}
+    ))
+    monkeypatch.setattr(server, "rotate_if_enabled", lambda: (
+        events.append("vpn") or
+        {"changed": True, "new_ip": "198.51.100.28", "country": "Sweden"}
+    ))
+    monkeypatch.setattr(server.time, "sleep", lambda seconds: events.append("delay"))
+    class Process:
+        def __init__(self):
+            events.append("spawn")
+            first = events.count("spawn") == 1
+            self.stdout = iter([
+                "ERROR: [youtube] IzsJqQ31gA4: Sign in to confirm you're not a bot.\n"
+            ] if first else [])
+            self.code = 1 if first else 0
+        def wait(self):
+            return self.code
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *a, **kw: Process())
+    server.run_job(isolated_job["id"])
+    assert events == ["direct", "spawn", "vpn", "delay",
+                      "spawn", "direct", "direct"]
+    assert isolated_job["status"] == "succeeded"
+    assert isolated_job["automatic_vpn_rotations"] == 1
+    assert any("direct connection restored" in entry for entry in isolated_job["log"])
+
+
+def test_unrelated_yt_dlp_error_never_activates_vpn(isolated_job, monkeypatch):
+    calls = []
+    monkeypatch.setattr(server, "direct_if_enabled", lambda: (
+        calls.append("direct") or {"direct": True}
+    ))
+    monkeypatch.setattr(server, "rotate_if_enabled",
+                        lambda: pytest.fail("VPN must stay disconnected"))
+    class Process:
+        stdout = iter(["ERROR: private video\n"])
+        def wait(self): return 1
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *a, **kw: Process())
+    server.run_job(isolated_job["id"])
+    assert isolated_job["status"] == "failed"
+    assert calls == ["direct", "direct", "direct"]
+
+
+def test_unexpected_subprocess_error_restores_direct(isolated_job, monkeypatch):
+    calls = []
+    monkeypatch.setattr(server, "direct_if_enabled", lambda: (
+        calls.append("direct") or {"direct": True}
+    ))
+    monkeypatch.setattr(server.subprocess, "Popen",
+                        lambda *a, **kw: (_ for _ in ()).throw(OSError("spawn failed")))
+    server.run_job(isolated_job["id"])
+    assert isolated_job["status"] == "failed"
+    assert calls == ["direct", "direct"]
+
+
+def test_failed_direct_precheck_disallows_download(isolated_job, monkeypatch):
+    monkeypatch.setattr(server, "direct_if_enabled",
+                        lambda: {"direct": False, "error": "blocked"})
+    monkeypatch.setattr(server.subprocess, "Popen",
+                        lambda *a, **kw: pytest.fail("No downloader must start"))
+    server.run_job(isolated_job["id"])
+    assert isolated_job["status"] == "failed"
+    assert "blocked" in isolated_job["message"].lower()
+
+
+def test_failed_vpn_teardown_does_not_publish_success(isolated_job, monkeypatch):
+    states = iter([{"direct": True}, {"direct": False}, {"direct": False}])
+    monkeypatch.setattr(server, "direct_if_enabled", lambda: next(states))
+    class Process:
+        stdout = iter([])
+        def wait(self): return 0
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *a, **kw: Process())
+    server.run_job(isolated_job["id"])
+    assert isolated_job["status"] == "failed"
+    assert "gateway" in isolated_job["message"].lower()
