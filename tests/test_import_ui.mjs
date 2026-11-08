@@ -462,19 +462,17 @@ test("cover ZIP picker rejects nonzip files before sending requests", async () =
 });
 
 
-test("playlist workspace uses the same shared menu as other pages", () => {
-  assert.match(html, /id="siteNavigationToggle"/);
+test("playlist workspace uses one shared header and no duplicate tab bar", () => {
   assert.match(html, /include "_site_navigation.html"/);
   assert.match(nav, /id="siteNavigationPanel"/);
-  assert.match(html, /site-navigation\.js/);
-  assert.match(html, /data-view="playlists"/);
+  assert.match(nav, /id="siteNavigationToggle"/);
+  assert.match(html, /site-navigation\\.js/);
+  assert.doesNotMatch(html, /class="view-tabs workspace-view-tabs"/);
   assert.doesNotMatch(html, /id="navigationPanel"/);
 });
 
-test("all six sections navigate without losing lazy-loading, selecting one section only", async () => {
-  const h = makeHarness();
-  await new Promise(resolve => setImmediate(resolve));
-  const pairs=[
+test("all six library sections are selectable by one navigation URL", async () => {
+  const pairs = [
     ["playlists","Playlists","viewPlaylists"],
     ["health","Playlist health","viewHealth"],
     ["duplicates","Duplicate albums","viewDuplicates"],
@@ -482,16 +480,19 @@ test("all six sections navigate without losing lazy-loading, selecting one secti
     ["isc","Music discovery","viewIsc"],
     ["discover","Find album","viewDiscover"]
   ];
-  for(const [key,title,active] of pairs){
-    const tab=h.tabs.find(t=>t.dataset.view===key);
-    await tab.onclick();
+  for (const [key,title,active] of pairs) {
+    const route=key==="playlists"?"":("?view="+key);
+    const h=makeHarness({initialUrl:"http://media-server:5051/playlists"+route});
+    await new Promise(resolve=>setImmediate(resolve));
     assert.equal(h.$("activeSectionTitle").textContent,title);
-    assert.equal(tab["aria-current"],"page");
-    for(const [, ,other] of pairs) assert.equal(h.$(other).hidden,other!==active);
+    for (const [, ,other] of pairs) assert.equal(h.$(other).hidden,other!==active);
+    if (key==="health"||key==="newmusic")
+      assert.ok(h.calls.some(x=>x.startsWith("/api/insights?")));
+    if (key==="duplicates")
+      assert.ok(h.calls.some(x=>x.startsWith("/api/duplicates?")));
+    if (key==="isc")
+      assert.ok(h.calls.some(x=>x.startsWith("/api/discover/isc?")));
   }
-  assert.ok(h.calls.some(x=>x.startsWith("/api/insights?")));
-  assert.ok(h.calls.some(x=>x.startsWith("/api/duplicates?")));
-  assert.ok(h.calls.some(x=>x.startsWith("/api/discover/isc?")));
 });
 
 test("imports and global export links remain accessible", async () => {
@@ -508,18 +509,13 @@ test("imports and global export links remain accessible", async () => {
   assert.equal(h.calls.some(x=>/import-config|sync-pending/.test(x)),false);
 });
 
-test("cross-page deep links activate the requested dashboard view", async () => {
-  for(const [view,id] of [["health","viewHealth"],["duplicates","viewDuplicates"],
-                          ["newmusic","viewNewmusic"],["isc","viewIsc"],["discover","viewDiscover"]]){
+test("cross-page deep links activate their section without a second navigation", async () => {
+  for (const [view,id] of [["health","viewHealth"],["duplicates","viewDuplicates"],
+                           ["newmusic","viewNewmusic"],["isc","viewIsc"],["discover","viewDiscover"]]) {
     const h=makeHarness({initialUrl:"http://media-server:5051/?view="+view});
     await new Promise(resolve=>setImmediate(resolve));
     assert.equal(h.$(id).hidden,false);
     assert.equal(h.$("viewPlaylists").hidden,true);
-    assert.equal(h.tabs.find(t=>t.dataset.view===view)["aria-current"],"page");
-    await h.tabs.find(t=>t.dataset.view==="playlists").onclick();
-    assert.equal(h.$("viewPlaylists").hidden,false);
-    assert.equal(h.windowObj.location.search,"");
-    assert.equal(h.windowObj.location.pathname,"/playlists");
   }
 });
 test("unknown deep-link views do not activate nonexisting sections", async () => {
