@@ -110,7 +110,7 @@ step "Check the updated services"
 docker compose ps yt-dlp-server plex-playlist-manager ||
     error "Could not list service status"
 
-step "Check the download workspace through port 5051"
+step "Verify the home, playlists and downloads interfaces on port 5051"
 python3 - <<'PY'
 import json
 import sys
@@ -118,27 +118,40 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
-for i in range(15):
+base = "http://127.0.0.1:5051"
+checks = (
+    ("/", b'id="siteNavigationPanel"'),
+    ("/playlists", b'id="viewPlaylists"'),
+    ("/downloads", b'id="download-engine"'),
+)
+for attempt in range(15):
     try:
-        with urlopen("http://127.0.0.1:5051/api/downloads/bridge/status",
-                     timeout=5) as response:
-            result = json.load(response)
-        if result.get("ok"):
-            print("Connected: http://<media-server>:5051/downloads")
-            sys.exit(0)
-        print("Bridge unavailable: " + str(result.get("error", "unknown")))
-    except (OSError, ValueError, HTTPError, URLError):
-        if i == 14:
-            print("Check: docker compose logs --tail=100 yt-dlp-server plex-playlist-manager")
+        for path, marker in checks:
+            with urlopen(base + path, timeout=5) as response:
+                page = response.read(1_500_000)
+            if marker not in page:
+                raise ValueError("Expected UI component missing from " + path)
+        with urlopen(base + "/api/downloads/bridge/status", timeout=5) as response:
+            state = json.load(response)
+        if not state.get("ok"):
+            raise ValueError("Download engine is not reachable through Playlist Manager")
+        print("Home, Playlists, Downloads and internal downloader bridge: OK")
+        sys.exit(0)
+    except (OSError, ValueError, HTTPError, URLError) as exc:
+        if attempt == 14:
+            print("Verification failed: " + str(exc), file=sys.stderr)
+            print("Inspect: docker compose logs --tail=100 yt-dlp-server plex-playlist-manager",
+                  file=sys.stderr)
             break
     time.sleep(2)
-print("Bridge health check failed; inspect both container logs.", file=sys.stderr)
 sys.exit(1)
 PY
 if [ "$?" -ne 0 ]; then
-  error "Deployment did not pass the manager-to-downloader health check. Preserve the Compose backup."
+  error "Deployment did not pass the home/playlist/download verification. Preserve the Compose backup."
 fi
 
-printf '\nWorkspace: http://<media-server>:5051/downloads\n'
+printf '\nHome: http://<media-server>:5051/\n'
+printf 'Playlists: http://<media-server>:5051/playlists\n'
+printf 'Downloads: http://<media-server>:5051/downloads\n'
 printf 'Existing Plex playlists are not changed automatically.\n'
 printf 'Legacy ~/media-stack/yt-dlp-server Git checkout is no longer used; do not delete it until you verify the new deployment.\n'
