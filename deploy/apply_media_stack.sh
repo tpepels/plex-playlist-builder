@@ -157,11 +157,17 @@ for attempt in range(15):
                 raise ValueError("Expected UI component missing from " + path)
             if path == "/downloads" and b"<iframe" in page.lower():
                 raise ValueError("Downloads still contains a nested iframe")
+        with urlopen(base + "/api/config", timeout=8) as response:
+            config = json.load(response)
+        if not isinstance(config.get("definitions"), dict):
+            raise ValueError("Saved playlist configuration is not available")
+        if not isinstance(config.get("version", {}).get("counts", {}).get("total"), int):
+            raise ValueError("Playlist count is missing from configuration")
         with urlopen(base + "/api/downloads/bridge/status", timeout=5) as response:
             state = json.load(response)
         if not state.get("ok"):
             raise ValueError("Download engine is not reachable through Playlist Manager")
-        print("Home, Playlists, native Downloads and internal downloader bridge: OK")
+        print("Home, playlist configuration (including empty), native Downloads and downloader bridge: OK")
         sys.exit(0)
     except (OSError, ValueError, HTTPError, URLError) as exc:
         if attempt == 14:
