@@ -1,0 +1,1458 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>yt-dlp music server</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <meta name="downloader-base" content="{{ request.script_root }}">
+  <style>
+    :root { color-scheme: dark; --bg:#111315; --panel:#191c1f; --panel2:#22262a; --text:#f4f5f5; --muted:#9ca4aa; --line:#30363b; --good:#6fdc8c; --bad:#ff7b72; --wait:#d4b45f; }
+    * { box-sizing:border-box; }
+    html, body { max-width:100%; overflow-x:hidden; }
+    body { margin:0; font:15px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+    main { width:min(920px,calc(100% - 32px)); max-width:100%; margin:48px auto; }
+    .page-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:28px; }
+    .page-title { min-width:0; }
+    h1 { margin:0 0 6px; font-size:30px; letter-spacing:-.03em; }
+    .sub { color:var(--muted); margin:0; }
+    .extension-download { flex:0 0 auto; display:inline-flex; align-items:center; min-height:38px; padding:0 13px; border:1px solid #41474d; border-radius:9px; background:#252a2e; color:#e7eaec; font-size:12px; font-weight:650; text-decoration:none; }
+    .extension-download:hover { background:#30363b; }
+    .panel { min-width:0; max-width:100%; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:18px; }
+    form { display:grid; gap:14px; }
+    .url-row { display:grid; grid-template-columns:1fr auto; gap:10px; }
+    input[type=url] { width:100%; min-width:0; border:1px solid var(--line); border-radius:10px; background:#0e1012; color:var(--text); padding:13px 14px; font:inherit; outline:none; }
+    input[type=url]:focus { border-color:#6b737b; }
+    button { border:0; border-radius:10px; padding:0 18px; background:#e9ecef; color:#111315; font:650 14px system-ui,sans-serif; cursor:pointer; }
+    button:disabled { opacity:.55; cursor:wait; }
+    .checks { display:flex; flex-wrap:wrap; gap:18px; color:var(--muted); }
+    label { display:flex; gap:8px; align-items:center; }
+    .probe { min-height:20px; color:var(--muted); font-size:13px; }
+    .probe.good { color:var(--good); }
+    .probe.warn { color:var(--wait); }
+    .probe.hint { color:#9f9a86; }
+    .path { margin-top:16px; padding-top:14px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; word-break:break-all; }
+    .sources { margin-top:14px; display:grid; gap:8px; }
+    .sources-title { color:var(--text); font-size:13px; font-weight:650; }
+    .source-chips { display:flex; flex-wrap:wrap; gap:7px; min-width:0; }
+    .source-chip { max-width:100%; border:1px solid var(--line); border-radius:999px; padding:4px 9px; background:#141719; color:#c8cdd1; font-size:12px; white-space:nowrap; }
+    .sources-note { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+    .sources-note a { color:#b8c7e6; }
+    .error { background:#361b1d; color:#ffd2cf; border:1px solid #713238; border-radius:10px; padding:11px 13px; margin-bottom:14px; }
+    .section-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+    h2 { font-size:17px; margin:0 0 13px; }
+    .versions { color:var(--muted); font-size:12px; }
+    .compact-help { margin-top:12px; color:var(--muted); font-size:12px; }
+    .compact-help > summary { cursor:pointer; width:fit-content; }
+    .compact-help[open] > summary { margin-bottom:12px; }
+    .compact-help .sources { margin-top:12px; }
+    .version-details { margin-top:0; }
+
+    .jobs { display:grid; gap:10px; }
+    .job { min-width:0; max-width:100%; overflow:hidden; background:var(--panel2); border:1px solid var(--line); border-radius:11px; padding:13px 14px; }
+    .job.targeted { border-color:var(--good); box-shadow:0 0 0 2px #6fdc8c33; }
+    .job-notice { margin:0 0 12px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; color:var(--muted); }
+    .job-notice.warning { color:var(--bad); border-color:#713238; }
+    .job-overview { color:var(--muted); font-size:13px; padding:9px 0 14px; overflow-wrap:anywhere; }
+    .job-top { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:14px; align-items:start; }
+    .job-release { min-width:0; display:flex; gap:10px; align-items:center; }
+    .job-cover { width:54px; height:54px; border-radius:7px; object-fit:contain; background:#0e1012; border:1px solid var(--line); }
+    .job-identity { min-width:0; }
+    .job-title { display:block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#eef1f3; font-weight:650; text-decoration:none; }
+    .job-title:hover { text-decoration:underline; }
+    .job-artist { min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px; color:#b9c0c5; font-size:12px; }
+    .job-source-link { display:inline-block; margin-top:3px; color:#7f8990; font-size:11px; text-decoration:none; }
+    .job-source-link:hover { color:#aab4bb; text-decoration:underline; }
+    .status { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+    .status.succeeded { color:var(--good); } .status.partial { color:var(--wait); } .status.failed { color:var(--bad); } .status.queued { color:var(--wait); } .status.running, .status.finalizing { color:#8ab4f8; } .status.needs_metadata { color:var(--wait); }
+    .job-meta { min-width:0; max-width:100%; color:var(--muted); margin-top:7px; font-size:13px; overflow-wrap:anywhere; }
+    .job-explanation { margin-top:12px; padding:11px 13px; border-radius:9px; border:1px solid #3e4b55; background:#172027; }
+    .job-explanation.success { background:#16251c; border-color:#366448; }
+    .job-explanation.warning { background:#292417; border-color:#695b34; }
+    .job-explanation.error { background:#301d20; border-color:#7c383b; }
+    .job-explanation h3 { margin:0 0 4px; font-size:14px; }
+    .job-explanation p { margin:3px 0; font-size:13px; overflow-wrap:anywhere; }
+    .job-explanation .next-action { color:var(--muted); }
+    .dup-note { margin-top:9px; font-size:12px; color:#d8c791; }
+    .match-origin { margin-top:8px; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+    .last-activity { margin-top:5px; font-size:12px; color:var(--muted); }
+    .track-progress { min-width:0; max-width:100%; margin-top:10px; }
+    .track-progress-head { min-width:0; display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 12px; margin-bottom:5px; color:var(--muted); font-size:12px; }
+    .track-progress-head span { min-width:0; overflow-wrap:anywhere; }
+    .track-progress-bar { width:100%; max-width:100%; height:6px; overflow:hidden; border-radius:999px; background:#0e1012; }
+    .track-progress-fill { height:100%; width:0; background:#8ab4f8; transition:width .2s ease; }
+    .job-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .retry-button { min-height:34px; padding:7px 12px; background:#dfe5ea; font-size:12px; }
+    .remove-button { min-height:34px; padding:7px 12px; background:#25292d; color:#b9bec3; border:1px solid #3b4045; font-size:12px; }
+    .remove-button:hover { background:#30353a; }
+    .missing-tracks { display:grid; gap:9px; margin-top:11px; }
+    .missing-track { min-width:0; border:1px solid #4b3b2c; background:#1b1815; border-radius:9px; padding:10px; }
+    .missing-track-title { font-size:13px; font-weight:650; color:#f0d7b0; overflow-wrap:anywhere; }
+    .missing-track-url { margin-top:3px; color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
+    .resolver-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin-top:8px; }
+    .resolver-row input { width:100%; min-width:0; border:1px solid var(--line); border-radius:8px; background:#0e1012; color:var(--text); padding:9px 10px; font:12px/1.3 inherit; }
+    .resolver-row button { min-height:36px; padding:7px 11px; font-size:12px; }
+    .resolver-error { margin-top:6px; color:var(--bad); font-size:11px; overflow-wrap:anywhere; }
+    .ignore-button { min-height:34px; margin-top:8px; padding:7px 11px; background:#d9c7a5; font-size:12px; }
+    .metadata-review { margin-top:11px; padding:12px; border:1px solid #665c36; border-radius:10px; background:#1d1b14; }
+    .metadata-title { font-size:13px; font-weight:700; color:#f0dca0; }
+    .metadata-note { margin-top:3px; color:var(--muted); font-size:12px; }
+    .metadata-grid { display:grid; grid-template-columns:1fr 1fr auto; gap:8px; margin-top:9px; }
+    .metadata-grid input { width:100%; min-width:0; border:1px solid var(--line); border-radius:8px; background:#0e1012; color:var(--text); padding:9px 10px; font:12px/1.3 inherit; }
+    .metadata-grid button { min-height:36px; padding:7px 12px; font-size:12px; }
+    details { min-width:0; max-width:100%; margin-top:9px; color:var(--muted); } summary { cursor:pointer; }
+    pre { width:100%; min-width:0; max-width:100%; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; margin:8px 0 0; padding:10px; background:#0e1012; border-radius:8px; color:#b7bec4; font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; max-height:260px; overflow:auto; }
+    .history-divider { border-top:1px solid var(--line); margin:20px 0 13px; }
+    .history-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:15px 0 8px; }
+    .history-toolbar label { color:var(--muted); font-size:12px; }
+    .history-toolbar select, .history-toolbar input { border:1px solid #535c63; border-radius:8px; background:#121619; color:var(--text); padding:9px 11px; font:13px system-ui,sans-serif; }
+    .history-toolbar input { flex:1 1 200px; min-width:140px; }
+    .history-toolbar button { min-height:36px; padding:8px 12px; }
+    .history-list { display:grid; gap:6px; margin-top:12px; }
+    .history-group-title { font-size:14px; margin:15px 0 7px; color:#d5dbe0; }
+    .history-entry { display:grid; grid-template-columns:95px minmax(0,1fr) auto; align-items:start; gap:10px;
+      background:#20262b; border:1px solid #384149; border-radius:9px; padding:10px 12px; }
+    .history-entry.history-failed { border-left:3px solid var(--bad); }
+    .history-entry.targeted { border-color:var(--good); box-shadow:0 0 0 2px #6fdc8c33; }
+    .history-entry.history-partial { border-left:3px solid var(--wait); }
+    .history-state { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; }
+    .history-failed .history-state { color:var(--bad); } .history-partial .history-state { color:var(--wait); }
+    .history-succeeded .history-state { color:var(--good); }
+    .history-primary { min-width:0; overflow-wrap:anywhere; }
+    .history-release { color:#f1f3f5; font-weight:650; }
+    .history-reason { color:#c4cbd2; font-size:12px; margin-top:3px; overflow-wrap:anywhere; }
+    .history-date { color:var(--muted); font-size:11px; margin-top:3px; }
+    .history-links { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:8px; min-width:95px; }
+    .history-links a { font-size:12px; color:#b8d4ff; }
+    .history-links button { font-size:12px; min-height:30px; padding:5px 9px; }
+    .history-muted { color:var(--muted); font-size:12px; }
+    @media(max-width:620px) { .history-entry { grid-template-columns:75px minmax(0,1fr); }
+      .history-links { grid-column:2; justify-content:flex-start; }
+      .history-toolbar input { flex-basis:100%; } }
+    .empty { color:var(--muted); padding:8px 0; }
+    @media (max-width:620px) { main{width:calc(100% - 20px);margin-top:16px}.page-head{display:block;margin-bottom:20px}.extension-download{margin-top:12px}.panel{padding:14px}.url-row{grid-template-columns:minmax(0,1fr)}button{min-height:44px}.section-head{display:block}.versions{margin-bottom:10px}.track-progress-head{display:grid;grid-template-columns:1fr}.source-chip{white-space:normal}.resolver-row,.metadata-grid{grid-template-columns:minmax(0,1fr)}.job-cover{width:46px;height:46px}.job-top{gap:8px} }
+
+    /* WireGuard profile console: compact, intentionally lower than downloads. */
+    .vpn-panel { padding:0; overflow:hidden; border-color:#2d5248;
+      background:linear-gradient(145deg,#121c1c,#15191c 45%,#181c1e); }
+    .vpn-panel > summary { margin:0; padding:19px 21px; list-style:none;
+      display:flex; justify-content:space-between; align-items:center;
+      gap:12px; color:#e4fff3; font-size:15px; font-weight:730; cursor:pointer; }
+    .vpn-panel > summary::-webkit-details-marker { display:none; }
+    .vpn-panel > summary::before { content:"◈"; color:#75efb4; font-size:22px;
+      text-shadow:0 0 15px #55ffc074; animation:vpnPulse 3s ease-in-out infinite; }
+    .vpn-panel > summary span:first-child { margin-right:auto; }
+    .vpn-panel > summary .vpn-count { color:#94b9aa; font-size:12px; font-weight:450; }
+    .vpn-panel[open] > summary { border-bottom:1px solid #2d5248; }
+    .vpn-body { padding:18px 21px 21px; }
+    .vpn-intro { font-size:13px; color:#9cbaaf; margin:0 0 16px; }
+    .vpn-statusbar { display:flex; flex-wrap:wrap; gap:9px; align-items:center;
+      justify-content:space-between; margin-bottom:16px; }
+    .vpn-status-pill { border:1px solid #36644f; background:#13271e; padding:7px 12px;
+      color:#80e1ab; font:650 12px ui-monospace,monospace; border-radius:100px; }
+    .vpn-status-pill.vpn-disconnected { color:#eac48e; border-color:#695836; background:#29241b; }
+    .vpn-fields { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; }
+    .vpn-fields input, .vpn-auth input { min-width:0; width:100%; font:13px/1.4 system-ui,sans-serif;
+      color:#eefdf7; background:#0d1515; border:1px solid #395249; border-radius:9px;
+      padding:10px 12px; }
+    .vpn-fields input[type=file] { padding:9px; }
+    .vpn-auth { display:grid; grid-template-columns:1fr auto; align-items:end; gap:10px; margin:0 0 14px; }
+    .vpn-auth label { display:grid; gap:5px; color:#97b3a9; font-size:12px; }
+    .vpn-panel button { min-height:36px; padding:8px 13px; border:1px solid #79dcab; background:#93f5c1;
+      color:#0d2016; font-size:12px; }
+    .vpn-panel .vpn-secondary { background:#1d302b; color:#b9f4d6; border-color:#406958; }
+    .vpn-panel .vpn-danger { background:transparent; border-color:#544049; color:#d9a7ad; }
+    .vpn-actions { display:flex; flex-wrap:wrap; gap:9px; margin-top:12px; }
+    .vpn-key-setup { margin:13px 0 6px; padding:14px 16px; background:#142b27;
+      border:1px solid #497666; border-radius:11px; }
+    .vpn-key-setup[hidden] { display:none; }
+    .vpn-key-setup label { display:block; margin-bottom:8px; font-size:13px; color:#c5f6df; font-weight:650; }
+    .vpn-key-setup input { width:100%; min-width:0; padding:11px 12px; background:#091c19;
+      color:#eafff4; border:1px solid #557e6e; border-radius:9px; font:14px ui-monospace,monospace; }
+    .vpn-key-setup input:focus { outline:2px solid #6df0c1; outline-offset:2px; }
+    .vpn-key-setup p { margin:10px 0 0; color:#a4c9b9; font-size:12px; line-height:1.5; }
+    .vpn-key-setup a { color:#90ecd2; text-underline-offset:2px; }
+    .vpn-public-keys { display:grid; gap:8px; padding:12px 14px;
+      margin-top:16px; background:#102720; border:1px solid #3a6753; border-radius:10px; }
+    .vpn-public-keys:empty { display:none; }
+    .vpn-public-keys > strong { font-size:13px; color:#dcf8e9; }
+    .vpn-public-key-input { width:100%; min-width:0; max-width:600px;
+      padding:9px 10px; background:#071b15; color:#d6f8e6;
+      border:1px solid #436c5b; border-radius:7px;
+      font:12px/1.5 ui-monospace,monospace; }
+    .vpn-public-key-input:focus { outline:2px solid #91dab8; outline-offset:1px; }
+    .vpn-profile-key { flex-basis:100%; }
+    .vpn-profile-key > summary { color:#9edcb9; cursor:pointer; font-size:12px; margin:4px 0; }
+    .vpn-profile-key input { margin-top:6px; }
+    .vpn-key-warning { margin:0; color:#f4c388; font-size:12px; }
+    .vpn-profiles { display:grid; gap:8px; margin-top:17px; }
+    .vpn-profile { display:flex; flex-wrap:wrap; align-items:center; gap:12px; border:1px solid #304840;
+      border-radius:10px; background:#141f1d; padding:11px 13px; }
+    .vpn-profile-result { flex-basis:100%; width:100%; padding:9px 11px;
+      border-left:2px solid #87dcbc; background:#132a22; color:#b3f1d5;
+      border-radius:4px; font:12px/1.5 system-ui,sans-serif; }
+    .vpn-profile-result.vpn-error { border-color:#eb897f; background:#291e20;
+      color:#ffb2aa; }
+    .vpn-profile-diagnostics { flex-basis:100%; width:100%; min-width:0; }
+    .vpn-profile-diagnostics .vpn-diagnostics { margin-top:0; }
+    .vpn-panel button.vpn-connecting { border-color:#bdecd7; opacity:.85; }
+    .vpn-profile-description { min-width:120px; flex:1; display:grid; gap:1px; }
+    .vpn-profile-description strong { color:#e2f7ec; font-size:13px; }
+    .vpn-profile-description small { color:#8ca99b; font-size:12px; overflow-wrap:anywhere; }
+    .vpn-active-tag { font:650 10px ui-monospace,monospace; color:#81ecc0; }
+    .vpn-row-actions { display:flex; gap:7px; }
+    .vpn-muted { font-size:12px; color:#8ca99b; margin:0; }
+    .vpn-feedback, .vpn-test-progress { font-size:12px; color:#a6d9c4; margin-top:12px; overflow-wrap:anywhere; }
+    .vpn-error { color:#ff9389; }
+    .vpn-diagnostics { flex-basis:100%; width:100%; margin:8px 0 2px;
+      border:1px solid #46685c; border-radius:8px; padding:9px 11px;
+      background:#0c201b; }
+    .vpn-diagnostics summary { cursor:pointer; color:#9ee9c7; font:600 12px system-ui,sans-serif; }
+    .vpn-diagnostics p { margin:9px 0 5px; font:12px/1.55 system-ui,sans-serif; }
+    .vpn-public-key { display:block; width:100%; overflow-wrap:anywhere; padding:9px;
+      background:#091713; border-radius:6px; color:#c8f5e3; font:12px/1.5 ui-monospace,monospace; }
+    .vpn-test-row { flex-wrap:wrap; }
+    .vpn-test-results { display:grid; gap:5px; margin-top:7px; }
+    .vpn-test-row { display:flex; gap:12px; padding:8px 10px; border:1px solid #32463e;
+      border-radius:8px; background:#101c1a; font:12px ui-monospace,monospace; }
+    .vpn-pass { color:#82eab1; } .vpn-fail { color:#ff988c; }
+    .vpn-working > summary::before { animation-duration:.7s; }
+    @keyframes vpnPulse { 50% { opacity:.45; text-shadow:0 0 3px #75efb4; } }
+    @media (prefers-reduced-motion:reduce) { .vpn-panel > summary::before { animation:none; } }
+    @media(max-width:620px) { .vpn-auth,.vpn-fields { grid-template-columns:1fr; }
+      .vpn-panel > summary { padding:14px; } .vpn-body { padding:14px; } }
+  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='signal-console.css') }}">
+</head>
+<body>
+<main class="signal-shell">
+  <header class="page-head signal-header signal-transition">
+    <div class="signal-brand">
+      <img class="signal-mark" src="{{ url_for('static', filename='signal-mark.svg') }}" alt="" width="61" height="61" aria-hidden="true">
+      <div class="page-title">
+        <div class="signal-kicker">SIGNAL CONSOLE / AUDIO OPERATIONS</div>
+        <h1 class="signal-wordmark">DOWNLOAD <span>/ CONTROL</span></h1>
+        <p class="signal-tagline">Source → staging → verified album → Plex</p>
+      </div>
+    </div>
+    <div class="signal-tools">
+      <span class="signal-badge">MEDIA SYSTEM</span>
+      <button id="signal-theme-toggle" type="button" class="signal-theme-button" aria-pressed="true" title="Switch theme">CYBER: ON</button>
+      <a class="extension-download" href="{{ url_for('download_chrome_extension') }}" download>Chrome extension</a>
+    </div>
+  </header>
+  <section class="panel">
+    {% if state_fault %}
+    <div id="persistent-state-alert" class="error" role="alert">
+      <strong>Storage recovery required.</strong> {{ state_fault }}
+      Existing audio and history files have been preserved. New changes are disabled until storage is repaired and the container is restarted.
+    </div>
+    {% endif %}
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form id="download-form" action="{{ url_for('download') }}" method="post">
+      <div class="url-row">
+        <input id="url-input" type="url" name="url" placeholder="https://music.youtube.com/watch?v=..." required autofocus>
+        <button id="download-button" type="submit">Download</button>
+      </div>
+      <div id="probe-result" class="probe"></div>
+      <div class="checks">
+        <label><input id="playlist-input" type="checkbox" name="playlist" checked> Download playlist / album when present</label>
+        <details class="compact-help">
+          <summary>Advanced options</summary>
+          <label><input type="checkbox" name="force"> Ignore archive and overwrite existing file</label>
+        </details>
+      </div>
+    </form>
+    <details class="compact-help">
+      <summary>Supported sources, format and storage details</summary>
+      <div class="path">Audio only, with metadata and cover art when available. Staging: /data/tmp/staging. Completed albums only: {{ import_root }}/Artist/Album/Track</div>
+      <div class="sources">
+      <div class="sources-title">Supported sources</div>
+      <div class="source-chips" aria-label="Example supported sites">
+        <span class="source-chip">Spotify via spotDL</span>
+        <span class="source-chip">YouTube / YouTube Music</span>
+        <span class="source-chip">SoundCloud</span>
+        <span class="source-chip">Bandcamp</span>
+        <span class="source-chip">Mixcloud</span>
+        <span class="source-chip">Audiomack</span>
+        <span class="source-chip">Audius</span>
+        <span class="source-chip">Beatport</span>
+        <span class="source-chip">Apple Podcasts</span>
+        <span class="source-chip">Internet Archive</span>
+        <span class="source-chip">Vimeo</span>
+      </div>
+      <div class="sources-note">
+        Audio only is always downloaded. yt-dlp supports many more sites;
+        <a href="https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md" target="_blank" rel="noopener noreferrer">see the full current list</a>.
+        Spotify links use Spotify metadata while spotDL tries YouTube Music, YouTube, Bandcamp, then SoundCloud for audio. Missing tracks can be resolved manually with a direct YouTube, Bandcamp, or SoundCloud URL. Some sites may require cookies or may stop working temporarily when the site changes.
+      </div>
+      </div>
+    </details>
+  </section>
+  <details class="panel vpn-panel" id="youtube-cookie-panel">
+    <summary><span>YouTube cookies</span><span class="vpn-count" id="youtube-cookie-state">{{ "Configured" if youtube_cookies_ready else "Not configured" }}</span></summary>
+    <div class="vpn-body">
+      <p class="vpn-intro">If YouTube asks you to sign in or confirm that you are not a bot, export the cookies from youtube.com in Netscape/Mozilla cookies.txt format. Upload the file here; yt-dlp automatically uses it for subsequent downloads and retries.</p>
+      <div class="vpn-statusbar">
+        <span class="vpn-status-pill {{ '' if youtube_cookies_ready else 'vpn-disconnected' }}">{{ "YouTube cookies installed" if youtube_cookies_ready else "No YouTube cookies installed" }}</span>
+      </div>
+      {% if youtube_cookie_notice %}
+      <p class="vpn-feedback" role="status" aria-live="polite" id="youtube-cookie-feedback">
+        {% if youtube_cookie_notice == "saved" %}YouTube cookies saved. Future downloads and retries will use them automatically.
+        {% elif youtube_cookie_notice == "removed" %}Saved YouTube cookies removed.
+        {% elif youtube_cookie_notice == "busy" %}Wait until queued and running downloads finish before changing cookies.
+        {% elif youtube_cookie_notice == "size" %}The cookie file is empty or larger than 1 MB.
+        {% elif youtube_cookie_notice == "missing" %}Select a cookie file containing entries for youtube.com.
+        {% elif youtube_cookie_notice == "format" %}Invalid format. Export a Netscape/Mozilla cookies.txt file, not JSON.
+        {% else %}Cookie file could not be saved or removed. Check the state directory permissions.
+        {% endif %}
+      </p>
+      {% endif %}
+      <form id="youtube-cookie-upload-form" action="{{ url_for('upload_youtube_cookies') }}" method="post" enctype="multipart/form-data" class="vpn-fields">
+        <input type="hidden" name="_cookie_token" value="{{ youtube_cookie_token }}">
+        <label for="youtube-cookie-file">Exported cookies.txt file</label>
+        <input type="file" id="youtube-cookie-file" name="cookies" accept=".txt,text/plain" required>
+        <button type="submit" id="youtube-cookie-upload-button">Upload cookies</button>
+      </form>
+      {% if youtube_cookies_ready %}
+      <div class="vpn-actions">
+        <button id="youtube-cookie-verify-button" type="button" class="vpn-secondary">Verify cookies</button>
+        <span id="youtube-cookie-verify-result" class="vpn-feedback" role="status" aria-live="polite"></span>
+      </div>
+      <form action="{{ url_for('remove_youtube_cookies') }}" method="post" class="vpn-actions">
+        <input type="hidden" name="_cookie_token" value="{{ youtube_cookie_token }}">
+        <button type="submit" id="youtube-cookie-remove-button" class="vpn-secondary">Remove saved cookies</button>
+      </form>
+      {% endif %}
+      <p class="vpn-muted">Only YouTube cookies are retained. Other sites' cookies are discarded. The file is kept in your existing persistent downloader state volume with owner-only permissions. Cookies can expire or be rejected by YouTube.</p>
+    </div>
+  </details>
+  <details class="panel vpn-panel" id="vpn-panel">
+    <summary><span>Surfshark VPN</span><span class="vpn-count" id="vpn-count">Checking…</span></summary>
+    <div class="vpn-body">
+      <p class="vpn-intro">Downloads use your normal direct connection by default. Upload Surfshark WireGuard .conf files as standby recovery endpoints. They connect automatically only after persistent YouTube bot challenges or HTTP 403 errors. Test all countries to verify them; testing returns to direct mode.</p>
+      <div class="vpn-statusbar">
+        <span id="vpn-connection" class="vpn-status-pill vpn-disconnected">Checking VPN…</span>
+        <button id="vpn-refresh" type="button" class="vpn-secondary">Refresh status</button>
+      </div>
+      <div class="vpn-fields">
+        <input id="vpn-upload-input" type="file" accept=".conf" multiple aria-label="Select Surfshark WireGuard configuration files">
+        <button id="vpn-upload" type="button">Upload .conf files</button>
+      </div>
+      <div id="vpn-key-setup" class="vpn-key-setup" hidden>
+        <label for="vpn-private-key">Surfshark WireGuard private key (one key for all selected templates)</label>
+        <input id="vpn-private-key" type="password" autocomplete="off" autocapitalize="off"
+               spellcheck="false" placeholder="Paste your registered WireGuard private key here">
+        <p>Your .conf files contain <code>&lt;insert_your_private_key_here&gt;</code> instead of a key.
+          In your <a href="https://my.surfshark.com/" target="_blank" rel="noopener noreferrer">Surfshark account</a>,
+          open VPN → Manual setup → WireGuard and generate a key pair if necessary.
+          Enter the <strong>private</strong> key here once; it is applied to these files only.
+          Never send it in chat. The browser does not save this field.</p>
+      </div>
+      <div id="vpn-feedback" class="vpn-feedback" role="status" aria-live="polite">Select your .conf files. If they are templates without a client key, an additional field will appear.</div>
+      <div id="vpn-public-keys" class="vpn-public-keys" aria-label="Surfshark client public keys"></div>
+      <div id="vpn-profiles" class="vpn-profiles"></div>
+      <div class="vpn-actions">
+        <button id="vpn-next-button" class="vpn-secondary" type="button" disabled>Try VPN endpoint</button>
+        <button id="vpn-direct-button" class="vpn-secondary" type="button">Disconnect VPN</button>
+        <button id="vpn-test-button" type="button" disabled>Test all countries once</button>
+      </div>
+      <div id="vpn-test-progress" class="vpn-test-progress" role="status" aria-live="polite"></div>
+      <div id="vpn-test-results" class="vpn-test-results"></div>
+    </div>
+  </details>
+  <section class="panel">
+    <div class="section-head">
+      <h2>Downloads</h2>
+      <details class="compact-help version-details">
+        <summary>Downloader versions</summary>
+        <div class="versions">Server build {{ versions.server }} · spotDL {{ versions.spotdl }} · yt-dlp {{ versions.yt_dlp }} · {{ versions.deno.splitlines()[0] }} · PO bgutil {{ versions.bgutil }}</div>
+      </details>
+    </div>
+    <div id="job-overview" class="job-overview" role="status" aria-live="polite"></div>
+    <div id="job-notice" class="job-notice" hidden role="status" aria-live="polite"></div>
+    <h3 class="history-group-title">In progress / requires action</h3>
+    <div id="jobs" class="jobs"></div>
+    <div class="history-divider"></div>
+    <div class="section-head">
+      <h3 class="history-group-title">Finished and failed downloads</h3>
+      <span id="history-summary" class="versions" role="status" aria-live="polite">Loading history…</span>
+    </div>
+    <div class="history-toolbar">
+      <label for="history-filter">Show</label>
+      <select id="history-filter" aria-label="Filter past downloads">
+        <option value="all" selected>All results</option>
+        <option value="failed">Failed and partial</option>
+        <option value="published">Published albums</option>
+      </select>
+      <input id="history-query" type="search" placeholder="Filter by album, artist or error (optional)"
+        aria-label="Filter finished and failed downloads">
+      <button id="history-search" type="button">Refresh</button>
+      <button id="retry-all-failed" type="button" title="Queue one retry per distinct failed album, preserving staged tracks">Retry all failed</button>
+    </div>
+    <p id="history-status" class="job-meta" role="status" aria-live="polite">Loading results…</p>
+    <div id="history-results" class="history-list" aria-live="polite"></div>
+  </section>
+  <footer class="signal-footer">SIGNAL CONSOLE / DOWNLOADER · AUDIO IMPORT CONTROL</footer>
+</main>
+<script>
+  const initialJobs = {{ jobs | tojson }};
+  const downloaderPath = (path) => (document.querySelector?.('meta[name="downloader-base"]')?.content || "") + path;
+  const downloaderFetch = (path, options) => fetch(downloaderPath(path), options);
+  const ACTIVE_STATES = new Set(["queued", "running", "finalizing", "needs_metadata"]);
+  let focusedDetailIds = new Set();
+  let activeVisibleIds = new Set();
+  let previousActiveIds = new Set(initialJobs.filter(job => ACTIVE_STATES.has(job.status))
+    .map(job => job.id));
+  const form = document.getElementById("download-form");
+  const urlInput = document.getElementById("url-input");
+  const downloadButton = document.getElementById("download-button");
+  const playlistInput = document.getElementById("playlist-input");
+  const probeResult = document.getElementById("probe-result");
+
+  const focusParams = new URLSearchParams(window.location.search);
+  let focusedJobId = focusParams.get("job");
+  let requestedResult = focusParams.get("result");
+  // Deep links are one-shot focus requests, not persistent application state.
+  if (focusedJobId) window.history?.replaceState?.(null, "", window.location.pathname || "/");
+  let actionNotice = "";
+  function dismissFocus() {
+    focusedJobId = null;
+    requestedResult = null;
+    actionNotice = "";
+    document.getElementById("job-notice").hidden = true;
+  }
+  let didScrollToJob = false;
+  let probeTimer = null;
+  let probeController = null;
+  let probedUrl = "";
+  let probingUrl = "";
+  let probeInFlight = null;
+
+  function renderJobs(jobs) {
+    const root = document.getElementById("jobs");
+    const notice = document.getElementById("job-notice");
+    const counts = {active: 0, waiting: 0, action: 0, finished: 0, failed: 0, duplicates: 0};
+    for (const job of jobs) {
+      if (["running", "finalizing"].includes(job.status)) counts.active++;
+      else if (job.status === "queued") counts.waiting++;
+      else if (job.status === "needs_metadata") counts.action++;
+      else if (job.status === "failed" || job.status === "partial") counts.failed++;
+      else if (job.status === "succeeded") counts.finished++;
+      counts.duplicates += job.diagnosis?.duplicate_requests || 0;
+    }
+    document.getElementById("job-overview").textContent =
+      counts.active + " working · " + counts.waiting + " waiting · " +
+      counts.action + " need metadata · " + counts.failed + " failed/partial · " +
+      counts.finished + " finished · " + counts.duplicates + " duplicate requests prevented";
+    const found = focusedJobId ? jobs.find(job => job.id === focusedJobId ||
+      (job.request_member_ids || []).includes(focusedJobId)) : null;
+    notice.hidden = true;
+    if (found) {
+      const album = found.metadata_album || found.source_title ||
+        found.match_audit?.requested_album || "Untitled recording";
+      const artist = found.metadata_artist || found.source_album_artist ||
+        found.match_audit?.requested_artist || "";
+      const displayName = (artist ? artist + " — " : "") + album;
+      notice.textContent = requestedResult === "duplicate"
+        ? displayName + " is already in the download history; no new job was created."
+        : requestedResult === "completed"
+        ? displayName + " was downloaded previously; no new job was created."
+        : displayName + ": " + (found.diagnosis?.heading || found.status) +
+          ". " + (found.diagnosis?.explanation || found.message || "");
+      notice.className = "job-notice";
+      notice.hidden = false;
+    } else if (actionNotice) {
+      notice.className = "job-notice";
+      notice.textContent = actionNotice;
+      notice.hidden = false;
+    }
+    const openLogs = new Set(
+      Array.from(root.querySelectorAll(".job details[open]"))
+        .map((details) => details.closest(".job")?.dataset.jobId)
+        .filter(Boolean)
+    );
+    root.replaceChildren();
+    // A focused completed/failed job can be expanded into its full original
+    // card to inspect logs, files and recovery options. Its compact result row
+    // is then hidden, so there is still only one visible representation.
+    const selected = jobs.find(job => !ACTIVE_STATES.has(job.status) &&
+      focusedJobId && (job.id === focusedJobId ||
+        (job.request_member_ids || []).includes(focusedJobId)));
+    focusedDetailIds = new Set(selected ? [selected.id, ...(selected.request_member_ids || [])] : []);
+    const liveJobs = jobs.filter(job => ACTIVE_STATES.has(job.status) || job === selected);
+    activeVisibleIds = new Set(liveJobs.flatMap(job => [job.id, ...(job.request_member_ids || [])]));
+    if (!liveJobs.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "No active downloads. Finished and failed jobs are listed below.";
+      root.appendChild(empty);
+      return;
+    }
+    for (const job of liveJobs) {
+      const card = document.createElement("article");
+      card.className = "job";
+      card.classList.add(job.status);
+      card.dataset.jobId = job.id;
+      if (focusedJobId && (job.id === focusedJobId ||
+          (job.request_member_ids || []).includes(focusedJobId))) {
+        card.classList.add("targeted");
+        if (!didScrollToJob) {
+          didScrollToJob = true;
+          requestAnimationFrame(() => card.scrollIntoView({block:"center", behavior:"smooth"}));
+        }
+      }
+      const top = document.createElement("div");
+      top.className = "job-top";
+
+      const release = document.createElement("div");
+      release.className = "job-release";
+
+      if (job.source_thumbnail) {
+        const cover = document.createElement("img");
+        cover.className = "job-cover";
+        cover.src = job.source_thumbnail;
+        cover.alt = "";
+        cover.loading = "lazy";
+        cover.referrerPolicy = "no-referrer";
+        release.appendChild(cover);
+      }
+
+      const identity = document.createElement("div");
+      identity.className = "job-identity";
+
+      const title = document.createElement("a");
+      title.className = "job-title";
+      title.href = job.url;
+      title.target = "_blank";
+      title.rel = "noopener noreferrer";
+      title.title = job.url;
+      title.textContent =
+        job.metadata_album ||
+        job.source_title ||
+        (job.source === "spotify" ? "Spotify album" : "Untitled source");
+
+      identity.appendChild(title);
+
+      const artistName = job.metadata_artist || job.source_album_artist || "";
+      if (artistName) {
+        const artist = document.createElement("div");
+        artist.className = "job-artist";
+        artist.textContent = artistName;
+        identity.appendChild(artist);
+      }
+
+      const sourceLink = document.createElement("a");
+      sourceLink.className = "job-source-link";
+      sourceLink.href = job.url;
+      sourceLink.target = "_blank";
+      sourceLink.rel = "noopener noreferrer";
+      sourceLink.textContent = "Open source";
+      sourceLink.title = job.url;
+      identity.appendChild(sourceLink);
+
+      release.appendChild(identity);
+
+      const status = document.createElement("div");
+      status.className = "status " + job.status;
+      status.textContent = job.status.replaceAll("_", " ");
+      top.append(release, status);
+      card.appendChild(top);
+      const meta = document.createElement("div");
+      meta.className = "job-meta";
+      const bits = [job.message];
+      if (job.progress) bits.push(job.progress);
+      if (job.source === "spotify") bits.push("Spotify / spotDL");
+      else if (job.playlist) bits.push("playlist");
+      if (job.version_attempt) bits.push("software " +
+        (job.software_version || "legacy") + " · try " + job.version_attempt +
+        " (total attempt " + job.attempt + ")");
+      if (job.final_dir) bits.push(job.final_dir);
+      meta.textContent = bits.filter(Boolean).join(" · ");
+      card.appendChild(meta);
+
+      // The job's own evidence-based explanation takes precedence over raw
+      // subprocess labels such as "Starting yt-dlp" or "running".
+      if (job.diagnosis) {
+        const diagnosis = job.diagnosis;
+        const explanation = document.createElement("section");
+        explanation.className = "job-explanation " + (diagnosis.tone || "neutral");
+        explanation.setAttribute("aria-label", "Download outcome and next action");
+        const label = document.createElement("h3");
+        label.textContent = diagnosis.heading;
+        const why = document.createElement("p");
+        why.textContent = diagnosis.explanation;
+        const next = document.createElement("p");
+        next.className = "next-action";
+        next.textContent = "Next: " + diagnosis.next_action;
+        explanation.append(label, why, next);
+        if (diagnosis.failure_evidence) {
+          const evidence = document.createElement("p");
+          evidence.className = "next-action";
+          evidence.textContent = "Evidence: " + diagnosis.failure_evidence;
+          explanation.appendChild(evidence);
+        }
+        card.appendChild(explanation);
+
+        if (diagnosis.duplicate_requests > 0) {
+          const duplicate = document.createElement("div");
+          duplicate.className = "dup-note";
+          duplicate.textContent = diagnosis.duplicate_requests + " repeated album request(s) prevented. " +
+            "The same YouTube album ID reused this existing job; no additional queue entry was made.";
+          card.appendChild(duplicate);
+        }
+        if (diagnosis.archived_items > 0) {
+          const skipped = document.createElement("div");
+          skipped.className = "dup-note";
+          skipped.textContent = diagnosis.archived_items +
+            " track(s) explicitly skipped because yt-dlp already recorded them in its archive.";
+          card.appendChild(skipped);
+        }
+      }
+      if (job.match_audit?.requested_artist && job.match_audit?.requested_album) {
+        const origin = document.createElement("div");
+        origin.className = "match-origin";
+        const wanted = job.match_audit.requested_artist + " — " + job.match_audit.requested_album;
+        const matched = (job.match_audit.matched_artist || "") + " — " +
+          (job.match_audit.matched_album || "");
+        origin.textContent = "Requested: " + wanted + " | Matched: " + matched +
+          " | Rule: " + (job.match_audit.match_type || "not recorded");
+        card.appendChild(origin);
+      }
+      if (job.status === "running" && job.last_activity_at) {
+        const idle = Math.max(0, Math.floor(Date.now() / 1000 - job.last_activity_at));
+        if (idle > 30) {
+          const last = document.createElement("div");
+          last.className = "last-activity";
+          last.textContent = "No new downloader output for " + idle +
+            " seconds. This does not by itself mean the job failed.";
+          card.appendChild(last);
+        }
+      }
+
+      if (job.total_items > 0) {
+        const completed = Math.min(job.completed_items || 0, job.total_items);
+        const current = Math.min(job.current_item || 0, job.total_items);
+        const progress = document.createElement("div");
+        progress.className = "track-progress";
+
+        const head = document.createElement("div");
+        head.className = "track-progress-head";
+        const saved = document.createElement("span");
+        saved.textContent = completed + "/" + job.total_items + " tracks saved";
+        head.appendChild(saved);
+
+        if (job.status === "running" && current > completed) {
+          const processing = document.createElement("span");
+          processing.textContent = "processing " + current + "/" + job.total_items;
+          head.appendChild(processing);
+        }
+
+        const bar = document.createElement("div");
+        bar.className = "track-progress-bar";
+        const fill = document.createElement("div");
+        fill.className = "track-progress-fill";
+        fill.style.width = ((completed / job.total_items) * 100) + "%";
+        bar.appendChild(fill);
+
+        progress.append(head, bar);
+        card.appendChild(progress);
+      }
+
+      if (job.status === "needs_metadata") {
+        const review = document.createElement("div");
+        review.className = "metadata-review";
+
+        const title = document.createElement("div");
+        title.className = "metadata-title";
+        title.textContent = "Metadata required before library import";
+
+        const note = document.createElement("div");
+        note.className = "metadata-note";
+        note.textContent = "Nothing has been moved into the library yet. Confirm the collection metadata, then publish it.";
+
+        const grid = document.createElement("div");
+        grid.className = "metadata-grid";
+
+        const artist = document.createElement("input");
+        artist.type = "text";
+        artist.className = "metadata-input";
+        artist.placeholder = "Artist / album artist";
+        artist.value = job.metadata_artist || "";
+        artist.autocomplete = "off";
+
+        const album = document.createElement("input");
+        album.type = "text";
+        album.className = "metadata-input";
+        album.placeholder = "Album";
+        album.value = job.metadata_album || "";
+        album.autocomplete = "off";
+
+        const publish = document.createElement("button");
+        publish.type = "button";
+        publish.textContent = "Move to library";
+
+        const error = document.createElement("div");
+        error.className = "resolver-error";
+
+        publish.addEventListener("click", async () => {
+          error.textContent = "";
+          if (!artist.value.trim()) {
+            error.textContent = "Artist / album artist is required.";
+            artist.focus();
+            return;
+          }
+          if (!album.value.trim()) {
+            error.textContent = "Album name is required.";
+            album.focus();
+            return;
+          }
+
+          publish.disabled = true;
+          artist.disabled = true;
+          album.disabled = true;
+          publish.textContent = "Publishing…";
+          try {
+            const response = await downloaderFetch("/api/jobs/" + encodeURIComponent(job.id) + "/metadata", {
+              method: "POST",
+              headers: {"Content-Type": "application/json", "Accept": "application/json"},
+              body: JSON.stringify({
+                artist: artist.value.trim(),
+                album: album.value.trim(),
+              }),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+              error.textContent = data.error || "Could not publish album.";
+              publish.disabled = false;
+              artist.disabled = false;
+              album.disabled = false;
+              publish.textContent = "Move to library";
+              return;
+            }
+            await refreshJobs(true);
+          } catch (_) {
+            error.textContent = "Could not publish album.";
+            publish.disabled = false;
+            artist.disabled = false;
+            album.disabled = false;
+            publish.textContent = "Move to library";
+          }
+        });
+
+        grid.append(artist, album, publish);
+        review.append(title, note, grid, error);
+        card.appendChild(review);
+      }
+
+      if (job.status === "failed" && job.source === "yt-dlp" && job.missing_tracks && job.missing_tracks.length) {
+        const missingWrap = document.createElement("div");
+        missingWrap.className = "missing-tracks";
+
+        for (const missing of job.missing_tracks) {
+          if (missing.source !== "youtube" || missing.ignored) continue;
+
+          const item = document.createElement("div");
+          item.className = "missing-track";
+
+          const title = document.createElement("div");
+          title.className = "missing-track-title";
+          title.textContent = "Missing: " + (missing.label || ("YouTube video " + missing.source_id));
+
+          const reason = document.createElement("div");
+          reason.className = "missing-track-url";
+          reason.textContent = missing.reason || "Video unavailable";
+
+          const ignore = document.createElement("button");
+          ignore.type = "button";
+          ignore.className = "ignore-button";
+          ignore.textContent = "Ignore permanently";
+
+          const error = document.createElement("div");
+          error.className = "resolver-error";
+
+          ignore.addEventListener("click", async () => {
+            ignore.disabled = true;
+            ignore.textContent = "Ignoring…";
+            error.textContent = "";
+            try {
+              const response = await downloaderFetch("/api/jobs/" + encodeURIComponent(job.id) + "/ignore", {
+                method: "POST",
+                headers: {"Content-Type": "application/json", "Accept": "application/json"},
+                body: JSON.stringify({source_id: missing.source_id}),
+              });
+              const data = await response.json();
+              if (!response.ok || !data.ok) {
+                error.textContent = data.error || "Could not ignore track.";
+                ignore.disabled = false;
+                ignore.textContent = "Ignore permanently";
+                return;
+              }
+              await refreshJobs();
+            } catch (_) {
+              error.textContent = "Could not ignore track.";
+              ignore.disabled = false;
+              ignore.textContent = "Ignore permanently";
+            }
+          });
+
+          item.append(title, reason, ignore, error);
+          missingWrap.appendChild(item);
+        }
+
+        if (missingWrap.childElementCount) card.appendChild(missingWrap);
+      }
+
+      if (["failed", "partial"].includes(job.status) && job.source === "spotify" && job.missing_tracks && job.missing_tracks.length) {
+        const missingWrap = document.createElement("div");
+        missingWrap.className = "missing-tracks";
+
+        for (const missing of job.missing_tracks) {
+          if (missing.resolved) continue;
+
+          const item = document.createElement("div");
+          item.className = "missing-track";
+
+          const title = document.createElement("div");
+          title.className = "missing-track-title";
+          title.textContent = "Missing: " + (missing.label || "Spotify track");
+
+          const spotifyUrl = document.createElement("div");
+          spotifyUrl.className = "missing-track-url";
+          spotifyUrl.textContent = missing.spotify_url;
+
+          const row = document.createElement("div");
+          row.className = "resolver-row";
+
+          const input = document.createElement("input");
+          input.type = "url";
+          input.placeholder = "Direct YouTube, Bandcamp, or SoundCloud track URL";
+          input.autocomplete = "off";
+
+          const resolve = document.createElement("button");
+          resolve.type = "button";
+          resolve.textContent = "Resolve track";
+
+          const activeResolutionTracks = new Set(job.active_resolution_tracks || []);
+          if (activeResolutionTracks.has(missing.spotify_url)) {
+            input.disabled = true;
+            resolve.disabled = true;
+            resolve.textContent = "Resolving…";
+          }
+
+          const error = document.createElement("div");
+          error.className = "resolver-error";
+
+          resolve.addEventListener("click", async () => {
+            const sourceUrl = input.value.trim();
+            error.textContent = "";
+            if (!validHttpUrl(sourceUrl)) {
+              error.textContent = "Paste a valid source URL.";
+              return;
+            }
+
+            resolve.disabled = true;
+            input.disabled = true;
+            resolve.textContent = "Resolving…";
+            try {
+              const response = await downloaderFetch("/api/jobs/" + encodeURIComponent(job.id) + "/resolve", {
+                method: "POST",
+                headers: {"Content-Type": "application/json", "Accept": "application/json"},
+                body: JSON.stringify({
+                  spotify_url: missing.spotify_url,
+                  source_url: sourceUrl,
+                }),
+              });
+              const data = await response.json();
+              if (!response.ok || !data.ok) {
+                error.textContent = data.error || "Could not queue resolution.";
+                resolve.disabled = false;
+                input.disabled = false;
+                resolve.textContent = "Resolve track";
+                return;
+              }
+              await refreshJobs();
+            } catch (_) {
+              error.textContent = "Could not queue resolution.";
+              resolve.disabled = false;
+              input.disabled = false;
+              resolve.textContent = "Resolve track";
+            }
+          });
+
+          row.append(input, resolve);
+          item.append(title, spotifyUrl, row, error);
+          missingWrap.appendChild(item);
+        }
+
+        if (missingWrap.childElementCount) card.appendChild(missingWrap);
+      }
+
+      if (["failed", "partial"].includes(job.status)) {
+        const actions = document.createElement("div");
+        actions.className = "job-actions";
+
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "retry-button";
+        retry.textContent = job.source === "spotify" && job.missing_tracks && job.missing_tracks.length
+          ? "Retry failed tracks"
+          : "Retry / continue";
+        retry.addEventListener("click", async () => {
+          retry.disabled = true;
+          retry.textContent = "Retrying…";
+          try {
+            const response = await downloaderFetch("/api/jobs/" + encodeURIComponent(job.id) + "/retry", {
+              method: "POST",
+              headers: {"Accept": "application/json"},
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+              retry.textContent = data.error || "Retry failed";
+              return;
+            }
+            await refreshJobs();
+          } catch (_) {
+            retry.textContent = "Retry failed";
+          } finally {
+            if (document.body.contains(retry) && retry.textContent === "Retrying…") {
+              retry.disabled = false;
+              retry.textContent = job.source === "spotify" && job.missing_tracks && job.missing_tracks.length
+                ? "Retry automatic search"
+                : "Retry / continue";
+            }
+          }
+        });
+
+        actions.appendChild(retry);
+        card.appendChild(actions);
+      }
+
+      if (["failed", "partial", "succeeded", "needs_metadata"].includes(job.status)) {
+        const removeActions = document.createElement("div");
+        removeActions.className = "job-actions";
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "remove-button";
+        const destructive = !["succeeded", "partial"].includes(job.status);
+        remove.textContent = destructive ? "Discard" : "Remove from list";
+
+        remove.addEventListener("click", async () => {
+          if (destructive) {
+            const confirmed = window.confirm(
+              "Discard this unfinished job and its staged files? " +
+              "Anything already published in the music library will not be touched."
+            );
+            if (!confirmed) return;
+          }
+
+          remove.disabled = true;
+          const originalText = remove.textContent;
+          remove.textContent = destructive ? "Discarding…" : "Removing…";
+          try {
+            const response = await downloaderFetch("/api/jobs/" + encodeURIComponent(job.id), {
+              method: "DELETE",
+              headers: {"Accept": "application/json"},
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+              remove.disabled = false;
+              remove.textContent = data.error || "Could not remove job";
+              return;
+            }
+            await refreshJobs(true);
+          } catch (_) {
+            remove.disabled = false;
+            remove.textContent = "Could not remove job";
+          }
+        });
+
+        removeActions.appendChild(remove);
+        card.appendChild(removeActions);
+      }
+
+      if (
+        (job.files && job.files.length) ||
+        (job.log && job.log.length) ||
+        (job.attempt_history && job.attempt_history.length > 1)
+      ) {
+        const details = document.createElement("details");
+        details.open = openLogs.has(job.id);
+        const summary = document.createElement("summary");
+        summary.textContent = job.files && job.files.length ? "Files and log" : "Log";
+        details.appendChild(summary);
+        const pre = document.createElement("pre");
+        const lines = [];
+        if (job.attempt_history && job.attempt_history.length > 1) {
+          lines.push("Attempts:");
+          for (const item of job.attempt_history) {
+            lines.push(
+              "  #" + item.attempt + " " + item.status +
+              (item.message ? " - " + item.message : "")
+            );
+          }
+          lines.push("");
+        }
+        if (job.files && job.files.length) {
+          lines.push("Saved:");
+          for (const file of job.files) lines.push("  " + file);
+          lines.push("");
+        }
+        if (job.log && job.log.length) lines.push(...job.log);
+        pre.textContent = lines.join("\n");
+        details.appendChild(pre);
+        card.appendChild(details);
+      }
+      root.appendChild(card);
+    }
+  }
+
+  function validHttpUrl(value) {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function probeUrl(value) {
+    const url = value.trim();
+    if (!validHttpUrl(url)) {
+      probedUrl = "";
+      probeResult.textContent = "";
+      probeResult.className = "probe";
+      return false;
+    }
+
+    if (probeInFlight && probingUrl === url) return probeInFlight;
+    if (probeController) probeController.abort();
+
+    probeController = new AbortController();
+    probingUrl = url;
+    probeResult.textContent = "Checking link…";
+    probeResult.className = "probe";
+    downloadButton.disabled = true;
+
+    const currentProbe = (async () => {
+      try {
+        const response = await downloaderFetch("/api/probe", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({url}),
+          signal: probeController.signal,
+        });
+        const data = await response.json();
+
+        if (urlInput.value.trim() !== url) return false;
+
+        probedUrl = url;
+        if (!response.ok || !data.ok) {
+          probeResult.textContent = "Could not inspect link: " + (data.error || "unknown error") + " Download can still proceed.";
+          probeResult.className = "probe warn";
+          return true;
+        }
+
+        if (data.kind === "spotify") {
+          playlistInput.disabled = true;
+          const base = data.title + " detected · spotDL will use Spotify metadata and try YouTube Music, YouTube, Bandcamp, then SoundCloud";
+          probeResult.textContent = data.is_album
+            ? base
+            : base + " · Hint: this doesn't look like an album";
+          probeResult.className = data.is_album ? "probe good" : "probe hint";
+        } else if (data.kind === "playlist") {
+          const count = data.count ? " · " + data.count + " items" : "";
+          const albumArtist = data.album_artist ? " · album artist: " + data.album_artist : "";
+          if (data.is_album) {
+            probeResult.textContent = "Album detected · " + data.title + count + albumArtist;
+            probeResult.className = "probe good";
+          } else {
+            probeResult.textContent = "Playlist detected · " + data.title + count + albumArtist + " · Hint: this doesn't look like an album";
+            probeResult.className = "probe hint";
+          }
+        } else {
+          probeResult.textContent = "Single item detected · " + data.title + " · Hint: this doesn't look like an album";
+          probeResult.className = "probe hint";
+        }
+        return true;
+      } catch (error) {
+        if (error.name === "AbortError") return false;
+        if (urlInput.value.trim() === url) {
+          probedUrl = url;
+          probeResult.textContent = "Could not inspect link. Download can still proceed.";
+          probeResult.className = "probe warn";
+        }
+        return true;
+      } finally {
+        if (probeInFlight === currentProbe) {
+          probeInFlight = null;
+          probingUrl = "";
+        }
+        if (urlInput.value.trim() === url) downloadButton.disabled = false;
+      }
+    })();
+
+    probeInFlight = currentProbe;
+    return currentProbe;
+  }
+
+  urlInput.addEventListener("input", () => {
+    dismissFocus();
+    probedUrl = "";
+    playlistInput.disabled = false;
+    clearTimeout(probeTimer);
+    probeResult.textContent = "";
+    probeResult.className = "probe";
+
+    if (!validHttpUrl(urlInput.value.trim())) return;
+    probeTimer = setTimeout(() => probeUrl(urlInput.value), 500);
+  });
+
+  form.addEventListener("submit", async (event) => {
+    const url = urlInput.value.trim();
+    if (!validHttpUrl(url) || probedUrl === url) return;
+
+    event.preventDefault();
+    clearTimeout(probeTimer);
+    await probeUrl(url);
+
+    if (urlInput.value.trim() === url) form.requestSubmit();
+  });
+
+  renderJobs(initialJobs);
+
+  async function refreshJobs(force = false) {
+    if (!force && document.activeElement && document.activeElement.matches("#jobs input")) return;
+    try {
+      const response = await downloaderFetch("/api/jobs", {cache:"no-store"});
+      if (response.ok) {
+        const jobs = await response.json();
+        const active = new Set(jobs.filter(job => ACTIVE_STATES.has(job.status))
+          .map(job => job.id));
+        const changedToTerminal = [...previousActiveIds].some(id => !active.has(id));
+        const activeChanged = changedToTerminal ||
+          [...active].some(id => !previousActiveIds.has(id));
+        previousActiveIds = active;
+        renderJobs(jobs);
+        if (activeChanged) {
+          // Keep the results and live cards mutually exclusive even while
+          // their separate API snapshots are updating.
+          renderHistory();
+          // When a download finishes or fails, fetch its terminal outcome.
+          if (changedToTerminal) refreshHistory();
+        }
+      }
+    } catch (_) {}
+  }
+
+  const JOB_REFRESH_MS = 5000;
+  setInterval(refreshJobs, JOB_REFRESH_MS);
+
+  // Load all retained attempts immediately. Filters are client-side, so all
+  // titles remain available for Ctrl+F without a search or disclosure click.
+  let historyRows = [];
+  let historyLoadVersion = 0;
+  let historyGlobalCounts = {};
+  let historyGlobalTotal = 0;
+  const HISTORY_BATCH = 200;
+
+  function historyNode(type, className, value) {
+    const node = document.createElement(type);
+    if (className) node.className = className;
+    if (value !== undefined) node.textContent = String(value);
+    return node;
+  }
+
+  function historyTime(epoch) {
+    if (epoch == null || !Number.isFinite(Number(epoch))) return "Date not recorded";
+    return new Date(Number(epoch) * 1000).toLocaleString();
+  }
+
+  function historyMatchesFilter(item, status) {
+    if (status === "all") return true;
+    if (status === "failed") return item.status === "failed" || item.status === "partial";
+    if (status === "incomplete") return ["queued","running","finalizing","needs_metadata","failed","partial"].includes(item.status);
+    if (status === "published") return !!item.final_dir;
+    return true;
+  }
+
+  function latestHistoryPerRetryChain(records) {
+    // Only collapse attempts explicitly linked by retry_of, never unrelated
+    // downloads of the same album. Full original attempts stay in the API.
+    const byId = new Map(records.map(item => [item.job_id, item]));
+    const chains = new Map();
+    for (const item of records) {
+      let cursor = item;
+      const visited = new Set([cursor.job_id]);
+      while (cursor.retry_of && byId.has(cursor.retry_of) &&
+             !visited.has(cursor.retry_of)) {
+        cursor = byId.get(cursor.retry_of);
+        visited.add(cursor.job_id);
+      }
+      const key = cursor.job_id;
+      if (!chains.has(key)) chains.set(key, []);
+      chains.get(key).push(item);
+    }
+    return [...chains.values()].map(chain => {
+      chain.sort((a, b) => Number(b.attempt || 1) - Number(a.attempt || 1) ||
+        Number(b.created_at || 0) - Number(a.created_at || 0));
+      return {...chain[0], previous_attempts: chain.slice(1)};
+    });
+  }
+
+  function renderHistory() {
+    const list = document.getElementById("history-results");
+    const selection = document.getElementById("history-filter").value;
+    const text = document.getElementById("history-query").value.trim().toLowerCase();
+    list.replaceChildren();
+    const grouped = latestHistoryPerRetryChain(historyRows);
+    const rows = grouped.filter(item => {
+      if (ACTIVE_STATES.has(item.status)) return false;
+      if (activeVisibleIds.has(item.job_id) ||
+          item.previous_attempts.some(attempt => activeVisibleIds.has(attempt.job_id))) return false;
+      if (!historyMatchesFilter(item, selection)) return false;
+      if (!text) return true;
+      return [item.title, item.artist, item.job_id, item.status, item.reason,
+              item.url, item.final_dir].some(value => String(value || "").toLowerCase().includes(text));
+    });
+    // Failed downloads appear first even when the user views All attempts.
+    // Within each group show the newest attempt first.
+    const priority = status => ["failed","partial"].includes(status) ? 0 : 1;
+    rows.sort((a, b) => priority(a.status) - priority(b.status) ||
+      Number(b.created_at || 0) - Number(a.created_at || 0) ||
+      String(b.job_id).localeCompare(String(a.job_id)));
+
+    let previousGroup = null;
+    for (const item of rows) {
+      const group = priority(item.status);
+      if (group !== previousGroup) {
+        previousGroup = group;
+        list.append(historyNode("h3", "history-group-title",
+          group === 0 ? "Failed and partial downloads" : "Other downloads"));
+      }
+      const entry = historyNode("article", "history-entry history-" + item.status);
+      entry.dataset.jobId = item.job_id;
+      if (focusedJobId === item.job_id) {
+        entry.classList.add("targeted");
+        if (!didScrollToJob) {
+          didScrollToJob = true;
+          requestAnimationFrame(() => entry.scrollIntoView({block:"center", behavior:"smooth"}));
+        }
+      }
+      const state = historyNode("div", "history-state",
+        item.status + (item.recovered_http_403 ? " · 403 recovered" : ""));
+      const details = historyNode("div", "history-primary");
+      const title = (item.artist ? item.artist + " — " : "") +
+        (item.title || "Album title unavailable");
+      details.append(historyNode("div", "history-release", title));
+      if (!item.title) details.append(historyNode("div", "history-muted",
+        "The source did not provide a reliable album title; use Open source below."));
+      details.append(historyNode("div", "history-reason",
+        item.reason || (item.status === "succeeded"
+          ? "Finished." : "No detailed result recorded.")));
+      details.append(historyNode("div", "history-date",
+        historyTime(item.created_at) + " · Job " + item.job_id +
+        " · " + item.completed_items + "/" + item.total_items + " confirmed tracks" +
+        (item.removed_from_queue ? " · removed from active list" : "") +
+        (item.automatic_403_restarts ? " · " + item.automatic_403_restarts +
+          " automatic 403 restart(s)" : "") +
+        (item.software_version ? " · software " + item.software_version +
+          ", try " + (item.version_attempt || 1) : "") +
+        (item.previous_attempts.length ? " · " +
+          (item.previous_attempts.length + 1) + " total attempts" : "")));
+      if (item.previous_attempts.length) {
+        const more = document.createElement("details");
+        const toggle = historyNode("summary", "", "Earlier attempts (" +
+          item.previous_attempts.length + ")");
+        more.append(toggle);
+        for (const previous of item.previous_attempts) {
+          more.append(historyNode("div", "history-reason",
+            historyTime(previous.created_at) + " · " + previous.status +
+            " · software " + (previous.software_version || "legacy") +
+            ", try " + (previous.version_attempt || 1) +
+            " · " + (previous.reason || "No recorded reason")));
+        }
+        details.append(more);
+      }
+
+      const links = historyNode("div", "history-links");
+      // Open one full diagnostic card on demand, replacing this result row
+      // instead of showing two copies of the same job.
+      if (!item.removed_from_queue) {
+        const detail = historyNode("a", "", "Details");
+        detail.href = downloaderPath("/?job=") + encodeURIComponent(item.job_id);
+        links.append(detail);
+      }
+      if (item.url) {
+        const source = historyNode("a", "", "Open source");
+        source.href = item.url;
+        source.target = "_blank";
+        source.rel = "noopener noreferrer";
+        links.append(source);
+      }
+      if ((item.status === "failed" || item.status === "partial") &&
+          !item.removed_from_queue && !item.has_retried) {
+        const retry = historyNode("button", "", "Retry");
+        retry.type = "button";
+        retry.addEventListener("click", async () => {
+          retry.disabled = true;
+          retry.textContent = "Retrying…";
+          try {
+            const response = await downloaderFetch("/api/jobs/" +
+              encodeURIComponent(item.job_id) + "/retry", {method:"POST"});
+            const result = await response.json();
+            if (!response.ok || !result.ok) throw Error(result.error || "Could not queue retry.");
+            document.getElementById("history-status").textContent =
+              "Retry queued for " + title + ". Job " + (result.job_id || "") + ".";
+            await refreshJobs(true);
+            await refreshHistory();
+          } catch (error) {
+            document.getElementById("history-status").textContent =
+              "Retry failed for " + title + ": " + error.message;
+            retry.disabled = false;
+            retry.textContent = "Retry";
+          }
+        });
+        links.append(retry);
+      }
+      entry.append(state, details, links);
+      list.append(entry);
+    }
+    const statusLine = document.getElementById("history-status");
+    if (!rows.length && historyRows.length) {
+      list.append(historyNode("p", "history-muted",
+        !text && selection === "all"
+          ? (focusedDetailIds.size
+              ? "The selected job is expanded above; there are no other finished results."
+              : "No completed or failed results yet. Active downloads are shown above.")
+          : "No finished results match this filter."));
+    } else if (!rows.length) {
+      list.append(historyNode("p", "history-muted",
+        "No retained download results are available yet."));
+    }
+    const failed = (historyGlobalCounts.failed || 0) + (historyGlobalCounts.partial || 0);
+    document.getElementById("history-summary").textContent =
+      failed + " failed attempts · " +
+      (historyGlobalCounts.succeeded || 0) + " succeeded attempts";
+    statusLine.textContent = rows.length + (rows.length === 1 ? " result" : " results") +
+      " shown from " + historyRows.length +
+      " saved attempts. Search and filters are optional.";
+  }
+
+  async function refreshHistory() {
+    const version = ++historyLoadVersion;
+    const button = document.getElementById("history-search");
+    const status = document.getElementById("history-status");
+    button.disabled = true;
+    status.textContent = "Loading all download attempts, including failures…";
+    historyRows = [];
+    historyGlobalCounts = {};
+    historyGlobalTotal = 0;
+    let offset = 0;
+    try {
+      while (true) {
+        const params = new URLSearchParams({
+          status:"all", q:"", offset:String(offset), limit:String(HISTORY_BATCH)
+        });
+        const response = await downloaderFetch("/api/download-history?" + params, {cache:"no-store"});
+        const data = await response.json();
+        if (version !== historyLoadVersion) return;
+        if (!response.ok) throw Error(data.error || "History unavailable");
+        if (!Array.isArray(data.items)) throw Error("Invalid history response.");
+        historyRows.push(...data.items);
+        historyGlobalCounts = data.all_status_counts || {};
+        historyGlobalTotal = data.all_attempts ?? data.total ?? historyRows.length;
+        offset += data.items.length;
+        renderHistory();
+        if (offset >= data.total || data.items.length === 0) break;
+        status.textContent = "Loading attempt " + offset + " of " + data.total + "…";
+      }
+    } catch (error) {
+      if (version === historyLoadVersion) {
+        status.textContent = "History could not be completely loaded: " + error.message +
+          ". " + historyRows.length + " attempts were retrieved.";
+      }
+    } finally {
+      if (version === historyLoadVersion) button.disabled = false;
+    }
+  }
+
+  document.getElementById("history-search").addEventListener("click", () => {
+    dismissFocus();
+    refreshHistory();
+  });
+  document.getElementById("retry-all-failed").addEventListener("click", async () => {
+    dismissFocus();
+    const button = document.getElementById("retry-all-failed");
+    const status = document.getElementById("history-status");
+    button.disabled = true;
+    try {
+      const previewResponse = await downloaderFetch("/api/jobs/retry-failed/preview", {cache:"no-store"});
+      const preview = await previewResponse.json();
+      if (!previewResponse.ok || !preview.ok) {
+        throw new Error(preview.error || "Cannot inspect failed downloads.");
+      }
+      if (!preview.eligible) {
+        status.textContent = "No failed albums need retrying. Already successful and active downloads are skipped.";
+        return;
+      }
+      if (!preview.will_queue) {
+        status.textContent = "Queue is full. No retries were added; try again after the active jobs finish.";
+        return;
+      }
+      const capacityNotice = preview.skipped_capacity
+        ? " The queue has space for only " + preview.will_queue +
+          "; " + preview.skipped_capacity + " will remain unqueued."
+        : "";
+      if (!window.confirm(
+        "Queue " + preview.will_queue + " distinct failed album(s) for retry?" +
+        " Completed and active albums are excluded. Existing staged audio is kept." +
+        capacityNotice + " Downloads will run sequentially and may take hours."
+      )) return;
+      const response = await downloaderFetch("/api/jobs/retry-failed", {method:"POST",
+        headers:{"Accept":"application/json"}});
+      const result = await response.json();
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "Could not enqueue failed albums.");
+      }
+      status.textContent = "Queued " + result.queued_count +
+        " distinct failed album(s). " + result.skipped_capacity +
+        " eligible album(s) not queued due to capacity or an error." +
+        (result.error ? " Reason: " + result.error : "");
+      await refreshJobs(true);
+      await refreshHistory();
+      // The history render updates the status text. Retain the actual outcome
+      // in the visible overview for this bulk operation.
+      actionNotice = "Retry all failed: " + result.queued_count + " queued, " +
+        result.skipped_capacity + " not queued. Download archive and staging are preserved.";
+      document.getElementById("job-notice").hidden = false;
+      document.getElementById("job-notice").className = "job-notice";
+      document.getElementById("job-notice").textContent = actionNotice;
+    } catch (error) {
+      status.textContent = "Retry all failed: " + error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.getElementById("history-query").addEventListener("input", () => {
+    dismissFocus();
+    renderHistory();
+  });
+  document.getElementById("history-filter").addEventListener("change", () => {
+    dismissFocus();
+    renderHistory();
+  });
+  refreshHistory();
+  // Completed/failed jobs move out of the active cards on the next refresh;
+  // keep the results list current without requiring another button click.
+  setInterval(() => {
+    if (!document.hidden) refreshHistory();
+  }, 30000);
+
+</script>
+<script src="{{ url_for('static', filename='signal-console.js') }}" defer></script>
+<script src="{{ url_for('static', filename='vpn-manager.js', v=versions.server) }}" defer></script>
+<script src="{{ url_for('static', filename='youtube-cookies.js', v=versions.server) }}" defer></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+.git
+.github
+__pycache__
+*.py[cod]
+.pytest_cache
+.venv
+.env
+state
+
+# Never send local VPN keys or credentials to Docker build context
+.env.surfshark
+.env.surfshark.*.local
+wireguard-profiles/

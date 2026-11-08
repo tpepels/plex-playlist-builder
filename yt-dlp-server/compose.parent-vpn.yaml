@@ -1,0 +1,22 @@
+# Same existing ~/media-stack/docker-compose.override.yml symlink.
+# Extends only the existing downloader service. No gateway service.
+# The parent Compose file retains the port 4545 mapping and project network.
+services:
+  yt-dlp-server:
+    user: "0:0"
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: "1"
+    environment:
+      VPN_GATEWAY_ENABLED: "1"
+      VPN_PROFILE_DIR: /profiles
+      VPN_CONTROL_TOKEN_FILE: /data/state/.vpn-control-token
+      VPN_DOWNLOADER_UID: ${UID:-1000}
+      VPN_DOWNLOADER_GID: ${GID:-1000}
+      SURFSHARK_ROTATE_ON_403: ${SURFSHARK_ROTATE_ON_403:-1}
+    volumes:
+      - /srv/yt-dlp-server/wireguard-profiles:/profiles
+      - /srv/yt-dlp-server/state:/data/state

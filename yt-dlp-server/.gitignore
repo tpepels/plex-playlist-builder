@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.venv/
+state/
+
+# Private Surfshark WireGuard credentials (never check in)
+.env.surfshark
+.env.surfshark.*.local

@@ -1,0 +1,1136 @@
+name: Docker CI
+
+# Build only when container wiring changes; regular code uses fast checks.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - Dockerfile
+      - compose.yaml
+      - compose.parent-vpn.yaml
+      - container_runtime.py
+      - state_store.py
+      - process_lifecycle.py
+      - staging.py
+      - app.py
+      - vpn_gateway.py
+      - .github/workflows/docker.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate single-service Compose
+        run: |
+          docker compose config --quiet
+          test "$(docker compose config --services)" = "yt-dlp-server"
+      - name: Build image
+        run: docker build -t yt-dlp-server:test .
+      - name: Verify single-container VPN toolchain and privileged supervisor
+        run: |
+          docker run --rm -i yt-dlp-server:test python - <<'PY'
+          import shutil
+          from pathlib import Path
+          for command in ("gosu", "setpriv", "wg", "wg-quick", "iptables", "ip"):
+              assert shutil.which(command), command
+          runtime = Path("/app/container_runtime.py").read_text()
+          assert "/app/vpn_gateway.py" in runtime
+          assert "gosu" in runtime
+          assert "--bounding-set=-net_admin" in runtime
+          assert "--no-new-privs" in runtime
+          assert "gateway_ready(process=gateway)" in runtime
+          PY
+      - name: Verify live non-root identity and capability isolation
+        run: |
+          docker run --rm -i --cap-add=NET_ADMIN yt-dlp-server:test \
+            setpriv --bounding-set=-net_admin --no-new-privs \
+            gosu 1000:1000 python - <<'PY'
+          import os
+          from pathlib import Path
+
+          assert os.geteuid() == 1000
+          assert os.getegid() == 1000
+          statuses = {}
+          for line in Path("/proc/self/status").read_text().splitlines():
+              if ":" in line:
+                  key, value = line.split(":", 1)
+                  statuses[key] = value.strip()
+          assert statuses["NoNewPrivs"] == "1"
+          assert not (int(statuses["CapEff"], 16) & (1 << 12))
+          assert not (int(statuses["CapBnd"], 16) & (1 << 12))
+          PY
+      - name: Smoke-test installed tools
+        run: |
+          docker run --rm yt-dlp-server:test python -m py_compile /app/app.py /app/staging.py /app/library_repair.py /app/extension_package.py /app/container_runtime.py /app/vpn_gateway.py /app/state_store.py /app/process_lifecycle.py
+          docker run --rm yt-dlp-server:test yt-dlp --version
+          docker run --rm yt-dlp-server:test deno --version
+          docker run --rm yt-dlp-server:test ffmpeg -version
+          docker run --rm -i yt-dlp-server:test sh -c 'spotdl --version | grep -qx 4.6.0'
+          docker run --rm -i --user 1000:1000 yt-dlp-server:test sh -c 'test -w "$HOME" && spotdl --version | grep -qx 4.6.0'
+          docker run --rm -i yt-dlp-server:test python -c "import importlib.metadata; assert importlib.metadata.version('bgutil-ytdlp-pot-provider') == '2.0.2'"
+          docker run --rm -i --user 1000:1000 yt-dlp-server:test sh -c 'test -f /opt/bgutil-ytdlp-pot-provider/server/src/generate_once.ts && deno run --allow-env --allow-net --allow-ffi=/opt/bgutil-ytdlp-pot-provider/server/node_modules --allow-write=/tmp/yt-dlp-cache/bgutil-ytdlp-pot-provider --allow-read=/tmp/yt-dlp-cache/bgutil-ytdlp-pot-provider,/opt/bgutil-ytdlp-pot-provider/server/node_modules /opt/bgutil-ytdlp-pot-provider/server/src/generate_once.ts --version | grep -qx 2.0.2'
+      - name: Validate Chrome extension
+        run: |
+          python -m json.tool chrome-extension/manifest.json >/dev/null
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("chrome-extension/manifest.json").read_text())
+          assert manifest["manifest_version"] == 3
+          assert manifest["background"]["service_worker"] == "service-worker.js"
+          assert manifest["options_page"] == "options.html"
+          assert set(manifest["permissions"]) == {
+              "activeTab", "contextMenus", "scripting", "storage"
+          }
+          assert "http://*/*" in manifest["optional_host_permissions"]
+          assert "https://*/*" in manifest["optional_host_permissions"]
+
+          worker = Path("chrome-extension/service-worker.js").read_text()
+          assert 'contexts: ["link", "selection"]' in worker
+          assert 'body.set("playlist", "on")' in worker
+          assert '"/api/probe"' in worker
+          assert '"/download"' in worker
+          assert "MAX_SELECTION_URLS = 20" in worker
+          assert "range.intersectsNode(anchor)" in worker
+
+          options = Path("chrome-extension/options.js").read_text()
+          assert "chrome.permissions.request" in options
+          assert '"/health"' in options
+          PY
+          docker run --rm -i \
+            -v "$PWD/chrome-extension:/extension:ro" \
+            yt-dlp-server:test deno eval \
+            'new Function(await Deno.readTextFile("/extension/service-worker.js")); new Function(await Deno.readTextFile("/extension/options.js"));'
+      - name: Verify deterministic ZIP from current extension sources
+        run: |
+          python - <<'PY'
+          import io
+          import zipfile
+          from pathlib import Path
+          from extension_package import FILES, package_extension
+
+          root = Path("chrome-extension")
+          name, buffer = package_extension(root)
+          other_name, other_buffer = package_extension(root)
+          assert name == other_name == "yt-dlp-server-chrome-extension-v1.0.0.zip"
+          assert buffer.getvalue() == other_buffer.getvalue()
+          with zipfile.ZipFile(io.BytesIO(buffer.getvalue())) as archive:
+              assert archive.namelist() == list(FILES)
+              for entry in FILES:
+                  assert archive.read(entry) == (root / entry).read_bytes()
+          PY
+      - name: Verify extension download from Docker serves current sources
+        run: |
+          grep -q "download_chrome_extension" templates/index.html
+          grep -q "COPY chrome-extension ./chrome-extension" Dockerfile
+          docker run --rm -i --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python - <<'PY'
+          import io
+          import zipfile
+          from pathlib import Path
+          import app
+
+          response = app.app.test_client().get("/chrome-extension.zip")
+          assert response.status_code == 200, response.data
+          assert response.mimetype == "application/zip"
+          assert "attachment" in response.headers.get("Content-Disposition", "").lower()
+          with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+              for entry in ("manifest.json", "service-worker.js",
+                            "options.html", "options.js", "README.md"):
+                  assert archive.read(entry) == (Path("/app/chrome-extension") / entry).read_bytes()
+          PY
+      - name: Verify packaged library-repair command
+        run: |
+          docker run --rm --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e TEMP_DIR=/tmp/work \
+            -e STATE_DIR=/tmp/state \
+            yt-dlp-server:test sh -ec '
+              mkdir -p /tmp/state
+              printf "{\"jobs\":[]}" > /tmp/state/jobs.json
+              python -m app repair-library --help | grep -q -- --apply
+              python -m app repair-library | grep -q "No legacy playlist files found"
+            '
+      - name: Validate Plex post-publish nudge
+        run: |
+          docker run --rm -i --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            -e PLEX_RESCAN_NUDGE_SECONDS=90 \
+            yt-dlp-server:test python - <<'PY'
+          import pathlib
+          import tempfile
+          import time
+
+          import app
+
+          root = pathlib.Path(tempfile.mkdtemp())
+          app.IMPORT_ROOT = root / "YT-DLP Imports"
+          app.IMPORT_ROOT.mkdir(parents=True)
+
+          before = app.IMPORT_ROOT.stat().st_mtime_ns
+          time.sleep(0.01)
+          app._emit_library_change_nudge()
+          after = app.IMPORT_ROOT.stat().st_mtime_ns
+
+          assert after >= before
+          assert not list(app.IMPORT_ROOT.glob(".yt-dlp-refresh-*"))
+
+          # Debouncing replaces an older scheduled nudge instead of spawning
+          # one timer for every album in a batch.
+          class FakeTimer:
+              created = []
+              def __init__(self, seconds, fn):
+                  self.seconds = seconds
+                  self.fn = fn
+                  self.cancelled = False
+                  self.daemon = False
+                  FakeTimer.created.append(self)
+              def start(self):
+                  pass
+              def cancel(self):
+                  self.cancelled = True
+
+          real_timer = app.threading.Timer
+          app.threading.Timer = FakeTimer
+          app.library_nudge_timer = None
+          try:
+              app.schedule_library_change_nudge(delay=90)
+              first = app.library_nudge_timer
+              app.schedule_library_change_nudge(delay=90)
+              second = app.library_nudge_timer
+          finally:
+              app.threading.Timer = real_timer
+              app.library_nudge_timer = None
+
+          assert first is not second
+          assert first.cancelled is True
+          assert second.seconds == 90
+          PY
+      - name: Validate non-root runtime, naming and playlist classification
+        run: |
+          docker run --rm --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python -c 'import app, yt_dlp; y=yt_dlp.YoutubeDL({"outtmpl": app.OUTPUT_TEMPLATE}); p=y.prepare_filename({"id":"abc123","title":"Fallback title","ext":"webm","artist":"Test Artist","album":"Test Album","track":"Test Track","track_number":1}); assert "/" not in p, p; assert p.endswith("Test Track [abc123].webm"), p; q=y.prepare_filename({"id":"def456","title":"Loose Song","ext":"m4a","uploader":"Test Uploader"}); assert "/" not in q and q.endswith("Loose Song [def456].m4a"), q; assert "Test Uploader" not in q; assert app.classify_probe_info({"_type":"playlist","title":"Album","playlist_count":12}) == {"kind":"playlist","title":"Album","count":12,"extractor":None,"album_mode":False,"album_artist":None,"thumbnail":None}; assert app.classify_probe_info({"_type":"video","title":"Track"})["kind"] == "single"; assert app.classify_probe_info({"_type":"playlist","title":"Release"}, url="https://example.bandcamp.com/album/release")["album_mode"] is True; assert app.classify_probe_info({"_type":"playlist","title":"Mix"}, url="https://youtube.com/playlist?list=PL123")["album_mode"] is False; print(p); print(q)'
+      - name: Validate release card metadata
+        run: |
+          docker run --rm -i --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python - <<'PY'
+          import app
+
+          info = {
+              "_type": "playlist",
+              "title": "Album Title",
+              "playlist_count": 9,
+              "album": "Album Title",
+              "album_artist": "Album Artist",
+              "thumbnail": "https://example.invalid/cover.jpg",
+          }
+          result = app.classify_probe_info(
+              info,
+              url="https://music.youtube.com/playlist?list=OLAK5uy_test",
+          )
+          assert result["title"] == "Album Title", result
+          assert result["album_artist"] == "Album Artist", result
+          assert result["thumbnail"] == "https://example.invalid/cover.jpg", result
+
+          # Prefer the last available thumbnail when no canonical thumbnail
+          # field is supplied.
+          assert app.best_thumbnail_url({
+              "thumbnails": [
+                  {"url": "https://example.invalid/small.jpg"},
+                  {"url": "https://example.invalid/large.jpg"},
+              ]
+          }) == "https://example.invalid/large.jpg"
+
+          assert app.best_thumbnail_url({
+              "entries": [{"id": "VIMmyFY13Uk"}]
+          }) == "https://i.ytimg.com/vi/VIMmyFY13Uk/hqdefault.jpg"
+
+          raw = {
+              "id": "card1",
+              "url": "https://example.invalid/album",
+              "status": "queued",
+              "source": "yt-dlp",
+              "playlist": True,
+              "album_mode": True,
+              "source_title": "Visible Album",
+              "source_album_artist": "Visible Artist",
+              "source_thumbnail": "https://example.invalid/art.jpg",
+          }
+          job = app.normalize_persisted_job(raw)
+          app.jobs.clear()
+          app.jobs[job["id"]] = job
+          public = app.public_jobs()[0]
+          assert public["source_title"] == "Visible Album", public
+          assert public["source_album_artist"] == "Visible Artist", public
+          assert public["source_thumbnail"] == "https://example.invalid/art.jpg", public
+
+          # Retries and manual resolution children are one logical request.
+          app.jobs.clear()
+          parent = app.normalize_persisted_job({
+              "id": "root1",
+              "url": "https://example.invalid/album",
+              "status": "failed",
+              "source": "spotify",
+              "playlist": False,
+              "attempt": 1,
+              "source_title": "One Album",
+              "source_thumbnail": "https://example.invalid/one.jpg",
+              "missing_tracks": [{
+                  "spotify_url": "https://open.spotify.com/track/abc123",
+                  "label": "Missing Track",
+                  "resolved": False,
+                  "source_url": None,
+              }],
+          })
+          retry = app.normalize_persisted_job({
+              "id": "retry1",
+              "url": "https://example.invalid/album",
+              "status": "failed",
+              "source": "spotify",
+              "playlist": False,
+              "attempt": 2,
+              "retry_of": "root1",
+              "message": "Latest retry failed",
+          })
+          resolution = app.normalize_persisted_job({
+              "id": "resolution1",
+              "url": "https://open.spotify.com/track/abc123",
+              # normalize_persisted_job converts interrupted 'running' jobs
+              # to failed; queued is the actual active-on-restore state.
+              "status": "queued",
+              "source": "spotify",
+              "playlist": False,
+              "resolution_of": "root1",
+              "spotify_track_url": "https://open.spotify.com/track/abc123",
+          })
+          app.jobs.update({
+              parent["id"]: parent,
+              retry["id"]: retry,
+              resolution["id"]: resolution,
+          })
+          grouped = app.public_jobs()
+          assert len(grouped) == 1, grouped
+          card = grouped[0]
+          assert card["id"] == "retry1", card
+          assert card["request_id"] == "root1", card
+          assert card["attempt_count"] == 2, card
+          assert len(card["request_member_ids"]) == 3, card
+          assert card["source_title"] == "One Album", card
+          assert card["source_thumbnail"] == "https://example.invalid/one.jpg", card
+          assert card["active_resolution_tracks"] == [
+              "https://open.spotify.com/track/abc123"
+          ], card
+
+          # Existing Spotify jobs are backfilled asynchronously from oEmbed.
+          app.jobs.clear()
+          spotify = app.normalize_persisted_job({
+              "id": "spotify-old",
+              "url": "https://open.spotify.com/album/abc123",
+              "status": "failed",
+              "source": "spotify",
+          })
+          app.jobs[spotify["id"]] = spotify
+          real_probe = app.probe_spotify_url
+          app.probe_spotify_url = lambda url: {
+              "kind": "spotify",
+              "title": "The Book of Sounds",
+              "count": None,
+              "extractor": "Spotify oEmbed",
+              "album_mode": True,
+              "album_artist": None,
+              "thumbnail": "https://example.invalid/spotify.jpg",
+          }
+          try:
+              app.backfill_job_display_metadata()
+          finally:
+              app.probe_spotify_url = real_probe
+          public = app.public_jobs()[0]
+          assert public["source_title"] == "The Book of Sounds", public
+          assert public["source_thumbnail"] == "https://example.invalid/spotify.jpg", public
+          PY
+      - name: Validate album grouping and item progress
+        run: |
+          docker run --rm --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python -c 'import app; u="https://www.youtube.com/playlist?list=OLAK5uy_n5KJL2xyuNKuuMogjJPznLK7ao25VhprU"; assert app.is_youtube_album_playlist(u); assert not app.is_youtube_album_playlist("https://www.youtube.com/playlist?list=PL123"); info={"entries":[{"uploader":"Artist A - Topic"},{"uploader":"Artist B - Topic"}]}; assert app.infer_album_artist(info)=="Various Artists"; j={"id":"album1","staging_owner_id":"album1","playlist":True,"album_mode":True,"compilation":True,"force":False,"url":u}; cmd=app.build_command(j); assert not any("playlist_uploader" in x for x in cmd); assert "--write-info-json" in cmd; assert "/tmp/work/staging/album1" in cmd; assert "before_dl:__YTDLP_ITEM__=%(playlist_index|0)s/%(playlist_count|0)s" in cmd; m=app._playlist_item_re.match("[download] Downloading item 7 of 21"); assert m and m.groups()==("7","21")'
+      - name: Verify playlist UI defaults and stable progress UI
+        run: |
+          grep -q 'id="playlist-input" type="checkbox" name="playlist" checked' templates/index.html
+          grep -q "url_for('download')" templates/index.html
+          grep -q '"/api/probe"' app.py
+          grep -q 'openLogs' templates/index.html
+          grep -q 'tracks saved' templates/index.html
+          grep -q 'Supported sources' templates/index.html
+          grep -q 'minmax(0,1fr)' templates/index.html
+          grep -q 'overflow-x:hidden' templates/index.html
+          grep -q 'PO bgutil' templates/index.html
+          grep -q 'Spotify via spotDL' templates/index.html
+          grep -q 'versions.spotdl' templates/index.html
+          grep -q 'Resolve track' templates/index.html
+          grep -q 'Retry automatic search' templates/index.html
+          grep -q 'Retry / continue' templates/index.html
+          grep -q 'Ignore permanently' templates/index.html
+          grep -q 'Metadata required before library import' templates/index.html
+          grep -q 'Move to library' templates/index.html
+          grep -q 'Discard' templates/index.html
+          grep -q 'Remove from list' templates/index.html
+          grep -q 'Staging:' templates/index.html
+          grep -q 'JOB_REFRESH_MS = 5000' templates/index.html
+          grep -q "Hint: this doesn't look like an album" templates/index.html
+          grep -q 'probe hint' templates/index.html
+          grep -q '/api/jobs/' templates/index.html
+          grep -q 'job.source_thumbnail' templates/index.html
+          grep -q 'job.metadata_album' templates/index.html
+          grep -q 'job.source_title' templates/index.html
+          grep -q 'job.source_album_artist' templates/index.html
+          grep -q 'Open source' templates/index.html
+          grep -q 'target = "_blank"' templates/index.html
+          grep -q 'attempt_history' templates/index.html
+          grep -q 'active_resolution_tracks' templates/index.html
+          grep -q 'rel="icon"' templates/index.html
+          test -s static/favicon.svg
+          grep -q 'COPY static ./static' Dockerfile
+      - name: Validate staged metadata gate
+        run: |
+          docker run --rm -i --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python - <<'PY'
+          import json
+          import pathlib
+          import subprocess
+          import app
+          import staging
+
+          temp = pathlib.Path("/tmp/work")
+          music = pathlib.Path("/tmp/music/YT-DLP Imports")
+
+          # A user playlist with random uploaders must be treated as one
+          # collection. Uploaders are not artists; title prefixes are a safer
+          # fallback when music-specific artist metadata is absent.
+          job = {
+              "id": "armchair",
+              "staging_owner_id": "armchair",
+              "source": "yt-dlp",
+              "playlist": True,
+              "source_title": None,
+              "source_album_artist": None,
+              "force": False,
+          }
+          stage = staging.ensure_stage_dir(temp, job)
+          infos = [
+              {
+                  "id": "aaa111",
+                  "title": "Michael Hurley - Be Kind To Me",
+                  "playlist_title": "ARMCHAIR BOOGIE",
+                  "uploader": "MockyRock",
+                  "album": "[Unknown Album]",
+              },
+              {
+                  "id": "bbb222",
+                  "title": "Cat Power - Werewolf",
+                  "playlist_title": "ARMCHAIR BOOGIE",
+                  "uploader": "Miranda",
+                  "album": "[Unknown Album]",
+              },
+          ]
+          for n, info in enumerate(infos, 1):
+              (stage / f"{n:02d} - track [{info['id']}].info.json").write_text(json.dumps(info))
+              (stage / f"{n:02d} - track [{info['id']}].opus").write_bytes(b"placeholder")
+
+          analysis = staging.analyze_stage(temp, job)
+          assert analysis["album"] == "ARMCHAIR BOOGIE", analysis
+          assert analysis["artist"] == "", analysis
+          assert analysis["needs_metadata"] is True, analysis
+          assert {r["artist"] for r in analysis["records"]} == {"Michael Hurley", "Cat Power"}
+          assert all("MockyRock" not in r["artist"] for r in analysis["records"])
+          assert all("Miranda" not in r["artist"] for r in analysis["records"])
+
+          # Real music artist metadata is strong enough for collection-level
+          # grouping, including a genuine various-artists album.
+          safe = {
+              "id": "safe",
+              "staging_owner_id": "safe",
+              "source": "yt-dlp",
+              "playlist": True,
+              "source_title": "Trusted Compilation",
+              "source_album_artist": None,
+              "force": False,
+          }
+          safe_stage = staging.ensure_stage_dir(temp, safe)
+          for n, (source_id, artist) in enumerate((("ddd444", "Artist A"), ("eee555", "Artist B")), 1):
+              info = {
+                  "id": source_id,
+                  "title": f"{artist} - Track {n}",
+                  "playlist_title": "Trusted Compilation",
+                  "artist": artist,
+                  "album": "[Unknown Album]",
+              }
+              (safe_stage / f"{n:02d} - track [{source_id}].info.json").write_text(json.dumps(info))
+              (safe_stage / f"{n:02d} - track [{source_id}].opus").write_bytes(b"placeholder")
+          safe_analysis = staging.analyze_stage(temp, safe)
+          assert safe_analysis["album"] == "Trusted Compilation", safe_analysis
+          assert safe_analysis["artist"] == "Various Artists", safe_analysis
+          assert safe_analysis["needs_metadata"] is False, safe_analysis
+
+          # A single item with no album must stop before the library. Use a
+          # real tiny Opus file so the manual publish also exercises retagging.
+          job2 = {
+              "id": "manual",
+              "staging_owner_id": "manual",
+              "source": "yt-dlp",
+              "playlist": False,
+              "source_title": None,
+              "source_album_artist": None,
+              "force": False,
+          }
+          stage2 = staging.ensure_stage_dir(temp, job2)
+          media = stage2 / "Track [ccc333].opus"
+          subprocess.run([
+              "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+              "-f", "lavfi", "-i", "sine=frequency=440:duration=0.1",
+              "-c:a", "libopus", str(media),
+          ], check=True)
+          (stage2 / "Track [ccc333].info.json").write_text(json.dumps({
+              "id": "ccc333",
+              "title": "Track",
+              "artist": "Correct Artist",
+              "album": "[Unknown Album]",
+          }))
+
+          waiting = staging.publish_stage(temp, music, job2)
+          assert waiting["status"] == "needs_metadata", waiting
+          assert not music.exists() or not any(music.rglob("*.opus"))
+          assert media.exists(), "staged file must remain outside the library"
+
+          published = staging.publish_stage(
+              temp, music, job2,
+              artist="Correct Artist",
+              album="Correct Album",
+          )
+          assert published["status"] == "published", published
+          final = music / "Correct Artist" / "Correct Album"
+          files = list(final.glob("*.opus"))
+          assert len(files) == 1, files
+          assert not stage2.exists(), "stage should be removed only after publish"
+
+          # Vorbis-style Opus comments are stored in the Ogg stream, not
+          # necessarily in ffprobe's container-level format tags.
+          from mutagen.oggopus import OggOpus
+          tags = OggOpus(files[0])
+          assert tags["album"] == ["Correct Album"], tags
+          assert tags["artist"] == ["Correct Artist"], tags
+          PY
+      - name: Validate safe retagging and job discard
+        run: |
+          docker run --rm -i --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python - <<'PY'
+          import base64
+          import pathlib
+          import subprocess
+          import tempfile
+
+          from mutagen.flac import Picture
+          from mutagen.oggopus import OggOpus
+
+          import app
+          import staging
+
+          root = pathlib.Path(tempfile.mkdtemp())
+          covered = root / "covered.opus"
+          subprocess.run([
+              "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+              "-f", "lavfi", "-i", "sine=frequency=440:duration=0.1",
+              "-c:a", "libopus", str(covered),
+          ], check=True)
+
+          audio = OggOpus(covered)
+          picture = Picture()
+          picture.type = 3
+          picture.mime = "image/png"
+          picture.desc = "cover"
+          picture.data = b"not-a-real-png-but-valid-picture-metadata"
+          encoded_picture = base64.b64encode(picture.write()).decode("ascii")
+          audio["metadata_block_picture"] = [encoded_picture]
+          audio["title"] = ["Covered track"]
+          audio.save()
+
+          before = OggOpus(covered)["metadata_block_picture"]
+          staging.retag_media(
+              covered,
+              album="Correct Album",
+              album_artist="Correct Artist",
+              track_artist="Track Artist",
+          )
+          after = OggOpus(covered)
+          assert after["album"] == ["Correct Album"], after.tags
+          assert after["albumartist"] == ["Correct Artist"], after.tags
+          assert after["artist"] == ["Track Artist"], after.tags
+          assert after["metadata_block_picture"] == before, (
+              "retagging must preserve embedded cover metadata"
+          )
+
+          # Failed/unfinished jobs can be discarded and their external staging
+          # is cleaned, while completed library files are never deleted.
+          app.JOBS_STATE_FILE = root / "jobs.json"
+          app.TEMP_DIR = root / "tmp"
+          app.jobs.clear()
+
+          failed = {
+              "id": "failed1",
+              "url": "https://example.invalid/album",
+              "status": "failed",
+              "staging_owner_id": "failed1",
+          }
+          app.jobs["failed1"] = failed
+          stage = staging.ensure_stage_dir(app.TEMP_DIR, failed)
+          (stage / "partial.opus").write_bytes(b"partial")
+          client = app.app.test_client()
+          response = client.delete("/api/jobs/failed1")
+          assert response.status_code == 200, response.data
+          assert "failed1" not in app.jobs
+          assert not stage.exists(), "discard should clean unpublished staging"
+
+          # Removing the visible retry card removes the whole logical request,
+          # not just the latest attempt (which would make its parent reappear).
+          app.jobs.clear()
+          parent = app.normalize_persisted_job({
+              "id": "parent1",
+              "url": "https://example.invalid/grouped",
+              "status": "failed",
+              "source": "yt-dlp",
+              "staging_owner_id": "parent1",
+          })
+          retry = app.normalize_persisted_job({
+              "id": "retry2",
+              "url": "https://example.invalid/grouped",
+              "status": "failed",
+              "source": "yt-dlp",
+              "retry_of": "parent1",
+              "attempt": 2,
+              "staging_owner_id": "parent1",
+          })
+          app.jobs.update({parent["id"]: parent, retry["id"]: retry})
+          grouped_stage = staging.ensure_stage_dir(app.TEMP_DIR, parent)
+          (grouped_stage / "partial.opus").write_bytes(b"partial")
+          response = client.delete("/api/jobs/retry2")
+          assert response.status_code == 200, response.data
+          assert not app.jobs, app.jobs
+          assert not grouped_stage.exists()
+          assert response.get_json()["removed_count"] == 2, response.data
+
+          final_file = root / "library" / "published.opus"
+          final_file.parent.mkdir(parents=True)
+          final_file.write_bytes(b"published")
+          app.jobs["done1"] = {
+              "id": "done1",
+              "url": "https://example.invalid/done",
+              "status": "succeeded",
+              "staging_owner_id": "done1",
+              "files": [str(final_file)],
+          }
+          response = client.delete("/api/jobs/done1")
+          assert response.status_code == 200, response.data
+          assert final_file.exists(), "removing history must not delete library files"
+
+          app.jobs["queued1"] = {
+              "id": "queued1",
+              "url": "https://example.invalid/queued",
+              "status": "queued",
+              "staging_owner_id": "queued1",
+          }
+          response = client.delete("/api/jobs/queued1")
+          assert response.status_code == 409, response.data
+          PY
+      - name: Validate legacy repair metadata inference
+        run: |
+          docker run --rm -i --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python - <<'PY'
+          import library_repair as repair
+
+          # Regression: a bogus generic "Release - Topic" channel must not
+          # beat the real artist shared across the track credits.
+          iceberg = {
+              "title": "The Iceberg",
+              "artist": "Release",
+              "entries": [
+                  {
+                      "id": "aaa111",
+                      "album": "The Iceberg",
+                      "artist": "Oddisee",
+                      "uploader": "Release - Topic",
+                  },
+                  {
+                      "id": "bbb222",
+                      "album": "The Iceberg",
+                      "artist": "Oddisee, Toine",
+                      "uploader": "Release - Topic",
+                  },
+                  {
+                      "id": "ccc333",
+                      "album": "The Iceberg",
+                      "artist": "Oddisee, Olivier St.Louis",
+                      "uploader": "Release - Topic",
+                  },
+              ],
+          }
+          artist, album, per_track, evidence = repair.collection_metadata(
+              iceberg, True
+          )
+          assert artist == "Oddisee", (artist, evidence)
+          assert album == "The Iceberg", (album, evidence)
+          assert "common credited artist" in evidence["artist"], evidence
+          assert set(per_track) == {"aaa111", "bbb222", "ccc333"}
+
+          # Missing artist fields are recoverable from a stable Topic channel.
+          aethiopes = {
+              "title": "Aethiopes",
+              "entries": [
+                  {
+                      "id": f"id{i:04d}",
+                      "album": "Aethiopes",
+                      "uploader": "billy woods - Topic",
+                  }
+                  for i in range(13)
+              ],
+          }
+          artist, album, _, evidence = repair.collection_metadata(
+              aethiopes, True
+          )
+          assert artist == "billy woods", (artist, evidence)
+          assert album == "Aethiopes", (album, evidence)
+
+          # Featured collaborators should not prevent recovering the
+          # principal album artist when one credited artist is common to a
+          # majority of tracks.
+          featured = {
+              "title": "Vulture Prince",
+              "entries": [
+                  {
+                      "id": f"vp{i:04d}",
+                      "album": "Vulture Prince",
+                      "artist": (
+                          "Arooj Aftab, Guest Artist"
+                          if i in {1, 4}
+                          else "Arooj Aftab"
+                      ),
+                  }
+                  for i in range(7)
+              ],
+          }
+          artist, album, _, evidence = repair.collection_metadata(
+              featured, True
+          )
+          assert artist == "Arooj Aftab", (artist, evidence)
+          assert "common credited artist" in evidence["artist"], evidence
+
+          # If two contributors are equally ubiquitous, do not guess.
+          ambiguous = {
+              "title": "Duo",
+              "entries": [
+                  {
+                      "id": f"duo{i:02d}",
+                      "album": "Duo",
+                      "artist": "Artist A, Artist B",
+                  }
+                  for i in range(8)
+              ],
+          }
+          artist, album, _, evidence = repair.collection_metadata(
+              ambiguous, True
+          )
+          # Exact consistency is trustworthy as the supplied album-credit
+          # string, so preserve the full duo rather than arbitrarily picking A.
+          assert artist == "Artist A, Artist B", (artist, evidence)
+
+          # One populated field in a whole album is not enough evidence.
+          weak = {
+              "title": "Unsafe Guess",
+              "entries": [
+                  {
+                      "id": f"weak{i:02d}",
+                      "album": "Unsafe Guess",
+                      "album_artist": "One Lucky Value" if i == 0 else None,
+                  }
+                  for i in range(10)
+              ],
+          }
+          artist, album, _, _ = repair.collection_metadata(weak, True)
+          assert artist == "", artist
+          assert album == "Unsafe Guess", album
+
+          assert repair.is_single_video_url(
+              "https://music.youtube.com/watch?v=CdUT-WJVhyI"
+          )
+          assert not repair.is_single_video_url(
+              "https://music.youtube.com/playlist?list=OLAK5uy_test"
+          )
+
+          # Repair metadata probing must be full, not flat.
+          captured = []
+          class Completed:
+              returncode = 0
+              stdout = '{"title":"Album","entries":[]}'
+              stderr = ""
+          real_run = repair.subprocess.run
+          repair.subprocess.run = lambda cmd, **kwargs: (
+              captured.extend(cmd) or Completed()
+          )
+          try:
+              repair.probe_source(
+                  "https://music.youtube.com/playlist?list=OLAK5uy_test",
+                  True,
+              )
+          finally:
+              repair.subprocess.run = real_run
+          assert "--flat-playlist" not in captured, captured
+          assert "--yes-playlist" in captured, captured
+
+          # The reviewed dry-run metadata should be reused by --apply.
+          import pathlib
+          import tempfile
+          cache = pathlib.Path(tempfile.mkdtemp())
+          calls = []
+          repair.subprocess.run = lambda cmd, **kwargs: (
+              calls.append(cmd) or Completed()
+          )
+          try:
+              url = "https://music.youtube.com/playlist?list=OLAK5uy_cache"
+              first = repair.probe_source(url, True, cache_dir=cache)
+              second = repair.probe_source(url, True, cache_dir=cache)
+          finally:
+              repair.subprocess.run = real_run
+          assert first == second
+          assert len(calls) == 1, calls
+          assert list(cache.glob("*.json")), list(cache.iterdir())
+          PY
+      - name: Validate persistent queue state
+        run: |
+          docker run --rm --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python -c 'import json, tempfile, pathlib, app; now=123.0; raw=[{"id":"q1","url":"https://youtube.com/playlist?list=PL123","status":"queued","playlist":True,"message":"Waiting","created_at":1},{"id":"r1","url":"https://youtube.com/watch?v=abc","status":"running","playlist":False,"message":"Downloading","created_at":2},{"id":"sp2","url":"https://open.spotify.com/album/abc","status":"failed","source":"spotify","attempt":2,"completed_items":6,"total_items":7,"message":"Partial","created_at":3}]; p=pathlib.Path(tempfile.mkdtemp())/"jobs.json"; p.write_text(json.dumps(raw), encoding="utf-8"); app.JOBS_STATE_FILE=p; app.jobs.clear(); ids=app.load_persisted_jobs(); assert ids==["q1"], ids; assert app.jobs["q1"]["status"]=="queued"; assert app.jobs["r1"]["status"]=="failed"; assert "Interrupted by server restart" in app.jobs["r1"]["message"]; assert app.jobs["sp2"]["retry_base_completed"]==6; saved=json.loads(p.read_text()); assert saved["version"]==1 and len(saved["jobs"])==3; app.jobs["q1"]["status"]="succeeded"; app.persist_jobs(); saved2=json.loads(p.read_text()); assert any(j["id"]=="q1" and j["status"]=="succeeded" for j in saved2["jobs"])'
+      - name: Validate unavailable YouTube track ignore
+        run: |
+          docker run --rm --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python -c 'import json, pathlib, tempfile, time, app; d=pathlib.Path(tempfile.mkdtemp()); app.IGNORED_TRACKS_FILE=d/"ignored-tracks.json"; app.JOBS_STATE_FILE=d/"jobs.json"; app.jobs.clear(); log=["WARNING: [youtube:tab] YouTube said: INFO - 1 unavailable video is hidden","ERROR: [youtube] riu2Bx6miIU: Video unavailable"]; missing=app.extract_youtube_missing_tracks(log, {}); assert missing==[{"source":"youtube","source_id":"riu2Bx6miIU","label":"YouTube video riu2Bx6miIU","reason":"Video unavailable","ignored":False}], missing; app.jobs["j"]={"id":"j","url":"https://music.youtube.com/playlist?list=PLCB8D47FCA386F615","source":"yt-dlp","status":"failed","playlist":True,"album_mode":False,"compilation":False,"force":False,"message":"yt-dlp exited with code 1","progress":"","current_item":14,"total_items":14,"completed_items":13,"files":[],"log":log,"created_at":time.time(),"started_at":None,"finished_at":time.time(),"returncode":1,"http_403":False,"retry_of":None,"attempt":3,"retry_base_completed":0,"failed_items":1,"missing_tracks":missing,"resolution_of":None,"spotify_track_url":None,"manual_source_url":None,"download_query":None}; client=app.app.test_client(); r=client.post("/api/jobs/j/ignore", json={"source_id":"riu2Bx6miIU"}); assert r.status_code==200, r.data; j=app.jobs["j"]; assert j["status"]=="succeeded"; assert "13/14 tracks saved; 1 ignored" in j["message"], j["message"]; state=json.loads(app.IGNORED_TRACKS_FILE.read_text()); assert "youtube:riu2Bx6miIU" in state; restored=app.normalize_persisted_job({"id":"old","url":"https://music.youtube.com/playlist?list=PLCB8D47FCA386F615","status":"failed","source":"yt-dlp","playlist":True,"completed_items":13,"total_items":14,"log":log}); assert restored["missing_tracks"][0]["ignored"] is True; assert restored["status"]=="succeeded"'
+      - name: Validate failed-job retry continuation
+        run: |
+          docker run --rm --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python -c 'import queue, time, app; app.download_queue=queue.Queue(maxsize=5); app.jobs.clear(); app.jobs["old"]={"id":"old","url":"https://youtube.com/playlist?list=PL123","playlist":True,"album_mode":False,"compilation":False,"force":False,"status":"failed","message":"failed","progress":"100%","current_item":2,"total_items":21,"completed_items":1,"files":["/data/music/a.opus"],"log":[],"created_at":time.time(),"started_at":None,"finished_at":time.time(),"returncode":1,"http_403":True,"retry_of":None,"attempt":1}; client=app.app.test_client(); r=client.post("/api/jobs/old/retry"); assert r.status_code==202, r.data; new_id=r.get_json()["job_id"]; new=app.jobs[new_id]; assert new["status"]=="queued"; assert new["completed_items"]==1 and new["total_items"]==21; assert new["files"]==["/data/music/a.opus"]; assert new["force"] is False; assert new["retry_of"]=="old" and new["attempt"]==2; assert client.post("/api/jobs/old/retry").status_code==409'
+      - name: Validate Spotify spotDL integration
+        run: |
+          docker run --rm --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python -c 'import queue, app; u="https://open.spotify.com/album/4yP0hdKOZPNshxUOjY0cZj"; assert app.is_spotify_url(u); assert app.spotify_link_type(u)=="album"; j={"id":"sp1","staging_owner_id":"sp1","url":u,"force":False,"download_query":None}; cmd=app.build_spotdl_command(j); assert cmd[:3]==["spotdl","download",u]; ai=cmd.index("--audio"); assert cmd[ai+1:ai+5]==["youtube-music","youtube","bandcamp","soundcloud"]; assert "--archive" in cmd and str(app.SPOTDL_ARCHIVE_FILE) in cmd; assert "--format" in cmd and "opus" in cmd; assert "--bitrate" in cmd and "disable" in cmd; assert app.library_staging.staged_spotdl_output_template(app.TEMP_DIR, j).endswith("{track-number} - {title} [{track-id}].{output-ext}"); assert "/tmp/work/staging/sp1/" in app.library_staging.staged_spotdl_output_template(app.TEMP_DIR, j); assert "youtube:player_client=mweb" in app.spotdl_ytdlp_args(); assert "youtubepot-bgutilscript:server_home=" in app.spotdl_ytdlp_args(); force=app.build_spotdl_command({"id":"sp2","staging_owner_id":"sp2","url":u,"force":True}); assert "--archive" not in force; assert force[force.index("--overwrite")+1]=="force"; app.jobs.clear(); app.jobs["sp"]={"id":"sp","source":"spotify","completed_items":0,"total_items":0,"current_item":0,"retry_base_completed":0,"message":"","progress":"","files":[],"log":[],"http_403":False}; app.append_log("sp","INFO: 1/8 complete"); assert app.jobs["sp"]["total_items"]==8 and app.jobs["sp"]["current_item"]==1; app.append_log("sp", "INFO: Downloaded \"Artist - Track\": https://youtube.com/watch?v=x"); assert app.jobs["sp"]["completed_items"]==1; err="https://open.spotify.com/track/4EIGit0b2tPnfp4jPdrtKZ - LookupError: No results found for song: GAS - Pop 3"; missing=app.extract_spotdl_missing_tracks([err]); assert missing[0]["spotify_url"]=="https://open.spotify.com/track/4EIGit0b2tPnfp4jPdrtKZ"; assert missing[0]["label"]=="GAS - Pop 3"; assert missing[0]["reason"]==err; assert missing[0]["resolved"] is False; assert app.is_manual_spotify_source_url("https://kompakt-gas.bandcamp.com/track/pop-3"); assert app.is_manual_spotify_source_url("https://www.youtube.com/watch?v=abc123"); assert not app.is_manual_spotify_source_url("https://example.com/audio"); app.download_queue=queue.Queue(maxsize=5); app.jobs.clear(); app.jobs["parent"]={"id":"parent","source":"spotify","status":"failed","missing_tracks":missing,"total_items":7,"completed_items":6,"current_item":7,"progress":"","failed_items":1,"log":[]}; client=app.app.test_client(); rr=client.post("/api/jobs/parent/resolve", json={"spotify_url":missing[0]["spotify_url"],"source_url":"https://kompakt-gas.bandcamp.com/track/pop-3"}); assert rr.status_code==202, rr.data; child=app.jobs[rr.get_json()["job_id"]]; assert child["download_query"]=="https://kompakt-gas.bandcamp.com/track/pop-3|https://open.spotify.com/track/4EIGit0b2tPnfp4jPdrtKZ"; assert child["resolution_of"]=="parent"; child["completed_items"]=1; app.apply_manual_resolution_success(child); assert app.jobs["parent"]["status"]=="succeeded"; assert app.jobs["parent"]["completed_items"]==7; assert app.jobs["parent"]["missing_tracks"][0]["resolved"] is True; p=client.post("/api/probe", json={"url":u}); assert p.status_code==200 and p.get_json()["kind"]=="spotify" and p.get_json()["is_album"] is True; t=client.post("/api/probe", json={"url":"https://open.spotify.com/track/4EIGit0b2tPnfp4jPdrtKZ"}); assert t.status_code==200 and t.get_json()["kind"]=="spotify" and t.get_json()["is_album"] is False'
+      - name: Validate partial Spotify playlist publishing
+        run: |
+          docker run --rm -i --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python - <<'PY'
+          import pathlib
+          import queue
+          import tempfile
+
+          import app
+          import staging
+
+          root = pathlib.Path(tempfile.mkdtemp())
+          app.TEMP_DIR = root / "tmp"
+          app.IMPORT_ROOT = root / "library"
+          app.STATE_DIR = root / "state"
+          app.STATE_DIR.mkdir(parents=True)
+          app.JOBS_STATE_FILE = app.STATE_DIR / "jobs.json"
+          app.SPOTDL_ARCHIVE_FILE = app.STATE_DIR / "spotdl-archive.txt"
+          app.download_queue = queue.Queue(maxsize=10)
+          app.jobs.clear()
+
+          playlist_url = "https://open.spotify.com/playlist/test-partial"
+          failed_a = "https://open.spotify.com/track/FailTrackAAA111"
+          failed_b = "https://open.spotify.com/track/FailTrackBBB222"
+
+          job = app.normalize_persisted_job({
+              "id": "partial1",
+              "url": playlist_url,
+              "status": "queued",
+              "source": "spotify",
+              "playlist": True,
+              "collection_mode": True,
+              "album_mode": False,
+              "staging_owner_id": "partial1",
+              "total_items": 4,
+              "completed_items": 0,
+          })
+          app.jobs[job["id"]] = job
+
+          stage = staging.ensure_stage_dir(app.TEMP_DIR, job)
+          one = stage / "New Order" / "Substance" / "01 - Blue Monday [GoodTrackAAA111].opus"
+          two = stage / "Soft Cell" / "Non-Stop Erotic Cabaret" / "01 - Tainted Love [GoodTrackBBB222].opus"
+          one.parent.mkdir(parents=True)
+          two.parent.mkdir(parents=True)
+          one.write_bytes(b"one")
+          two.write_bytes(b"two")
+
+          error_a = f"{failed_a} - AudioProviderError: YT-DLP download error"
+          error_b = f"{failed_b} - LookupError: No results found for song: Missing Song"
+
+          real_popen = app.subprocess.Popen
+
+          class FakeProcess:
+              def __init__(self, command, **kwargs):
+                  error_path = pathlib.Path(
+                      command[command.index("--save-errors") + 1]
+                  )
+                  error_path.parent.mkdir(parents=True, exist_ok=True)
+                  error_path.write_text(error_a + "\n" + error_b + "\n")
+                  self.stdout = [
+                      'INFO: Downloaded "New Order - Blue Monday": source\n',
+                      'INFO: Downloaded "Soft Cell - Tainted Love": source\n',
+                  ]
+
+              def wait(self):
+                  return 1
+
+          app.subprocess.Popen = FakeProcess
+          try:
+              app.run_job("partial1")
+          finally:
+              app.subprocess.Popen = real_popen
+
+          result = app.jobs["partial1"]
+          assert result["status"] == "partial", result
+          assert result["completed_items"] == 2, result
+          assert result["failed_items"] == 2, result
+          assert result["unidentified_failed_items"] == 0, result
+          assert [m["spotify_url"] for m in result["missing_tracks"]] == [
+              failed_a, failed_b
+          ], result
+          assert "AudioProviderError" in result["missing_tracks"][0]["reason"]
+          assert "LookupError" in result["missing_tracks"][1]["reason"]
+
+          # Successful files are published immediately, preserving each
+          # Spotify track's native Album Artist / Album folders.
+          final_one = (
+              app.IMPORT_ROOT / "New Order" / "Substance"
+              / "01 - Blue Monday [GoodTrackAAA111].opus"
+          )
+          final_two = (
+              app.IMPORT_ROOT / "Soft Cell" / "Non-Stop Erotic Cabaret"
+              / "01 - Tainted Love [GoodTrackBBB222].opus"
+          )
+          assert final_one.read_bytes() == b"one"
+          assert final_two.read_bytes() == b"two"
+          assert not stage.exists(), "successful partial files must leave staging"
+
+          # Retry a partial job using only the failed Spotify tracks.
+          client = app.app.test_client()
+          response = client.post("/api/jobs/partial1/retry")
+          assert response.status_code == 202, response.data
+          retry = app.jobs[response.get_json()["job_id"]]
+          assert retry["download_query"] == [failed_a, failed_b], retry
+          assert retry["retry_base_completed"] == 2, retry
+          retry_cmd = app.build_spotdl_command(retry)
+          assert retry_cmd[:4] == [
+              "spotdl", "download", failed_a, failed_b
+          ], retry_cmd
+
+          # If no track succeeded at all, the job remains failed rather than
+          # claiming a partial publish.
+          zero = app.normalize_persisted_job({
+              "id": "zero1",
+              "url": "https://open.spotify.com/playlist/zero",
+              "status": "queued",
+              "source": "spotify",
+              "playlist": True,
+              "staging_owner_id": "zero1",
+              "total_items": 1,
+          })
+          app.jobs[zero["id"]] = zero
+
+          class ZeroProcess:
+              def __init__(self, command, **kwargs):
+                  error_path = pathlib.Path(
+                      command[command.index("--save-errors") + 1]
+                  )
+                  error_path.parent.mkdir(parents=True, exist_ok=True)
+                  error_path.write_text(
+                      failed_a + " - AudioProviderError: no audio\n"
+                  )
+                  self.stdout = []
+
+              def wait(self):
+                  return 1
+
+          app.subprocess.Popen = ZeroProcess
+          try:
+              app.run_job("zero1")
+          finally:
+              app.subprocess.Popen = real_popen
+
+          assert app.jobs["zero1"]["status"] == "failed", app.jobs["zero1"]
+          assert not list(app.IMPORT_ROOT.rglob("*FailTrackAAA111*"))
+
+          # Upgrade recovery: jobs created before this fix were persisted as
+          # failed even when they had successful media in staging. The first
+          # restart after upgrading must publish those files automatically.
+          app.jobs.clear()
+          legacy_error = (
+              failed_a + " - AudioProviderError: YT-DLP download error"
+          )
+          legacy = app.normalize_persisted_job({
+              "id": "legacy-partial",
+              "url": "https://open.spotify.com/playlist/legacy",
+              "status": "failed",
+              "source": "spotify",
+              "playlist": True,
+              "staging_owner_id": "legacy-partial",
+              "total_items": 2,
+              "completed_items": 1,
+              "failed_items": 1,
+              "log": ["spotDL errors:", legacy_error],
+              # Simulate the old schema where AudioProviderError was not added
+              # to missing_tracks.
+              "missing_tracks": [],
+          })
+          assert legacy["missing_tracks"][0]["spotify_url"] == failed_a, legacy
+          app.jobs[legacy["id"]] = legacy
+          legacy_stage = staging.ensure_stage_dir(app.TEMP_DIR, legacy)
+          legacy_file = (
+              legacy_stage / "New Order" / "Substance"
+              / "02 - Bizarre Love Triangle [GoodTrackLegacy].opus"
+          )
+          legacy_file.parent.mkdir(parents=True)
+          legacy_file.write_bytes(b"legacy")
+
+          recovery = app.staged_jobs_to_finalize_after_restore()
+          assert recovery == ["legacy-partial"], recovery
+          assert app.jobs["legacy-partial"]["status"] == "partial"
+          app.finalize_staged_job("legacy-partial")
+          assert app.jobs["legacy-partial"]["status"] == "partial"
+          assert not legacy_stage.exists()
+          assert (
+              app.IMPORT_ROOT / "New Order" / "Substance"
+              / "02 - Bizarre Love Triangle [GoodTrackLegacy].opus"
+          ).read_bytes() == b"legacy"
+          PY
+      - name: Validate Monochrome fallback track endpoint
+        run: |
+          docker run --rm -i --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python - <<'PY'
+          import pathlib
+          import subprocess
+
+          from mutagen.oggopus import OggOpus
+
+          import app
+
+          cmd = app.build_fallback_track_command(
+              "Test Artist - Test Track",
+              "/tmp/work/fallback/test",
+          )
+          assert cmd[:3] == ["spotdl", "download", "Test Artist - Test Track"], cmd
+          ai = cmd.index("--audio")
+          assert cmd[ai + 1:ai + 5] == [
+              "youtube-music", "youtube", "bandcamp", "soundcloud"
+          ], cmd
+          assert "--archive" not in cmd, cmd
+          assert cmd[cmd.index("--overwrite") + 1] == "force", cmd
+
+          real_run = app.subprocess.run
+
+          class Done:
+              returncode = 0
+              stdout = "Downloaded test fallback"
+
+          def fake_run(command, **kwargs):
+              output_template = command[command.index("--output") + 1]
+              target = pathlib.Path(
+                  output_template
+                  .replace("{title}", "Test Track")
+                  .replace("{output-ext}", "opus")
+              )
+              target.parent.mkdir(parents=True, exist_ok=True)
+              real_run([
+                  "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+                  "-f", "lavfi", "-i", "sine=frequency=440:duration=0.2",
+                  "-c:a", "libopus", str(target),
+              ], check=True)
+              audio = OggOpus(target)
+              audio["title"] = ["Test Track"]
+              audio["artist"] = ["Test Artist"]
+              audio.save()
+              return Done()
+
+          app.subprocess.run = fake_run
+          try:
+              client = app.app.test_client()
+              response = client.post(
+                  "/api/fallback-track",
+                  json={
+                      "artist": "Test Artist",
+                      "title": "Test Track",
+                      "album": "Test Album",
+                  },
+              )
+          finally:
+              app.subprocess.run = real_run
+
+          assert response.status_code == 200, response.data
+          assert response.headers["X-Fallback-Provider"] == "spotdl"
+          assert response.headers["X-Fallback-Query"] == "Test Artist - Test Track"
+          assert response.data[:4] == b"OggS", response.data[:16]
+
+          bad = client.post(
+              "/api/fallback-track",
+              json={"artist": "", "title": "Missing"},
+          )
+          assert bad.status_code == 400, bad.data
+          PY
+      - name: Validate YouTube PO-token command wiring
+        run: |
+          docker run --rm --user 1000:1000 \
+            -e MUSIC_ROOT=/tmp/music \
+            -e STATE_DIR=/tmp/state \
+            -e TEMP_DIR=/tmp/work \
+            yt-dlp-server:test python -c 'import app; u="https://youtube.com/watch?v=df6l0NnHOTw"; args=app.youtube_extractor_args(u); assert "youtube:player_client=mweb" in args; assert any(x.startswith("youtubepot-bgutilscript:server_home=") for x in args); assert app.VERSIONS["bgutil"]=="2.0.2"; assert app.BGUTIL_SERVER_HOME.is_dir()'
