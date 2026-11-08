@@ -80,6 +80,70 @@ jobs:
           assert "NET_ADMIN" in engine["cap_add"]
           assert engine["build"]["context"].endswith("/yt-dlp-server")
           PY
+      - name: Verify real parent Compose migration and VPN override move
+        run: |
+          set -eu
+          root="$(mktemp -d)"
+          mkdir -p "$root/plex-playlist-manager/yt-dlp-server" "$root/yt-dlp-server"
+          cp yt-dlp-server/compose.parent-vpn.yaml             "$root/plex-playlist-manager/yt-dlp-server/compose.parent-vpn.yaml"
+          cp yt-dlp-server/compose.parent-vpn.yaml             "$root/yt-dlp-server/compose.parent-vpn.yaml"
+          ln -s "$root/yt-dlp-server/compose.parent-vpn.yaml"             "$root/docker-compose.override.yml"
+          cat > "$root/docker-compose.yml" <<'YAML'
+          services:
+            yt-dlp-server:
+              build:
+                context: ./yt-dlp-server
+              container_name: yt-dlp-server
+              user: "1000:1000"
+              ports:
+                - "4545:4545"
+              environment:
+                TZ: Europe/Lisbon
+                STATE_DIR: /data/state
+              volumes:
+                - /srv/yt-dlp-server/state:/data/state
+            plex-playlist-manager:
+              build:
+                context: ./plex-playlist-manager
+              ports:
+                - "5051:8000"
+              environment:
+                PLEX_LIBRARY: Music
+              volumes:
+                - /srv/plex-playlist-manager:/data
+            unrelated-app:
+              image: busybox:latest
+              command: ["true"]
+          YAML
+          python deploy/merge_media_stack.py --stack "$root"
+          python deploy/merge_media_stack.py --stack "$root" --apply
+          python deploy/merge_media_stack.py --stack "$root" --apply
+          test "$(readlink -f "$root/docker-compose.override.yml")" =             "$root/plex-playlist-manager/yt-dlp-server/compose.parent-vpn.yaml"
+          ROOT="$root" python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          root = Path(os.environ["ROOT"])
+          result = subprocess.check_output([
+              "docker", "compose", "-f", str(root/"docker-compose.yml"),
+              "-f", str(root/"docker-compose.override.yml"),
+              "config", "--format", "json",
+          ], text=True)
+          services = json.loads(result)["services"]
+          assert set(services) == {
+              "yt-dlp-server", "plex-playlist-manager", "unrelated-app"
+          }
+          downloader = services["yt-dlp-server"]
+          assert downloader["build"]["context"] == str(
+              root/"plex-playlist-manager"/"yt-dlp-server")
+          assert not downloader.get("ports")
+          assert "NET_ADMIN" in downloader["cap_add"]
+          assert downloader["user"] == "0:0"
+          assert services["plex-playlist-manager"]["ports"]
+          assert services["unrelated-app"]["image"] == "busybox:latest"
+          assert len(list(root.glob("*.pre-monorepo.*.bak"))) == 1
+          PY
       - name: Build Playlist Manager Docker image
         run: docker build -t plex-playlist-builder:ci .
       - name: Verify live manager-to-downloader Docker network integration
