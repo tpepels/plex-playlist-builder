@@ -210,3 +210,33 @@ def test_migration_docs_preserve_state_and_remove_orphan_container():
     assert "docker compose down -v" in docs  # explicitly prohibited
     assert "docker compose exec -u 1000:1000" in docs
     assert "docker volume prune" in docs  # explicitly prohibited
+
+
+
+def test_worker_health_failures_are_bounded_and_transient_failures_recover():
+    count, restart = runtime.evaluate_web_health(None, 0)
+    assert (count, restart) == (1, False)
+    count, restart = runtime.evaluate_web_health({"worker_alive": False}, count)
+    assert (count, restart) == (2, False)
+    count, restart = runtime.evaluate_web_health({"worker_alive": True}, count)
+    assert (count, restart) == (0, False)
+    for i in range(runtime.HEALTH_FAILURE_LIMIT):
+        count, restart = runtime.evaluate_web_health(None, count)
+    assert restart and count == runtime.HEALTH_FAILURE_LIMIT
+
+
+def test_corrupt_persistent_state_keeps_dashboard_running_for_owner():
+    for previous in (0, 1, 2, 4):
+        count, restart = runtime.evaluate_web_health({
+            "status": "degraded",
+            "worker_alive": False,
+            "state_error": "Damaged job state; restore backup",
+        }, previous)
+        assert (count, restart) == (0, False)
+
+
+def test_unresponsive_http_health_is_not_reported_healthy(monkeypatch):
+    import urllib.error
+    monkeypatch.setattr(runtime, "urlopen", lambda *a, **k:
+                        (_ for _ in ()).throw(urllib.error.URLError("offline")))
+    assert runtime.web_health() is None
