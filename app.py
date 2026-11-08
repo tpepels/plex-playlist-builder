@@ -1904,10 +1904,32 @@ def start_runtime_workers():
         )
         print("ERROR: " + STATE_FAULT, flush=True)
         return
-    restored_finalize_ids = staged_jobs_to_finalize_after_restore()
+    try:
+        removed = library_staging.cleanup_interrupted_publications(IMPORT_ROOT)
+        if removed:
+            print(f"RECOVERY: cleaned {removed} abandoned hidden publication "
+                  "directories; staged originals were preserved.", flush=True)
+        restored_finalize_ids = staged_jobs_to_finalize_after_restore()
+    except (RuntimeError, OSError, ValueError, StateCorruption):
+        STATE_FAULT = (
+            "Recovery of incomplete staged downloads failed. Staged and "
+            "published files were preserved. Check the stage and library "
+            "mounts, fix unsafe job IDs or storage permissions, then restart."
+        )
+        print("ERROR: " + STATE_FAULT, flush=True)
+        return
 
     for restored_id in restored_finalize_ids:
-        finalize_staged_job(restored_id)
+        try:
+            finalize_staged_job(restored_id)
+        except (RuntimeError, OSError, ValueError, StateCorruption):
+            STATE_FAULT = (
+                "Recovery could not finalize an interrupted download safely. "
+                "No staging files were intentionally removed. Inspect disk "
+                "permissions and saved metadata before restarting."
+            )
+            print("ERROR: " + STATE_FAULT, flush=True)
+            return
 
     for restored_id in restored_queue_ids:
         try:
