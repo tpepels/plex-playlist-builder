@@ -119,3 +119,23 @@ def test_mode_is_explicit_not_inferred_from_missing_profile(tmp_path, monkeypatc
     status = g.list_profiles()
     assert status["mode"] == "blocked"
     assert status["kill_switch"] is True
+
+
+def test_direct_stays_blocked_if_normal_route_is_missing(tmp_path, monkeypatch):
+    namespace(tmp_path, monkeypatch)
+    events = []
+    monkeypatch.setattr(g, "stop_tunnel", lambda: events.append(("stop",)))
+    def fake_run(*args, **kwargs):
+        events.append(args)
+        if args == ("ip", "link", "show", "wg0"):
+            return SimpleNamespace(returncode=1, stdout="")
+        if args == ("ip", "-4", "route", "get", "1.1.1.1"):
+            return SimpleNamespace(returncode=1, stdout="")
+        return SimpleNamespace(returncode=0, stdout="")
+    monkeypatch.setattr(g, "run", fake_run)
+    monkeypatch.setattr(g, "firewall", lambda: events.append(("block",)))
+    with pytest.raises(g.VPNConnectionError, match="outbound"):
+        g.direct()
+    assert g.FIREWALL_ENABLED is True
+    assert ("iptables", "-P", "OUTPUT", "ACCEPT") not in events
+    assert ("block",) in events
