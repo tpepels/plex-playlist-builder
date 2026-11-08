@@ -62,7 +62,7 @@ def compose_native_page(html: str) -> str:
     """
     required = (_HEADER, _BRAND, _TOOLS, _HEAD_END, _BODY_END,
                 '<main class="signal-shell">', "</header>",
-                'name="downloader-base"', 'id="download-form"',
+                '<meta name="downloader-base"', 'id="download-form"',
                 'id="jobs"', 'id="vpn-panel"', 'id="youtube-cookie-panel"')
     if (any(html.count(marker) != 1 for marker in required)
             or 'content="' + PREFIX + '"' not in html
