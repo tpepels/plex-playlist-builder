@@ -1,0 +1,42 @@
+name: One-time yt-dlp history-preserving subtree import
+
+on:
+  push:
+    paths:
+      - .github/workflows/monorepo-import.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: yt-dlp-monorepo-import
+  cancel-in-progress: false
+
+jobs:
+  subtree-import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Import complete yt-dlp Git history as a subtree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if test -e yt-dlp-server/Dockerfile; then
+            echo "yt-dlp-server subtree already present; no-op"
+            exit 0
+          fi
+          git subtree add --prefix=yt-dlp-server \
+            https://github.com/tpepels/yt-dlp-server.git main \
+            -m "Import yt-dlp-server with its complete Git history"
+          test -f yt-dlp-server/Dockerfile
+          test -f yt-dlp-server/app.py
+          git log -1 --format='%P' | awk '{ exit (NF < 2) }'
+          git push origin HEAD:main
