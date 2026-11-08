@@ -801,3 +801,23 @@ or `/srv/yt-dlp-server/wireguard-profiles`, preserve the `.corrupt-*`
 evidence, and restart `yt-dlp-server`. Correct disk space or permissions
 before restarting if the failure was a write error. No recovery action
 deletes staged music, published music, or download archives.
+
+### Stalled subprocesses
+
+An extractor or spotDL process that produces no output for
+`DOWNLOAD_STALL_SECONDS` (default **900 seconds**, constrained to 120–3600)
+is terminated, then killed if it ignores the termination signal. Staged
+audio and download archives remain intact. The job is marked **failed**
+with a specific stalled-download explanation and offers **Retry / continue**.
+A stall does not automatically turn on Surfshark: it is not evidence of
+a YouTube bot challenge. Active downloads with normal progress output
+reset the inactivity clock.
+
+FFmpeg metadata-copy fallback has a 120-second limit. If it times out,
+the original staged media is preserved and incomplete output is discarded.
+The app's supervisor separately checks that the web server and its
+single download-worker thread remain healthy; repeated missing/unhealthy
+worker checks restart the combined container, causing interrupted jobs
+to become explicitly retryable. Persistent-state corruption is handled
+differently: the dashboard stays available for the operator to repair
+the mounted files instead of restarting in a loop.

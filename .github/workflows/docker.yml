@@ -10,6 +10,7 @@ on:
       - compose.parent-vpn.yaml
       - container_runtime.py
       - state_store.py
+      - process_lifecycle.py
       - staging.py
       - app.py
       - vpn_gateway.py
@@ -66,7 +67,7 @@ jobs:
           PY
       - name: Smoke-test installed tools
         run: |
-          docker run --rm yt-dlp-server:test python -m py_compile /app/app.py /app/staging.py /app/library_repair.py /app/extension_package.py /app/container_runtime.py /app/vpn_gateway.py /app/state_store.py
+          docker run --rm yt-dlp-server:test python -m py_compile /app/app.py /app/staging.py /app/library_repair.py /app/extension_package.py /app/container_runtime.py /app/vpn_gateway.py /app/state_store.py /app/process_lifecycle.py
           docker run --rm yt-dlp-server:test yt-dlp --version
           docker run --rm yt-dlp-server:test deno --version
           docker run --rm yt-dlp-server:test ffmpeg -version
