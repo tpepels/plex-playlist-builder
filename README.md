@@ -853,3 +853,27 @@ Downloaded audio cannot be read from symlinked staging directories, and
 album publication rejects symlinked destination directories. This prevents
 malformed saved jobs or unexpected filesystem links from redirecting library
 operations outside the intended mounts.
+
+## Single download interface with Plex Playlist Manager
+
+When installed through the Playlist Manager's media-stack migration script,
+the downloader runs at `http://yt-dlp-server:4545` **inside Docker only**.
+Open `http://media-server:5051/downloads` in your browser. That workspace
+includes the complete downloader UI, retry/resolve/metadata controls, history,
+YouTube cookie upload/verification, Surfshark profile management, and the
+Chrome extension ZIP. The Playlist Manager also offers a Plex Music scan,
+download audit, recently added music and approved playlist curation.
+
+The Chrome extension works through the unified address. Open its options
+and change the configured server URL to
+`http://media-server:5051/downloads/engine`. The extension's access is
+limited to `/health`, `/api/probe` and `/download` on that path. It
+cannot use the gateway's privileged VPN/cookie management operations.
+Download submission returns a confirmed job ID to the extension without
+redirecting to an HTML page. Direct standalone yt-dlp deployments remain
+supported on port 4545.
+
+The Playlist Manager forwards these requests to a fixed internal
+`YTDLP_SERVER_URL`; it never accepts arbitrary remote proxy targets.
+The manager and downloader remain separate Docker containers so a VPN
+outage or music download does not share a process with playlist curation.

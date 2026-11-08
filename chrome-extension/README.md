@@ -16,7 +16,7 @@ Manifest V3 Chrome/Chromium extension for sending album URLs directly to the yt-
 3. Choose **Load unpacked**.
 4. Select this `chrome-extension` directory.
 5. Open the extension settings (click the extension icon, or **Details -> Extension options**).
-6. Enter the server address, for example `http://media-server:4545`, then choose **Save and test**.
+6. With Playlist Manager integration, enter `http://media-server:5051/downloads/engine` (replace `media-server` with your server hostname). The internal yt-dlp port 4545 is no longer exposed. Choose **Save and test**. Standalone yt-dlp installs can still use their direct address.
 
 Chrome asks for access only to the server origin you configure.
 
