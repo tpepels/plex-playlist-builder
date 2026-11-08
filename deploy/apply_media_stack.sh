@@ -155,6 +155,11 @@ for attempt in range(15):
                 page = response.read(1_500_000)
             if marker not in page:
                 raise ValueError("Expected UI component missing from " + path)
+            if page.count(b'id="siteNavigationPanel"') != 1 or page.count(b'id="workspaceTopbar"') != 1:
+                raise ValueError("Shared navigation is missing or duplicated on " + path)
+            if path == "/" and (b'id="home-playlist-file"' not in page
+                                or b'id="home-download-form"' not in page):
+                raise ValueError("Home has no working YAML or download entry point")
             if path == "/downloads" and b"<iframe" in page.lower():
                 raise ValueError("Downloads still contains a nested iframe")
         with urlopen(base + "/api/config", timeout=8) as response:
