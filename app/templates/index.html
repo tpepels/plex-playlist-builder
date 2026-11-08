@@ -1135,7 +1135,7 @@ for (const b of document.querySelectorAll(".view-tab")) b.onclick = async () => 
   $("activeSectionTitle").textContent=NAVIGATION_TITLES[activeView];
   $("activeSectionPath").textContent=NAVIGATION_TITLES[activeView].toUpperCase();
   $("importPack").parentElement?.classList?.toggle("secondary-view",activeView!=="playlists");
-  setNavigationOpen(false);
+
   for (const [view,id] of Object.entries({
     playlists:"viewPlaylists",health:"viewHealth",duplicates:"viewDuplicates",newmusic:"viewNewmusic",isc:"viewIsc",discover:"viewDiscover"
   })) $(id).hidden = view !== activeView;
