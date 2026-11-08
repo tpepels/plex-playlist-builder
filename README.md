@@ -62,8 +62,17 @@ private network, rather than combining its processes and VPN permissions
 with playlist management.
 
 Open `http://media-server:5051/downloads` (substitute your LAN hostname).
-The Downloads page embeds the **complete current yt-dlp interface** over a
-same-origin proxy at `/downloads/engine/`, including:
+Submitting a download, uploading/removing cookies and following job links
+return to this canonical page. The old `/downloads/engine/` browser homepage
+redirects here; the engine's API paths stay internal.
+The Downloads page renders the **complete yt-dlp interface directly in the
+Music workspace page**, with the shared navigation, library actions and one
+continuous scroll surface. There is no iframe or nested downloader dashboard.
+The downloader's own HTML and scripts remain authoritative, while its API,
+forms, cookies, static assets and Chrome extension use the fixed same-origin
+proxy at `/downloads/engine/`. If the downloader is unavailable or its page
+structure changes unexpectedly, the workspace shows a navigable error screen
+instead of a partial interface. All existing controls remain available:
 
 - Audio-only URL submission, album/playlist detection, queue progress, retry
   all failed, per-job retries, discard, full download logs and historical jobs.
