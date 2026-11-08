@@ -20,7 +20,7 @@ docker compose version >/dev/null 2>&1 || error "Docker Compose plugin required"
 
 # The active job queue is durable. Recreating the engine while it downloads
 # would unnecessarily interrupt it. Fail BEFORE pulling/building/editing.
-step "Preflight: refuse migration while downloads are active or queued"
+require_idle_downloader() {
 engine_running="$(docker container inspect --format '{{.State.Running}}' yt-dlp-server 2>/dev/null || true)"
 if [ "$engine_running" = "true" ]; then
   if ! docker exec -i yt-dlp-server python - <<'PY'
@@ -48,6 +48,10 @@ PY
     error "Could not confirm an idle downloader; nothing was changed. Check port 4545 and the job queue."
   fi
 fi
+}
+
+step "Preflight: refuse migration while downloads are active or queued"
+require_idle_downloader
 
 step "Fast-forward the single monorepo checkout"
 git -C "$MANAGER" pull --ff-only ||
@@ -70,6 +74,9 @@ step "Build both services without stopping the existing containers"
 docker compose build yt-dlp-server plex-playlist-manager ||
     error "Build failed. Existing containers are unchanged. Private Compose backup retained."
 
+step "Recheck the queue immediately before replacing containers"
+require_idle_downloader
+
 step "Recreate only the two download services"
 if docker container inspect yt-dlp-wireguard-gateway >/dev/null 2>&1; then
     docker rm -f yt-dlp-wireguard-gateway ||
@@ -77,6 +84,25 @@ if docker container inspect yt-dlp-wireguard-gateway >/dev/null 2>&1; then
 fi
 docker compose up -d --no-deps --no-build --force-recreate yt-dlp-server ||
     error "yt-dlp deployment failed. Inspect container logs."
+
+# Do not recreate the web app while its backend is stuck starting or unhealthy.
+# Dockerfile's healthcheck verifies both WireGuard control and the download API.
+step "Verify downloader is healthy before replacing Playlist Manager"
+ready=0
+for check in $(seq 1 35); do
+  health="$(docker container inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' yt-dlp-server 2>/dev/null || true)"
+  if [ "$health" = "healthy" ]; then
+    ready=1
+    break
+  fi
+  if [ "$health" = "missing" ]; then
+    error "Downloader has no Docker healthcheck. Playlist Manager was left running."
+  fi
+  sleep 2
+done
+[ "$ready" = "1" ] ||
+  error "Downloader is not healthy. Playlist Manager was left running. Inspect: docker compose logs --tail=100 yt-dlp-server"
+
 docker compose up -d --no-deps --no-build --force-recreate plex-playlist-manager ||
     error "Playlist Manager deployment failed. Inspect container logs."
 
