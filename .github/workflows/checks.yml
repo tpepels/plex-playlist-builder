@@ -101,7 +101,9 @@ jobs:
                 TZ: Europe/Lisbon
                 STATE_DIR: /data/state
               volumes:
+                - /srv/completed/music:/data/music
                 - /srv/yt-dlp-server/state:/data/state
+                - /srv/yt-dlp-server/tmp:/data/tmp
             plex-playlist-manager:
               build:
                 context: ./plex-playlist-manager
