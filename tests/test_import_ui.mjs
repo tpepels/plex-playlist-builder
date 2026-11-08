@@ -463,7 +463,7 @@ test("playlist workspace uses one shared header and no duplicate tab bar", () =>
   assert.match(html, /include "_site_navigation.html"/);
   assert.match(nav, /id="siteNavigationPanel"/);
   assert.match(nav, /id="siteNavigationToggle"/);
-  assert.match(html, /site-navigation\\.js/);
+  assert.ok(html.includes("site-navigation.js"));
   assert.doesNotMatch(html, /class="view-tabs workspace-view-tabs"/);
   assert.doesNotMatch(html, /id="navigationPanel"/);
 });
