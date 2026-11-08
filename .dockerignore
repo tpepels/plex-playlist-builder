@@ -2,3 +2,6 @@
 __pycache__
 *.pyc
 data
+
+# Do not copy the embedded downloader into Playlist Manager's image.
+yt-dlp-server/

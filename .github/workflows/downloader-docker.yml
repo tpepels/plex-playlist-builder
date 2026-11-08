@@ -1,20 +1,12 @@
-name: Docker CI
+name: Downloader Docker integration
 
 # Build only when container wiring changes; regular code uses fast checks.
 on:
   workflow_dispatch:
   push:
     paths:
-      - Dockerfile
-      - compose.yaml
-      - compose.parent-vpn.yaml
-      - container_runtime.py
-      - state_store.py
-      - process_lifecycle.py
-      - staging.py
-      - app.py
-      - vpn_gateway.py
-      - .github/workflows/docker.yml
+      - "yt-dlp-server/**"
+      - ".github/workflows/downloader-docker.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,6 +16,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: yt-dlp-server
     steps:
       - uses: actions/checkout@v4
       - name: Validate single-service Compose
