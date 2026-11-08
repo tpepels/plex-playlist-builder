@@ -160,5 +160,5 @@ test("an active retry suppresses the old failed result to avoid duplicate album 
   await flush();
   assert.equal(ui.get("jobs").children.length, 1);
   assert.equal(ui.get("history-results").children.length, 1);
-  assert.match(rowText(ui.get("history-results").children[0]), /No attempts match/);
+  assert.match(rowText(ui.get("history-results").children[0]), /No completed or failed results yet/);
 });
