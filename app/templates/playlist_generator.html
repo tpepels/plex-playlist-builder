@@ -44,14 +44,10 @@ dialog::backdrop{background:#000b}
 fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:15px}
 :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 @media(max-width:850px){.layout{grid-template-columns:1fr}.mini-grid{grid-template-columns:1fr 1fr}.metric-grid{grid-template-columns:repeat(2,1fr)}main{padding:14px}.row{flex-wrap:wrap}}
-</style><link rel="stylesheet" href="/static/site-navigation.css">
+</style><link rel="stylesheet" href="/static/signal-console.css">
+<link rel="stylesheet" href="/static/site-navigation.css">
 </head>
 <body><main>
-<header class="site-nav-page-header">
-<button id="siteNavigationToggle" class="site-nav-toggle" type="button"
-  aria-label="Open navigation menu" aria-expanded="false" aria-controls="siteNavigationPanel"
-  title="Open navigation menu"><span class="site-nav-lines" aria-hidden="true"><span></span><span></span><span></span></span></button>
-<a href="/playlists">← Playlists</a><a href="/playlist-intelligence">Existing playlist intelligence</a></header>
 {% include "_site_navigation.html" %}
 
 <h1>Intelligent Playlist Generation</h1>
@@ -373,5 +369,6 @@ if(last){
   $('restoreDraft').hidden=false;
   $('restoreDraft').onclick=()=>loadDraft(last);
 }
-</script><script src="/static/site-navigation.js" defer></script>
+</script><script src="/static/signal-console.js" defer></script>
+<script src="/static/site-navigation.js" defer></script>
 </body></html>
