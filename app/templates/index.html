@@ -139,14 +139,15 @@ small{color:var(--muted)}
 .cover-import-details .cover-bad{color:var(--bad)}
 </style>
 <link rel="stylesheet" href="/static/signal-console.css">
+<link rel="stylesheet" href="/static/site-navigation.css">
 </head>
 <body>
 <main class="signal-shell">
 <header class="signal-header signal-transition">
   <div class="signal-brand">
-    <button id="navigationToggle" type="button" class="navigation-toggle" aria-label="Open navigation menu"
-            aria-expanded="false" aria-controls="navigationPanel" title="Open navigation menu">
-      <span class="hamburger-lines" aria-hidden="true"><span></span><span></span><span></span></span>
+    <button id="siteNavigationToggle" type="button" class="site-nav-toggle" aria-label="Open navigation menu"
+            aria-expanded="false" aria-controls="siteNavigationPanel" title="Open navigation menu">
+      <span class="site-nav-lines" aria-hidden="true"><span></span><span></span><span></span></span>
     </button>
     <img class="signal-mark" src="/static/signal-mark.svg" width="61" height="61" alt="" aria-hidden="true">
     <div>
@@ -160,49 +161,15 @@ small{color:var(--muted)}
     <button id="signal-theme-toggle" type="button" class="signal-theme-button" aria-pressed="true">CYBER: ON</button>
   </div>
 </header>
-<div id="navigationBackdrop" class="navigation-backdrop" hidden></div>
-<aside id="navigationPanel" class="navigation-drawer" role="dialog" aria-modal="true" aria-label="Navigation" tabindex="-1" hidden>
-  <div class="navigation-drawer-head">
-    <strong>Navigation</strong>
-    <button id="navigationClose" class="navigation-close" type="button" aria-label="Close navigation menu">Close <span aria-hidden="true">×</span></button>
-  </div>
-  <nav class="view-tabs navigation-list" aria-label="Main sections">
-    <span class="navigation-group-heading">WORKSPACE</span>
-    <button class="view-tab active" type="button" data-view="playlists" aria-current="page">Playlists</button>
-    <button class="view-tab" type="button" data-view="health">Playlist health</button>
-    <button class="view-tab" type="button" data-view="duplicates">Duplicate albums</button>
-    <button class="view-tab" type="button" data-view="newmusic">New music</button>
-    <button class="view-tab" type="button" data-view="isc">Music discovery</button>
-    <button class="view-tab" type="button" data-view="discover">Find album</button>
-  </nav>
-  <nav class="navigation-list navigation-links" aria-label="Analysis and utilities">
-    <span class="navigation-group-heading">ANALYSE &amp; CURATION</span>
-    <a href="/playlist-generator">Create intelligent playlist</a>
-    <a href="/playlist-intelligence">Playlist Intelligence</a>
-    <a href="/musical-coherence">Musical coherence</a>
-    <span class="navigation-group-heading">LIBRARY TOOLS</span>
-    <a href="/downloads-audit">Download audit</a>
-    <button id="importCoverZip" type="button" title="Upload covers by ZIP filename">Upload cover ZIP</button>
-    <input id="coverZipFile" type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden>
-  </nav>
-  <details class="navigation-exports">
-    <summary>Export data <span aria-hidden="true">⌄</span></summary>
-    <div class="navigation-export-links">
-      <a href="/api/library-albums.tsv" download="plex-albums.tsv" title="One row per artist and album">Album list TSV</a>
-      <a href="/api/library-export.tsv" download="plex-music-library.tsv">Full library TSV</a>
-      <a href="/api/playlists-export.yml" download="plex-playlists.yml">Playlist YAML</a>
-      <form id="recentForm" action="/api/library-recent.tsv" method="get" class="recent-form" aria-label="Export recently added music">
-        <label for="recentMode">Recent music export</label>
-        <select id="recentMode" name="mode" aria-label="Recent music selection">
-          <option value="hours">Last hours</option>
-          <option value="albums">Latest albums</option>
-        </select>
-        <input id="recentLimit" name="limit" type="number" min="1" max="8760" value="48" required aria-label="Number of hours">
-        <button type="submit" title="Export selected tracks with Plex rating keys">Download TSV</button>
-      </form>
-    </div>
-  </details>
-</aside>
+{% include "_site_navigation.html" %}
+<nav class="view-tabs workspace-view-tabs" aria-label="Playlist workspace sections">
+  <button class="view-tab active" type="button" data-view="playlists" aria-current="page">Playlists</button>
+  <button class="view-tab" type="button" data-view="health">Playlist health</button>
+  <button class="view-tab" type="button" data-view="duplicates">Duplicate albums</button>
+  <button class="view-tab" type="button" data-view="newmusic">New music</button>
+  <button class="view-tab" type="button" data-view="isc">Music discovery</button>
+  <button class="view-tab" type="button" data-view="discover">Find album</button>
+</nav>
 
 <div class="workspace-heading">
   <div>
@@ -212,6 +179,8 @@ small{color:var(--muted)}
   <div class="workspace-primary-action">
     <button id="importPack" class="primary" title="Validate YAML, import and sync changes to Plex">Import &amp; sync</button>
     <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
+    <button id="importCoverZip" type="button" title="Upload covers by ZIP filename">Upload cover ZIP</button>
+    <input id="coverZipFile" type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden>
   </div>
 </div>
 <section class="collection-status" aria-label="Current collection">
@@ -720,7 +689,7 @@ $("importCoverZip").onclick = () => {
 $("coverZipFile").onchange = async () => {
   const file = $("coverZipFile").files[0];
   if (!file) return;
-  setNavigationOpen(false);
+  // The common site drawer is controlled by site-navigation.js.
   if (syncing || coverUploading) {
     $("coverZipFile").value = "";
     showNotice("Finish the current operation before importing covers.", true);
@@ -1147,51 +1116,13 @@ const NAVIGATION_TITLES = {
   playlists:"Playlists", health:"Playlist health", duplicates:"Duplicate albums",
   newmusic:"New music", isc:"Music discovery", discover:"Find album"
 };
-function setNavigationOpen(open, restoreFocus=false) {
-  const toggle=$("navigationToggle");
-  $("navigationBackdrop").hidden=!open;
-  $("navigationPanel").hidden=!open;
-  toggle.setAttribute("aria-expanded",String(open));
-  toggle.setAttribute("aria-label",open?"Close navigation menu":"Open navigation menu");
-  document.body?.classList?.toggle("navigation-open",open);
-  if(open)$("navigationPanel").focus?.();
-  else if(restoreFocus)toggle.focus?.();
-}
-$("navigationToggle").onclick=()=>setNavigationOpen($("navigationPanel").hidden);
-$("navigationClose").onclick=()=>setNavigationOpen(false,true);
-$("navigationBackdrop").onclick=()=>setNavigationOpen(false,true);
-$("recentForm").onsubmit=()=>setNavigationOpen(false);
-// Only trap focus while the menu is open. Esc and outside click close it.
-document.addEventListener?.("keydown",event=>{
-  if($("navigationPanel").hidden)return;
-  if(event.key==="Escape") {
-    event.preventDefault();
-    setNavigationOpen(false,true);
-    return;
-  }
-  if(event.key!=="Tab")return;
-  const focusables=Array.from($("navigationPanel").querySelectorAll(
-    'a[href],button:not([disabled]),summary,input:not([disabled]),select:not([disabled])'
-  )).filter(el=>!el.closest?.("[hidden]") && el.getClientRects?.().length!==0);
-  if(!focusables.length)return;
-  const first=focusables[0],last=focusables[focusables.length-1];
-  if(!focusables.includes(document.activeElement)) {
-    event.preventDefault();
-    (event.shiftKey?last:first).focus();
-    return;
-  }
-  if(event.shiftKey && document.activeElement===first) {
-    event.preventDefault();last.focus();
-  } else if(!event.shiftKey && document.activeElement===last) {
-    event.preventDefault();first.focus();
-  }
-});
 for (const b of document.querySelectorAll(".view-tab")) b.onclick = async () => {
   activeView = b.dataset.view;
   // Keep deep links from the other application pages aligned with the active
   // dashboard view. Do not reload the page or lose unsaved playlist state.
   if (typeof window !== "undefined" && window.history?.replaceState) {
     const target = new URL(window.location.href);
+    if (target.pathname === "/") target.pathname = "/playlists";
     if (activeView === "playlists") target.searchParams.delete("view");
     else target.searchParams.set("view", activeView);
     window.history.replaceState(null, "", target.pathname + target.search + target.hash);
@@ -1229,5 +1160,6 @@ checkHealth();
 loadConfig().catch(e => { $("cards").innerHTML = `<div class="empty">Could not load playlists: ${esc(e.message)}</div>`; });
 </script>
 <script src="/static/signal-console.js" defer></script>
+<script src="/static/site-navigation.js" defer></script>
 </body>
 </html>
