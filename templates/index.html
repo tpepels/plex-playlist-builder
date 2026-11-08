@@ -241,6 +241,12 @@
     </div>
   </header>
   <section class="panel">
+    {% if state_fault %}
+    <div id="persistent-state-alert" class="error" role="alert">
+      <strong>Storage recovery required.</strong> {{ state_fault }}
+      Existing audio and history files have been preserved. New changes are disabled until storage is repaired and the container is restarted.
+    </div>
+    {% endif %}
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form id="download-form" action="/download" method="post">
       <div class="url-row">
