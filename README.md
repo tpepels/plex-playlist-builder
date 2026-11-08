@@ -113,7 +113,7 @@ Inspect both processes through the single container:
 
 ```sh
 docker compose ps yt-dlp-server
-docker compose exec yt-dlp-server ps -eo pid,user,args
+docker top yt-dlp-server
 docker compose logs --tail=80 yt-dlp-server
 ```
 
