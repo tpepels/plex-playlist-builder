@@ -136,4 +136,6 @@ def queue_album(url: str, audit: dict | None = None) -> dict:
 
 
 def downloader_ui_url() -> str:
-    return os.getenv("YTDLP_PUBLIC_URL", "http://media-server:4545").rstrip("/") + "/"
+    # This is always a local Playlist Manager page. The backend alone knows
+    # how to reach yt-dlp through Docker DNS. No separate port or host URL.
+    return "/downloads"

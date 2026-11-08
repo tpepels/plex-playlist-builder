@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import hashlib
 import hmac
 import html
 import io
 import os
+import re
 import secrets
 import time
 from urllib.parse import parse_qs, urlencode
@@ -74,6 +76,8 @@ from .download_audit import (read_downloader_jobs, read_disk_audit,
                              read_music_inventory, read_download_history, reconcile)
 from .disk_reconciliation import reconcile_inventory
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
+from .downloader_bridge import router as downloader_router
+from . import download_plex_sync
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
     connect,
@@ -87,6 +91,27 @@ from .plex_client import (
 app = FastAPI(title="Plex Playlist Manager", version="1.5.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+app.include_router(downloader_router)
+
+
+@app.on_event("startup")
+async def start_downloader_library_sync():
+    if os.getenv("DOWNLOAD_BRIDGE_SCAN_ENABLED", "0") == "1":
+        app.state.downloader_sync_task = asyncio.create_task(
+            download_plex_sync.sync_loop(), name="download-plex-sync",
+        )
+
+
+@app.on_event("shutdown")
+async def stop_downloader_library_sync():
+    task = getattr(app.state, "downloader_sync_task", None)
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
 
 
 class ConfigBody(BaseModel):
@@ -408,6 +433,21 @@ def export_library():
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/downloads", response_class=HTMLResponse)
+def unified_downloads(request: Request, job: str = Query(default="", max_length=128)):
+    """Single visible downloader workspace; its engine stays in another container."""
+    if job and not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", job):
+        raise HTTPException(status_code=422, detail="Invalid download job ID")
+    engine_url = "/downloads/engine/" + (
+        "?" + urlencode({"job": job}) if job else ""
+    )
+    return templates.TemplateResponse(
+        "download_portal.html",
+        {"request": request, "engine_url": engine_url},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/downloads-audit")

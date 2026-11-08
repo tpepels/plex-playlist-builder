@@ -187,7 +187,9 @@ async def bridge_status():
             state = job.get("status")
             if state in counts:
                 counts[state] += 1
+    from .download_plex_sync import snapshot
     return JSONResponse(
         {"ok": True, "engine": "online", "counts": counts,
-         "total": len(jobs)}, headers={"Cache-Control": "no-store"},
+         "total": len(jobs), "plex_sync": snapshot()},
+        headers={"Cache-Control": "no-store"},
     )
