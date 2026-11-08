@@ -124,7 +124,7 @@ def test_storage_write_failure_changes_app_to_degraded_mode(tmp_path, monkeypatc
     monkeypatch.setattr(state_store.os, "replace",
                         lambda *args: (_ for _ in ()).throw(OSError("disk full")))
     with server.jobs_lock:
-        with pytest.raises(StateCorruption, match="cannot"):
+        with pytest.raises(StateCorruption, match="could not be saved"):
             server.persist_jobs_locked()
     assert server.STATE_FAULT is not None
     with server.app.test_client() as client:

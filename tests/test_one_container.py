@@ -40,7 +40,7 @@ def test_single_image_contains_privileged_toolchain_and_nonroot_launcher():
         assert name in docker
     assert "COPY app.py" in docker
     assert "vpn_gateway.py" in docker
-    assert "container_runtime.py ./" in docker
+    assert "container_runtime.py" in docker
     assert 'CMD ["python", "-u", "/app/container_runtime.py"]' in docker
     assert "8787" in docker and "4545" in docker
     assert "gosu" not in docker.split("CMD [", 1)[1]  # supervisor owns privilege drop

@@ -3021,7 +3021,9 @@ def api_import_audit():
 
 @app.get("/health")
 def health():
-    worker_ok = bool(download_worker_thread and download_worker_thread.is_alive())
+    worker_ok = bool(download_worker_thread and getattr(
+        download_worker_thread, "is_alive", lambda: False
+    )())
     state_status = "degraded" if STATE_FAULT or not worker_ok else "ok"
     response = jsonify(
         {
