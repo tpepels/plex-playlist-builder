@@ -17,8 +17,16 @@ _MAX_HTML_BYTES = 4 * 1024 * 1024
 _NAVIGATION = Path(__file__).parent / "templates" / "_site_navigation.html"
 _HEADER = '<header class="page-head signal-header signal-transition">'
 _BRAND = '<div class="signal-brand">'
+_TOOLS = '<div class="signal-tools">'
 _HEAD_END = "</head>"
 _BODY_END = "</body>"
+
+_PRIMARY_NAV = """<nav class="download-native-primary" aria-label="Primary navigation">
+  <a href="/">Overview</a>
+  <a href="/downloads" aria-current="page">Downloads</a>
+  <a href="/playlists">Playlists</a>
+  <a href="/playlist-intelligence">Curate</a>
+</nav>"""
 
 _NAV_BUTTON = """<button id="siteNavigationToggle" class="site-nav-toggle" type="button"
  aria-label="Open navigation menu" aria-expanded="false"
@@ -52,7 +60,7 @@ def compose_native_page(html: str) -> str:
     Fail closed on changed upstream markup rather than silently drop controls.
     The source is the configured internal downloader, never an arbitrary URL.
     """
-    required = (_HEADER, _BRAND, _HEAD_END, _BODY_END,
+    required = (_HEADER, _BRAND, _TOOLS, _HEAD_END, _BODY_END,
                 '<main class="signal-shell">', "</header>",
                 'name="downloader-base"', 'id="download-form"',
                 'id="jobs"', 'id="vpn-panel"', 'id="youtube-cookie-panel"')
@@ -67,6 +75,7 @@ def compose_native_page(html: str) -> str:
                         "<title>Downloads · Music workspace</title>", 1)
     html = html.replace(_HEAD_END, _ASSETS + "\n" + _HEAD_END, 1)
     html = html.replace(_BRAND, _BRAND + "\n" + _NAV_BUTTON, 1)
+    html = html.replace(_TOOLS, _TOOLS + "\n" + _PRIMARY_NAV, 1)
     html = html.replace("SIGNAL CONSOLE / AUDIO OPERATIONS",
                         "MUSIC WORKSPACE / AUDIO IMPORTS", 1)
     html = html.replace("DOWNLOAD <span>/ CONTROL</span>",
