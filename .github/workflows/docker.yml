@@ -531,13 +531,12 @@ jobs:
           assert len(files) == 1, files
           assert not stage2.exists(), "stage should be removed only after publish"
 
-          probe = subprocess.run([
-              "ffprobe", "-v", "error", "-show_entries",
-              "format_tags=album,artist", "-of", "json", str(files[0])
-          ], capture_output=True, text=True, check=True)
-          tags = json.loads(probe.stdout)["format"]["tags"]
-          assert tags["album"] == "Correct Album", tags
-          assert tags["artist"] == "Correct Artist", tags
+          # Vorbis-style Opus comments are stored in the Ogg stream, not
+          # necessarily in ffprobe's container-level format tags.
+          from mutagen.oggopus import OggOpus
+          tags = OggOpus(files[0])
+          assert tags["album"] == ["Correct Album"], tags
+          assert tags["artist"] == ["Correct Artist"], tags
           PY
       - name: Validate safe retagging and job discard
         run: |
