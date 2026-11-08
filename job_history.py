@@ -9,6 +9,8 @@ def _reason(job):
     # successful download. Historic errors remain in the log.
     if job.get("status") == "succeeded":
         return str(job.get("message") or "Completed")[:500]
+    if job.get("failure_reason"):
+        return str(job["failure_reason"])[:500]
     for line in reversed(job.get("log") or []):
         value = str(line).strip()
         if value.startswith(("ERROR:", "FATAL:")) or "HTTP Error 403" in value:

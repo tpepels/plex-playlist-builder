@@ -23,6 +23,8 @@ def explain_job(job, repeated_requests=0):
     files = job.get("files") or []
     log = job.get("log") or []
     error = _error_evidence(log)
+    cause = str(job.get("failure_reason") or "").strip()
+    cause_action = str(job.get("failure_action") or "").strip()
     explanation = ""
     action = ""
     tone = "neutral"
@@ -93,8 +95,8 @@ def explain_job(job, repeated_requests=0):
     elif status == "partial":
         if str(job.get("message") or "").startswith("Album kept out of Plex:"):
             heading = "Incomplete album — kept out of Plex"
-            explanation = str(job["message"])
-            action = "Retry the missing tracks; the entire album must complete first."
+            explanation = cause or str(job["message"])
+            action = cause_action or "Inspect the log and missing tracks before retrying."
         else:
             heading = "Partial download"
             explanation = (f"Some tracks were processed, but {failed or 'one or more'} "
@@ -103,8 +105,8 @@ def explain_job(job, repeated_requests=0):
         tone = "warning"
     elif status == "failed":
         heading = "Download failed"
-        explanation = error or str(job.get("message") or "The downloader failed.")
-        action = "Inspect the log and use Retry / continue."
+        explanation = cause or error or str(job.get("message") or "The downloader failed.")
+        action = cause_action or "Inspect the log and use Retry / continue."
         tone = "error"
     else:
         heading = f"Download state: {status}"
@@ -125,4 +127,6 @@ def explain_job(job, repeated_requests=0):
         "automatic_bot_restarts": int(job.get("automatic_bot_restarts") or 0),
         "automatic_vpn_rotations": int(job.get("automatic_vpn_rotations") or 0),
         "recovered_bot_challenge": bool(job.get("recovered_bot_challenge")),
+        "failure_code": str(job.get("failure_code") or ""),
+        "failure_evidence": str(job.get("failure_evidence") or ""),
     }

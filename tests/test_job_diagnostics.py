@@ -50,6 +50,22 @@ def test_published_album_only_when_directory_confirmed():
     assert outcome["tone"] == "success"
 
 
+def test_classified_album_failure_shows_actual_cause():
+    info = explain_job(job(
+        "failed",
+        message="Album kept out of Plex: 0/12 tracks available in staging",
+        failure_code="no_playlist_entries",
+        failure_reason="Source probe found 12 tracks but download enumerated none.",
+        failure_action="Check source availability and YouTube cookies.",
+        failure_evidence="yt-dlp exit code 0; 0 playlist items reached; 0 archived",
+    ))
+    assert info["heading"] == "Download failed"
+    assert "enumerated none" in info["explanation"]
+    assert "Check source availability" in info["next_action"]
+    assert info["failure_code"] == "no_playlist_entries"
+    assert "exit code 0" in info["failure_evidence"]
+
+
 def test_metadata_failure_and_partial_have_actionable_explanations():
     metadata = explain_job(job("needs_metadata"))
     assert "Move to library" in metadata["next_action"]

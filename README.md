@@ -686,6 +686,30 @@ If `COOKIES_FILE` is explicitly set, the upload replaces that configured path in
 Use **Verify cookies** in the same panel after uploading. This runs a two-stage online check: an account-page request to determine whether YouTube recognizes the signed-in session, followed by a bounded, metadata-only yt-dlp extraction of a public test video with the same cookie file and extractor settings as downloads. No media is downloaded. Results are **Valid**, **Rejected**, or **Inconclusive**, with a specific explanation (including VPN/IP blocks). A public video alone is never treated as proof of authentication, and no cookie values or account details are exposed in the response. The verification does not alter the saved cookie file; it uses a temporary private copy. The tool does not guarantee subsequent video downloads will work.
 Cookies can expire, and YouTube may still require further verification. yt-dlp recommends exporting YouTube cookies from a dedicated private browsing session to avoid rotation; using an account for automated downloads can trigger account restrictions.
 
+### Diagnosing incomplete albums
+
+A source probe reporting 12 tracks does not guarantee that the actual yt-dlp
+download enumerated 12 playable videos. For incomplete albums, the dashboard
+now retains the original yt-dlp exit code, the highest playlist position
+reached, the number of global archive skips, the last extractor error, and
+the number of staged audio files. The **failure reason** is shown separately
+from the publication safety rule; it persists even when the rolling 40-line
+log drops older messages.
+
+Typical classifications include **no downloadable playlist entries**,
+**already recorded in the global archive but missing from staging**,
+**YouTube bot/HTTP 403**, **extractor error**, and **item reached without
+downloaded audio**. In particular, a normal YouTube Music-to-YouTube redirect
+is not diagnosed as a failure by itself. Retries retain staged tracks but
+do not silently delete or bypass the global download archive. If a
+previously downloaded album exists elsewhere in the music library, inspect
+it before deliberately overriding archive protection.
+
+The real download command explicitly includes `--no-simulate` and
+`--no-quiet` to prevent `--print` telemetry from silently simulating
+or suppressing diagnostic progress. No video/audio content is generated
+during the source probe or cookie verification.
+
 ## Updating yt-dlp and spotDL
 
 yt-dlp changes often because upstream sites change. The image intentionally installs the current PyPI yt-dlp release at build time rather than pinning an old extractor release. spotDL is pinned to the stable 4.6.0 release; this update also excludes broken `ytmusicapi` 1.12.2 and 1.12.3 releases. The app's CLI/progress integration still requires runtime smoke verification after rebuilding.
