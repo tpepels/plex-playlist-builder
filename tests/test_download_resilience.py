@@ -372,3 +372,94 @@ def test_gateway_startup_failure_keeps_dashboard_available(monkeypatch, capsys):
     server.start_runtime_workers()
     assert events == ["restore_queue"]
     assert "will fail closed" in capsys.readouterr().out
+
+
+
+def test_silent_zero_of_twelve_album_has_specific_durable_cause(
+    isolated_job, monkeypatch,
+):
+    isolated_job["album_mode"] = True
+    isolated_job["total_items"] = 12
+    isolated_job["source_title"] = "Cruel Joke"
+    class EmptyPlaylist:
+        stdout = iter([
+            "WARNING: [youtube:tab] YouTube Music is not directly supported. "
+            "Redirecting to https://www.youtube.com/playlist?list=OLAK5uy_example\n"
+        ])
+        def wait(self):
+            return 0
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *a, **kw: EmptyPlaylist())
+    server.run_job(isolated_job["id"])
+
+    assert isolated_job["status"] == "failed"
+    assert isolated_job["returncode"] == 0
+    assert isolated_job["failure_code"] == "no_playlist_entries"
+    assert "expected 12" in isolated_job["failure_reason"]
+    assert "Cause:" in isolated_job["message"]
+    assert "exit code 0" in isolated_job["failure_evidence"]
+    assert "0/12" in isolated_job["message"]
+    with server.jobs_lock:
+        card = server.public_job_from_group_locked(isolated_job["id"], [isolated_job])
+    assert card["diagnosis"]["failure_code"] == "no_playlist_entries"
+    assert card["diagnosis"]["next_action"] == isolated_job["failure_action"]
+
+
+def test_archive_only_zero_of_twelve_is_not_mislabeled_as_empty(
+    isolated_job, monkeypatch,
+):
+    isolated_job["album_mode"] = True
+    isolated_job["total_items"] = 12
+    class ArchiveOnly:
+        stdout = iter(
+            [f"[download] track-{i} has already been recorded in the archive\n"
+             for i in range(12)]
+        )
+        def wait(self):
+            return 0
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *a, **kw: ArchiveOnly())
+    server.run_job(isolated_job["id"])
+    assert isolated_job["status"] == "failed"
+    assert isolated_job["failure_code"] == "archive_without_staging"
+    assert isolated_job["archive_skipped_items"] == 12
+    assert "music library" in isolated_job["failure_action"]
+
+
+def test_extractor_error_survives_bounded_log_rotation(
+    isolated_job, monkeypatch,
+):
+    isolated_job["album_mode"] = True
+    isolated_job["total_items"] = 12
+    class ErrorProcess:
+        stdout = iter(
+            ["ERROR: [youtube:tab] Playlist is not available\n"]
+            + [f"debug progress {i}\n" for i in range(55)]
+        )
+        def wait(self):
+            return 1
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *a, **kw: ErrorProcess())
+    server.run_job(isolated_job["id"])
+    assert isolated_job["status"] == "failed"
+    assert isolated_job["returncode"] == 1
+    assert len(isolated_job["log"]) <= 40
+    assert not any("Playlist is not available" in line for line in isolated_job["log"])
+    assert "Playlist is not available" in isolated_job["failure_reason"]
+    assert isolated_job["failure_code"] == "extractor_error"
+
+
+def test_failure_cause_survives_job_reload_and_retry_reset(
+    isolated_job, monkeypatch,
+):
+    isolated_job.update(album_mode=True, total_items=12)
+    class EmptyPlaylist:
+        stdout = iter([])
+        def wait(self): return 0
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *a, **kw: EmptyPlaylist())
+    server.run_job(isolated_job["id"])
+    persisted = json.loads(server.JOBS_STATE_FILE.read_text())["jobs"][0]
+    restored = server.normalize_persisted_job(persisted)
+    assert restored["failure_code"] == "no_playlist_entries"
+    assert "expected 12" in restored["failure_reason"]
+    from retry_queue import build_retry
+    new = build_retry(restored, "new-attempt")
+    assert not new.get("failure_reason")
+    assert not new.get("download_items_seen")
