@@ -12,7 +12,7 @@
     status.classList.remove("vpn-error");
     try {
       const body = new URLSearchParams({_cookie_token: token.value});
-      const prefix = document.querySelector('meta[name="downloader-base"]')?.content || "";
+      const prefix = document.querySelector?.('meta[name="downloader-base"]')?.content || "";
       const response = await fetch(prefix + "/youtube/cookies/verify", {
         method: "POST",
         headers: {"X-Requested-With": "XMLHttpRequest",

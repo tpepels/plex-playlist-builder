@@ -397,7 +397,7 @@
 </main>
 <script>
   const initialJobs = {{ jobs | tojson }};
-  const downloaderPath = (path) => (document.querySelector('meta[name="downloader-base"]')?.content || "") + path;
+  const downloaderPath = (path) => (document.querySelector?.('meta[name="downloader-base"]')?.content || "") + path;
   const downloaderFetch = (path, options) => fetch(downloaderPath(path), options);
   const ACTIVE_STATES = new Set(["queued", "running", "finalizing", "needs_metadata"]);
   let focusedDetailIds = new Set();
