@@ -117,3 +117,65 @@ def test_read_only_sync_snapshot_reports_corruption(tmp_path, monkeypatch):
     result = sync.snapshot()
     assert result["error"]
     assert "damaged" in result["error"]
+
+
+
+def test_scan_state_recovers_last_valid_backup_and_quarantines_bad_primary(
+    tmp_path, monkeypatch,
+):
+    path = tmp_path / "bridge.json"
+    first = {"seen": ["old"], "pending": [], "last_scan": None}
+    next_state = {"seen": ["old", "new"], "pending": [], "last_scan": 100}
+    sync._save(first, path)
+    sync._save(next_state, path)
+    assert json.loads((tmp_path / "bridge.json.bak").read_text()) == first
+    path.write_text("{corrupt")
+    restored = sync._load(path)
+    assert restored == first
+    assert json.loads(path.read_text()) == first
+    assert len(list(tmp_path.glob("bridge.json.corrupt-*"))) == 1
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_missing_primary_restored_from_snapshot_backup(tmp_path):
+    path = tmp_path / "bridge.json"
+    first = {"seen": ["first"], "pending": ["second"], "last_scan": None}
+    second = {"seen": ["first", "second"], "pending": [], "last_scan": 101}
+    sync._save(first, path)
+    sync._save(second, path)
+    path.unlink()
+    assert sync._load(path) == first
+    assert path.is_file()
+    assert (tmp_path / "bridge.json.bak").is_file()
+
+
+def test_invalid_primary_and_backup_preserved_without_silent_reset(tmp_path):
+    path = tmp_path / "bridge.json"
+    path.write_text("broken")
+    backup = tmp_path / "bridge.json.bak"
+    backup.write_text('{"seen":"not a list","pending":[]}')
+    with pytest.raises(RuntimeError, match="no valid backup"):
+        sync._load(path)
+    assert path.read_text() == "broken"
+    assert backup.exists()
+    with pytest.raises(RuntimeError, match="refusing to replace"):
+        sync._save({"seen": [], "pending": [], "last_scan": None}, path)
+    assert path.read_text() == "broken"
+
+
+def test_pending_plex_scan_survives_corrupt_primary_and_retries(tmp_path, monkeypatch):
+    path = tmp_path / "bridge.json"
+    baseline = {"seen": ["old"], "pending": [], "last_scan": None}
+    pending = {"seen": ["old"], "pending": ["new"], "last_scan": None}
+    sync._save(baseline, path)
+    sync._save(pending, path)
+    path.write_text("broken")
+    calls = []
+    async def jobs(*args, **kwargs):
+        return published("old", "new")
+    monkeypatch.setattr(sync.downloader_bridge, "upstream_json", jobs)
+    monkeypatch.setattr(sync, "scan_plex_library", lambda: calls.append("scan"))
+    result = run(sync.poll_once(state_file=path))
+    assert result["pending"] == 0
+    assert calls == ["scan"]
+    assert "new" in json.loads(path.read_text())["seen"]
