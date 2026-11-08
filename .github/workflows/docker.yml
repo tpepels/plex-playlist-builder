@@ -309,7 +309,9 @@ jobs:
           resolution = app.normalize_persisted_job({
               "id": "resolution1",
               "url": "https://open.spotify.com/track/abc123",
-              "status": "running",
+              # normalize_persisted_job converts interrupted 'running' jobs
+              # to failed; queued is the actual active-on-restore state.
+              "status": "queued",
               "source": "spotify",
               "playlist": False,
               "resolution_of": "root1",
@@ -1128,4 +1130,4 @@ jobs:
             -e MUSIC_ROOT=/tmp/music \
             -e STATE_DIR=/tmp/state \
             -e TEMP_DIR=/tmp/work \
-            yt-dlp-server:test python -c 'import app; u="https://youtube.com/watch?v=df6l0NnHOTw"; args=app.youtube_extractor_args(u); assert "youtube:player_client=mweb" in args; assert any(x.startswith("youtubepot-bgutilscript:server_home=") for x in args); assert app.VERSIONS["bgutil"]=="2.0.0"; assert app.BGUTIL_SERVER_HOME.is_dir()'
+            yt-dlp-server:test python -c 'import app; u="https://youtube.com/watch?v=df6l0NnHOTw"; args=app.youtube_extractor_args(u); assert "youtube:player_client=mweb" in args; assert any(x.startswith("youtubepot-bgutilscript:server_home=") for x in args); assert app.VERSIONS["bgutil"]=="2.0.2"; assert app.BGUTIL_SERVER_HOME.is_dir()'
