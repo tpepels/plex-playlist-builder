@@ -175,6 +175,9 @@ def test_wrapper_only_recreates_two_containers_and_never_removes_volumes():
     assert "docker compose down" not in content
     assert "rm -rf" not in content
     assert "git -C" in content and "--ff-only" in content
+    assert "Preflight: refuse migration" in content
+    assert 'job.get("status") in {"queued", "running", "finalizing"}' in content
+    assert "Bridge health check failed" in content
 
 
 def test_invalid_service_file_does_not_create_a_replacement():
