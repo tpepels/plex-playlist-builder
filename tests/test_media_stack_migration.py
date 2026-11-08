@@ -251,3 +251,72 @@ def test_one_checkout_path_survives_repeated_migrations():
     assert one == two
     assert "context: ./yt-dlp-server" not in two
     assert "context: ./plex-playlist-manager/yt-dlp-server" in two
+
+
+
+@pytest.mark.parametrize("change,expected_error", [
+    ("public_download_port", "still exposes port"),
+    ("wrong_download_context", "imported monorepo subtree"),
+    ("wrong_manager_context", "Playlist Manager must build"),
+    ("missing_state_mount", "mount /data/state"),
+    ("missing_music_mount", "mount /data/music"),
+    ("missing_manager_data", "retain /srv/plex-playlist-manager"),
+    ("missing_tun", "needs /dev/net/tun"),
+    ("missing_manager_port", "must publish port 5051"),
+    ("separate_networks", "common Docker network"),
+    ("network_mode_host", "shared Compose network"),
+    ("bad_internal_api", "cannot reach the download engine"),
+])
+def test_effective_compose_rejects_dangerous_or_incomplete_changes(
+    tmp_path, monkeypatch, change, expected_error,
+):
+    root = tmp_path / "media-stack"
+    root.mkdir()
+    parent = root / "docker-compose.yml"
+    parent.write_text(migration.transform(ORIGINAL))
+    services = yaml.safe_load(parent.read_text())["services"]
+    engine = services["yt-dlp-server"]
+    manager = services["plex-playlist-manager"]
+    if change == "public_download_port":
+        engine["ports"] = ["4545:4545"]
+    elif change == "wrong_download_context":
+        engine["build"]["context"] = "./yt-dlp-server"
+    elif change == "wrong_manager_context":
+        manager["build"]["context"] = "./monochrome"
+    elif change == "missing_state_mount":
+        engine["volumes"] = [v for v in engine["volumes"] if ":/data/state" not in v]
+    elif change == "missing_music_mount":
+        engine["volumes"] = [v for v in engine["volumes"] if ":/data/music" not in v]
+    elif change == "missing_manager_data":
+        manager["volumes"] = []
+    elif change == "missing_tun":
+        engine["devices"] = []
+    elif change == "missing_manager_port":
+        manager["ports"] = []
+    elif change == "separate_networks":
+        engine["networks"] = ["engine-network"]
+        manager["networks"] = ["frontend-network"]
+    elif change == "network_mode_host":
+        manager["network_mode"] = "host"
+    elif change == "bad_internal_api":
+        manager["environment"]["YTDLP_SERVER_URL"] = "http://localhost:4545"
+
+    def fake_run(args, **kwargs):
+        return subprocess.CompletedProcess(
+            args, 0, stdout=json.dumps({"services": services}), stderr=""
+        )
+    monkeypatch.setattr(migration.subprocess, "run", fake_run)
+    with pytest.raises(migration.MigrationError, match=expected_error):
+        migration.validate(parent, root / "docker-compose.override.yml")
+
+
+def test_migration_wrapper_rechecks_downloads_and_preserves_web_on_bad_engine():
+    script = (Path(__file__).resolve().parents[1] /
+              "deploy/apply_media_stack.sh").read_text()
+    assert script.count("require_idle_downloader") >= 3
+    assert "Verify downloader is healthy before replacing Playlist Manager" in script
+    assert script.index("Verify downloader is healthy before replacing Playlist Manager") < (
+        script.index("docker compose up -d --no-deps --no-build --force-recreate plex-playlist-manager")
+    )
+    assert "docker compose down" not in script
+    assert "docker volume prune" not in script
