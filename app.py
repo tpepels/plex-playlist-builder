@@ -1781,9 +1781,12 @@ def start_runtime_workers():
     if os.getenv("VPN_GATEWAY_ENABLED") == "1":
         ready = direct_if_enabled()
         if ready is None or not ready.get("direct"):
-            raise RuntimeError(
-                "VPN gateway could not restore the default direct connection "
-                "at downloader startup"
+            # Keep the dashboard available for troubleshooting. Each job
+            # still refuses to start until direct routing is restored.
+            print(
+                "WARNING: Gateway direct connection could not be restored at "
+                "startup; downloads will fail closed until recovery.",
+                flush=True,
             )
     restored_queue_ids = load_persisted_jobs()
     restored_finalize_ids = staged_jobs_to_finalize_after_restore()
