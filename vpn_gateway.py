@@ -1,4 +1,4 @@
-"""Fail-closed WireGuard profile gateway for the optional managed VPN mode.
+"""On-demand WireGuard profile gateway with direct-by-default outbound routing.
 
 Run only in an isolated NET_ADMIN container with network namespace shared by
 yt-dlp-server. The Flask downloader has NO NET_ADMIN permission. Uploaded
@@ -417,6 +417,57 @@ def stop_tunnel():
         run("wg-quick", "down", str(ACTIVE_FILE))
 
 
+def _direct():
+    """Exit WireGuard and restore the normal Docker underlay after a job.
+
+    Block all outbound traffic BEFORE tearing down the tunnel. Allow direct
+    IPv4/IPv6 only after wg0 has disappeared and its policy routes have gone.
+    A failed transition stays fail-closed; never claim direct connectivity.
+    """
+    global FIREWALL_ENABLED
+    data = metadata()
+    if not FIREWALL_ENABLED and not data.get("active"):
+        return {"direct": True, "mode": "direct"}
+    # No direct egress may escape during tunnel teardown.
+    try:
+        run("iptables", "-P", "OUTPUT", "DROP")
+        run("ip6tables", "-P", "OUTPUT", "DROP")
+        FIREWALL_ENABLED = True
+        stop_tunnel()
+        if run("ip", "link", "show", "wg0", check=False).returncode == 0:
+            raise RuntimeError("WireGuard interface still active")
+        # Only the private gateway ever installed these OUTPUT rules.
+        run("iptables", "-F", "OUTPUT")
+        run("ip6tables", "-F", "OUTPUT")
+        mark_match = ("-p", "tcp", "--sport", str(WEB_PORT),
+                      "-j", "MARK", "--set-mark", str(WG_FWMARK))
+        run("iptables", "-t", "mangle", "-D", "OUTPUT",
+            *mark_match, check=False)
+        # Reopen the normal connection last, after WireGuard is gone.
+        run("iptables", "-P", "OUTPUT", "ACCEPT")
+        run("ip6tables", "-P", "OUTPUT", "ACCEPT")
+        data["active"] = None
+        save_metadata(data)
+        FIREWALL_ENABLED = False
+        return {"direct": True, "mode": "direct"}
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        try:
+            firewall()
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            pass
+        raise VPNConnectionError(
+            "direct", "Could not restore the normal connection; outbound "
+            "traffic remains blocked. Check the WireGuard gateway."
+        ) from None
+
+
+def direct():
+    with LOCK:
+        if TASK["running"]:
+            raise RuntimeError("VPN profile verification is running")
+        return _direct()
+
+
 def activate(profile_id):
     with LOCK:
         if TASK["running"]:
@@ -575,9 +626,12 @@ def list_profiles():
     ]
     status = {"running": TASK["running"], "done": TASK["done"],
               "message": TASK["message"], "results": list(TASK["results"])}
-    return {"profiles": profiles, "active": value["active"],
+    connected = FIREWALL_ENABLED and bool(value["active"]) and has_handshake()
+    mode = "vpn" if connected else "blocked" if FIREWALL_ENABLED else "direct"
+    return {"profiles": profiles, "active": value["active"] if connected else None,
+            "mode": mode, "default_mode": "direct",
             "kill_switch": FIREWALL_ENABLED,
-            "tunnel_ready": has_handshake() if FIREWALL_ENABLED else False,
+            "tunnel_ready": connected,
             "test": status}
 
 
@@ -639,7 +693,8 @@ def rotate():
                         if p["id"] == previous), -1)
         order = choices[current + 1:] + choices[:current + 1]
         candidates = [item for item in order if item["id"] != previous]
-        old_ip = probe()["ip"] if previous else None
+        # A direct-origin recovery must change the public IP as well.
+        old_ip = probe()["ip"]
         for candidate in candidates:
             try:
                 result = _activate(candidate["id"])
@@ -656,13 +711,16 @@ def rotate():
                 raise VPNConnectionError(
                     "restore", "No alternate VPN exit IP was verified and the previous "
                     "tunnel could not be restored; downloads remain fail-closed.") from None
+        if not previous:
+            # Failed VPN recovery must not strand the next normal job behind
+            # the kill switch or leave an unverified profile running.
+            _direct()
         raise VPNConnectionError(
             "exit_ip", "No other WireGuard profile produced a different verified exit IP")
 
 
 def test_worker():
     with LOCK:
-        original = metadata().get("active")
         choices = metadata()["profiles"]
     previous_ip = None
     try:
@@ -698,26 +756,21 @@ def test_worker():
                                             "diagnostics": getattr(exc, "diagnostics", {}),
                                             "message": str(exc) if isinstance(exc, VPNConnectionError)
                                             else "VPN connection failed during setup."})
-        with LOCK:
-            TASK["message"] = "Restoring previous VPN state"
-            if original:
-                _activate(original)
-            else:
-                stop_tunnel()
-                data = metadata()
-                data["active"] = None
-                save_metadata(data)
-                ACTIVE_FILE.unlink(missing_ok=True)
-                run("iptables", "-F", "VPN_ENDPOINT")
     except Exception:
         with LOCK:
-            TASK["message"] = "Could not restore the previous VPN profile"
+            TASK["message"] = "VPN profile verification failed"
     finally:
         with LOCK:
+            # Profile testing must ALWAYS return to the direct default,
+            # including on a failed test or a user-triggered exception.
+            try:
+                _direct()
+            except VPNConnectionError:
+                TASK["message"] = "Could not restore direct connection; outbound blocked"
+            else:
+                TASK["message"] = "Profile verification finished; direct mode restored"
             TASK["running"] = False
             TASK["done"] = True
-            if TASK["message"].startswith("Tested ") or TASK["message"].startswith("Restoring "):
-                TASK["message"] = "Rotation test finished"
 
 
 def start_test():
@@ -763,6 +816,8 @@ class Handler(BaseHTTPRequestHandler):
                                          payload["content"])
                 elif self.path == "/rotate":
                     result = rotate()
+                elif self.path == "/direct":
+                    result = direct()
                 elif self.path == "/test":
                     result = start_test()
                 elif re.fullmatch(r"/activate/[0-9a-f]{32}", self.path):
@@ -826,21 +881,17 @@ def main():
     ensure_control_token()
     ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
     ROOT.chmod(0o700)
-    # Downloads work normally before the user has uploaded any VPN profile.
-    # Once a VPN is configured, restarts always fail closed until it connects.
-    if metadata()["profiles"]:
-        firewall()
-    if ACTIVE_FILE.exists() and metadata().get("active"):
+    # Direct is the only automatic startup mode, even when profiles exist.
+    # Never reconnect an old profile solely because it was selected before
+    # the gateway was recreated. Fail closed if stale rules cannot be removed.
+    try:
+        with LOCK:
+            firewall()
+            _direct()
+    except (VPNConnectionError, RuntimeError, OSError, subprocess.TimeoutExpired):
         try:
-            # Permit the persisted endpoint and restore the VPN on restart.
-            active = parse_profile(ACTIVE_FILE.read_text())
-            # Normalize old stored profiles that predate explicit fwmark
-            # so startup and manual connection use identical routing.
-            write_private(ACTIVE_FILE, active["text"])
-            allow_endpoint(active["endpoint"], active["port"])
-            run("wg-quick", "up", str(ACTIVE_FILE))
-        except Exception:
-            # Fail closed: downloads cannot egress until a valid profile connects.
+            firewall()
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
             pass
     ThreadingHTTPServer(("127.0.0.1", 8787), Handler).serve_forever()
 
