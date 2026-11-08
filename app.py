@@ -27,7 +27,7 @@ from download_resilience import (
 )
 from album_submission import clean_match_audit, submission_key
 from job_diagnostics import explain_job
-from surfshark_vpn import rotate_if_enabled
+from surfshark_vpn import rotate_if_enabled, direct_if_enabled
 from vpn_ui import register as register_vpn_manager
 from extension_package import package_extension
 from youtube_cookies import cookie_path, register as register_youtube_cookies
@@ -1364,9 +1364,17 @@ def run_job(job_id):
         error_file.unlink()
 
     try:
+        # Explicitly restore the normal connection before every new job.
+        # Never inherit the previous job's temporary VPN or a manual switch.
+        initial_transport = direct_if_enabled()
+        if initial_transport is not None and not initial_transport.get("direct"):
+            raise RuntimeError(
+                "Normal connection could not be restored; download blocked by gateway"
+            )
         restart_index = 0
         had_http_403 = False
         had_bot_challenge = False
+        vpn_used = False
         rotation_failure = False
         while True:
             with jobs_lock:
@@ -1415,13 +1423,16 @@ def run_job(job_id):
                 with jobs_lock:
                     current = jobs[job_id]
                     current["message"] = (
-                        "YouTube bot verification; switching VPN endpoint"
+                        "YouTube bot verification on direct connection; "
+                        "connecting a temporary VPN endpoint"
                         if failure_kind == BOT_CHALLENGE else
-                        "YouTube HTTP 403; attempting a new VPN endpoint"
+                        "Repeated YouTube HTTP 403 on direct connection; "
+                        "trying a temporary VPN endpoint"
                     )
                     persist_jobs_locked()
                 vpn_result = rotate_if_enabled()
                 changed = bool(vpn_result and vpn_result.get("changed"))
+                vpn_used = vpn_used or changed
                 with jobs_lock:
                     current = jobs[job_id]
                     if changed:
@@ -1429,7 +1440,10 @@ def run_job(job_id):
                             int(current.get("automatic_vpn_rotations") or 0) + 1
                         )
                         country = str(vpn_result.get("country") or "another endpoint")
-                        note = f"VPN exit IP changed ({country}); a new yt-dlp process will extract fresh URLs."
+                        note = (
+                            f"Temporary VPN exit IP verified ({country}); "
+                            "the retry will use a fresh yt-dlp process."
+                        )
                     else:
                         note = "VPN exit IP did not change; rotation unavailable or failed."
                     current["log"].append("RECOVERY: " + note)
@@ -1462,6 +1476,24 @@ def run_job(job_id):
                 persist_jobs_locked()
             time.sleep(delay)
             restart_index = next_restart
+
+        # The final subprocess has exited. Remove the VPN before touching
+        # publication or starting the next queued job. On failure, keep all
+        # staged files and report the network-restoration problem explicitly.
+        restored = direct_if_enabled()
+        if restored is not None and not restored.get("direct"):
+            raise RuntimeError(
+                "Could not restore direct networking after download; "
+                "outbound traffic remains blocked"
+            )
+        if vpn_used:
+            with jobs_lock:
+                current = jobs[job_id]
+                current["log"].append(
+                    "RECOVERY: WireGuard disconnected; normal direct connection restored."
+                )
+                current["log"] = current["log"][-40:]
+                persist_jobs_locked()
 
         with jobs_lock:
             current = jobs[job_id]
@@ -1570,14 +1602,14 @@ def run_job(job_id):
                     retries = int(job.get("automatic_bot_restarts") or 0)
                     if rotation_failure:
                         job["message"] = (
-                            f"YouTube bot verification; VPN exit IP could not be changed "
-                            f"after {retries} automatic restart(s). "
-                            "Check that at least two WireGuard profiles are uploaded and usable."
+                            f"YouTube bot verification on the normal connection; "
+                            f"no usable alternative VPN exit after {retries} restart(s). "
+                            "Upload a working WireGuard profile or refresh YouTube cookies."
                         )
                     else:
                         job["message"] = (
                             f"YouTube bot verification after {retries} automatic restart(s) "
-                            "with VPN endpoint rotation. YouTube still requires verification."
+                            "using temporary VPN connections. YouTube still requires verification."
                         )
                 elif job["http_403"] and is_youtube_url(job["url"]):
                     retries = int(job.get("automatic_403_restarts") or 0)
@@ -1617,6 +1649,24 @@ def run_job(job_id):
             job["message"] = str(exc)
             job["log"].append(f"ERROR: {exc}")
             persist_jobs_locked()
+    finally:
+        # Also covers Popen failures, malformed subprocess output and
+        # unexpected finalization errors. A blocked transition is recorded
+        # rather than silently allowing the next job to inherit the VPN.
+        final_transport = direct_if_enabled()
+        if final_transport is not None and not final_transport.get("direct"):
+            with jobs_lock:
+                job = jobs[job_id]
+                job["status"] = "failed"
+                job["finished_at"] = time.time()
+                job["message"] = (
+                    "VPN could not be disconnected; normal networking is blocked "
+                    "until the gateway is repaired."
+                )
+                job["log"].append("ERROR: Direct routing restoration failed.")
+                job["log"] = job["log"][-40:]
+                persist_jobs_locked()
+
 
 def backfill_job_display_metadata():
     with jobs_lock:
