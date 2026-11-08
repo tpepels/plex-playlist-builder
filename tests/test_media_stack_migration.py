@@ -190,9 +190,10 @@ def test_wrapper_only_recreates_two_containers_and_never_removes_volumes():
     assert "Preflight: refuse migration" in content
     assert 'job.get("status") in {"queued", "running", "finalizing"}' in content
     assert "home/playlist/download verification" in content
+    assert 'b"<iframe" in page.lower()' in content
     for route in ('("/", b\'id="siteNavigationPanel"\')',
                   '("/playlists", b\'id="viewPlaylists"\')',
-                  '("/downloads", b\'id="download-engine"\')'):
+                  '("/downloads", b\'id="download-form"\')'):
         assert route in content
 
 
