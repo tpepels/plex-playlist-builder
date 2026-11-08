@@ -233,12 +233,10 @@ def test_failed_forced_replacement_keeps_old_published_file(tmp_path, monkeypatc
     published.mkdir(parents=True)
     original = published / staging.media_files(stage)[0].name
     original.write_bytes(b"old-published-good-track")
-    real_replace = staging.os.replace
-    def fail_publish(source, destination):
-        if Path(destination) == original:
-            raise OSError("rename failed")
-        return real_replace(source, destination)
-    monkeypatch.setattr(staging.os, "replace", fail_publish)
+    def fail_album_exchange(candidate, existing):
+        assert Path(existing) == published
+        raise OSError("atomic album exchange failed")
+    monkeypatch.setattr(staging, "_exchange_directories", fail_album_exchange)
     with pytest.raises(OSError):
         staging.publish_stage(temp, tmp_path / "music", job)
     assert original.read_bytes() == b"old-published-good-track"
