@@ -821,3 +821,35 @@ worker checks restart the combined container, causing interrupted jobs
 to become explicitly retryable. Persistent-state corruption is handled
 differently: the dashboard stays available for the operator to repair
 the mounted files instead of restarting in a loop.
+
+### Atomic album publication and interrupted imports
+
+For both yt-dlp and spotDL, every individual album is prepared as a full
+hidden directory under `YT-DLP Imports/.incoming`. An existing album is
+copied into that hidden snapshot, preserving other tracks and cover art.
+Staged audio is merged into the snapshot and the complete directory is
+committed to the visible library in one operation.
+
+On Linux, replacing an existing nonempty album uses
+`renameat2(RENAME_EXCHANGE)`. A filesystem without this atomic operation
+does **not** fall back to writing individual tracks into Plex's scanned
+directory: publication fails visibly and keeps both the previous published
+album and all staged originals. New album directories use atomic
+`os.replace`. Album updates can temporarily need storage for the old
+and new directory contents.
+
+The original staged media is deleted **only after** the application's
+publication status has been durably written to `jobs.json`. A
+`publication_pending` journal flag survives an interrupted container
+restart. With a complete staged album and a clean preceding download
+result, startup retries the publication idempotently; if any tracks are
+missing, it retains the partial stage without exposing an incomplete album.
+Abandoned hidden snapshots from crashes are cleaned up without touching
+unknown files or symlinks. In a multi-album Spotify playlist, one complete
+album may already be published before a later album fails; retrying safely
+replays the remaining stages.
+
+Downloaded audio cannot be read from symlinked staging directories, and
+album publication rejects symlinked destination directories. This prevents
+malformed saved jobs or unexpected filesystem links from redirecting library
+operations outside the intended mounts.
