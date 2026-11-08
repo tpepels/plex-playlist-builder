@@ -137,12 +137,13 @@ After the normal downloader update above:
    `/srv/yt-dlp-server/wireguard-profiles` and never shown with private
    keys. Country codes are inferred from location filenames
    (for example, `nl-ams.conf`, `de-fra.conf`).
-4. The first profile is connected automatically and checked against a
-   public-IP geolocation service. Select **Test all countries once** to
-   cycle through every uploaded location, report observed country and
-   public IP, and then restore the previous selection.
-5. Use **Next country** to manually change your download IP between jobs.
-   You can also connect/remove individual profiles through the UI.
+4. Uploading profiles does **not** connect the VPN. They remain available
+   for automatic recovery after the specific YouTube failures described below.
+   Select **Test all countries once** to verify each location's public IP
+   and country; this temporary test ends in the normal direct mode.
+5. Use **Try VPN endpoint** or a profile's **Connect** button for an
+   explicit manual connection. Use **Disconnect VPN** to return to direct
+   immediately. Starting the next download always returns to direct first.
 
 ### Dashboard access when the VPN handshake fails
 
