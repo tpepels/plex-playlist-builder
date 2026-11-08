@@ -85,15 +85,20 @@ def _upstream_headers(request):
 
 
 def _rewrite_location(value, origin):
-    """Never disclose internal Docker URLs in a Location header."""
+    """Keep engine actions internal, and return its home redirects to /downloads."""
     parsed = urlsplit(value)
     if not parsed.scheme and not parsed.netloc and value.startswith("/") and not value.startswith("//"):
-        if value.startswith(PREFIX + "/"):
-            return value
-        return PREFIX + value
-    if parsed.scheme and parsed.netloc and value.startswith(origin + "/"):
-        return PREFIX + value[len(origin):]
-    return value
+        rewritten = value if value.startswith(PREFIX + "/") else PREFIX + value
+    elif parsed.scheme and parsed.netloc and value.startswith(origin + "/"):
+        rewritten = PREFIX + value[len(origin):]
+    else:
+        return value
+    target = urlsplit(rewritten)
+    if target.path == PREFIX + "/":
+        return "/downloads" + (("?" + target.query) if target.query else "") + (
+            ("#" + target.fragment) if target.fragment else ""
+        )
+    return rewritten
 
 
 def _outgoing_headers(response, origin):
@@ -125,11 +130,17 @@ async def upstream_json(path, *, timeout=7):
 @router.api_route(PREFIX, methods=METHODS, include_in_schema=False)
 async def downloader_without_slash(request: Request):
     query = ("?" + request.url.query) if request.url.query else ""
-    return RedirectResponse(PREFIX + "/" + query, status_code=307)
+    destination = "/downloads" if request.method in {"GET", "HEAD"} else PREFIX + "/"
+    return RedirectResponse(destination + query, status_code=307)
 
 
 @router.api_route(PREFIX + "/{path:path}", methods=METHODS, include_in_schema=False)
 async def proxy_downloader(request: Request, path: str):
+    # The engine's browser home is the Music workspace page, not a nested app.
+    # All API, static asset, form and extension paths still use this proxy.
+    if path == "" and request.method in {"GET", "HEAD"}:
+        query = ("?" + request.url.query) if request.url.query else ""
+        return RedirectResponse("/downloads" + query, status_code=307)
     extension = _extension_origin(request, path)
     if request.method == "OPTIONS":
         # Chrome's preflight for JSON probes or local-network access.
