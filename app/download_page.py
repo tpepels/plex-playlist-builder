@@ -1,51 +1,32 @@
-"""Compose the downloader's complete native interface into the music workspace.
+"""Integrate the native downloader into the single Music workspace shell.
 
-The yt-dlp service owns its markup, forms, jobs, cookies and VPN JavaScript.
-The Playlist Manager owns the surrounding navigation and library actions.
-This is one document and one scroll surface, never an iframe or a second UI.
+The yt-dlp container retains its HTML, form controls and JavaScript. Only its
+separate top header is replaced by the identical navigation used everywhere.
 """
 from __future__ import annotations
 
 from pathlib import Path
-
 import httpx
 from fastapi import Request
-
 from .downloader_bridge import PREFIX, downloader_origin
 
 _MAX_HTML_BYTES = 4 * 1024 * 1024
 _NAVIGATION = Path(__file__).parent / "templates" / "_site_navigation.html"
 _HEADER = '<header class="page-head signal-header signal-transition">'
-_BRAND = '<div class="signal-brand">'
-_TOOLS = '<div class="signal-tools">'
 _HEAD_END = "</head>"
 _BODY_END = "</body>"
 
-_PRIMARY_NAV = """<nav class="download-native-primary" aria-label="Primary navigation">
-  <a href="/">Overview</a>
-  <a href="/downloads" aria-current="page">Downloads</a>
-  <a href="/playlists">Playlists</a>
-  <a href="/playlist-intelligence">Curate</a>
-</nav>"""
-
-_NAV_BUTTON = """<button id="siteNavigationToggle" class="site-nav-toggle" type="button"
- aria-label="Open navigation menu" aria-expanded="false"
- aria-controls="siteNavigationPanel" title="Navigation">
- <span class="site-nav-lines" aria-hidden="true"><span></span><span></span><span></span></span>
-</button>"""
-
-_ACTIONS = """<nav class="download-native-actions" aria-label="Download and library actions">
+# All commands and backend actions remain inside the native download form.
+# These are contextual actions, not a second page navigation menu.
+_ACTIONS = """<div class="download-native-actions">
   <button id="scan-plex" type="button">Scan Plex for new music</button>
-  <a href="/playlists?view=newmusic">Review new music</a>
-  <a href="/playlist-intelligence">Add tracks to playlists</a>
-  <a href="/downloads-audit">Import audit</a>
-</nav>
-<div id="engine-status" class="download-native-status" role="status" aria-live="polite">Checking download engine…</div>
+  <a href="/downloads/engine/chrome-extension.zip" download>Chrome extension</a>
+</div>
+<div id="engine-status" class="download-native-status" role="status" aria-live="polite">Checking the download queue…</div>
 <div id="scan-result" class="download-native-result" role="status" aria-live="polite"></div>"""
 
 _ASSETS = """<link rel="stylesheet" href="/static/site-navigation.css">
 <link rel="stylesheet" href="/static/download-native.css">"""
-
 _SCRIPTS = """<script src="/static/site-navigation.js" defer></script>
 <script src="/static/download-portal.js" defer></script>"""
 
@@ -55,41 +36,37 @@ class DownloadPageError(RuntimeError):
 
 
 def compose_native_page(html: str) -> str:
-    """Insert shared navigation into the native downloader HTML, preserving its scripts.
+    """Replace only the native page header; preserve all functional markup.
 
-    Fail closed on changed upstream markup rather than silently drop controls.
-    The source is the configured internal downloader, never an arbitrary URL.
+    Reject a changed upstream shape rather than losing a form or a VPN action.
     """
-    required = (_HEADER, _BRAND, _TOOLS, _HEAD_END, _BODY_END,
-                '<main class="signal-shell">', "</header>",
-                '<meta name="downloader-base"', 'id="download-form"',
-                'id="jobs"', 'id="vpn-panel"', 'id="youtube-cookie-panel"')
+    required = (
+        _HEADER, _HEAD_END, _BODY_END, '<main class="signal-shell">',
+        '<meta name="downloader-base"', 'id="download-form"', 'id="jobs"',
+        'id="vpn-panel"', 'id="youtube-cookie-panel"', 'id="history-results"',
+    )
     if (any(html.count(marker) != 1 for marker in required)
             or 'content="' + PREFIX + '"' not in html
             or "<iframe" in html.lower()
             or 'id="siteNavigationPanel"' in html):
-        raise DownloadPageError("Download engine HTML structure changed; refusing an incomplete interface")
+        raise DownloadPageError("Download engine HTML changed; refusing an incomplete interface")
 
+    start = html.index(_HEADER)
+    end = html.find("</header>", start)
+    if end == -1:
+        raise DownloadPageError("Download engine header was not found")
+    end += len("</header>")
     navigation = _NAVIGATION.read_text(encoding="utf-8")
+    html = html[:start] + navigation + "\n" + _ACTIONS + html[end:]
     html = html.replace("<title>yt-dlp music server</title>",
                         "<title>Downloads · Music workspace</title>", 1)
     html = html.replace(_HEAD_END, _ASSETS + "\n" + _HEAD_END, 1)
-    html = html.replace(_BRAND, _BRAND + "\n" + _NAV_BUTTON, 1)
-    html = html.replace(_TOOLS, _TOOLS + "\n" + _PRIMARY_NAV, 1)
-    html = html.replace("SIGNAL CONSOLE / AUDIO OPERATIONS",
-                        "MUSIC WORKSPACE / AUDIO IMPORTS", 1)
-    html = html.replace("DOWNLOAD <span>/ CONTROL</span>",
-                        "Downloads", 1)
-    html = html.replace(
-        "</header>",
-        "</header>\n" + navigation + "\n" + _ACTIONS, 1,
-    )
     html = html.replace(_BODY_END, _SCRIPTS + "\n" + _BODY_END, 1)
     return html
 
 
 async def fetch_native_page(request: Request) -> str:
-    """Retrieve a bounded, server-rendered document using fixed Docker DNS."""
+    """Retrieve a bounded native document from the fixed Docker downloader."""
     if len(request.url.query) > 2048:
         raise DownloadPageError("Download query is too long")
     headers = {
