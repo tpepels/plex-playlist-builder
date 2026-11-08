@@ -87,26 +87,55 @@ def rotate(key, *, timeout=50, interval=2):
             "new_ip": current["ip"]}
 
 
+def _gateway_request(operation, *, timeout):
+    """Authenticated loopback transport shared by retry and direct restoration."""
+    if operation not in {"/rotate", "/direct"}:
+        raise ValueError("Unsupported gateway action")
+    try:
+        key = __import__("pathlib").Path(
+            os.getenv("VPN_CONTROL_TOKEN_FILE", "/data/state/.vpn-control-token")
+        ).read_text().strip()
+        if len(key) < 32:
+            raise ValueError("Invalid gateway token")
+    except (OSError, ValueError):
+        raise RuntimeError("VPN gateway control token is unavailable") from None
+    request = Request(
+        "http://127.0.0.1:8787" + operation,
+        data=b"{}", method="POST",
+        headers={"X-VPN-Key": key, "Content-Type": "application/json"},
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return json.load(response)
+    except (RuntimeError, URLError, HTTPError, TimeoutError, ValueError, OSError):
+        raise RuntimeError("VPN gateway control request failed") from None
+
+
+def direct_if_enabled():
+    """Return the managed gateway to direct routing (also after failed retries).
+
+    The legacy Gluetun transport is not capable of direct-first operation;
+    its network policy is not changed here.
+    """
+    if os.getenv("VPN_GATEWAY_ENABLED") != "1":
+        return None
+    try:
+        response = _gateway_request("/direct", timeout=30)
+        return {"direct": response.get("direct") is True}
+    except RuntimeError:
+        return {"direct": False, "error": "Could not restore the direct connection"}
+
+
 def rotate_if_enabled():
-    """Default-on one-shot 403 fallback for configured VPN downloads."""
+    """Connect to a verified VPN exit *only after* a selected YouTube failure."""
     if os.getenv("SURFSHARK_ROTATE_ON_403", "1") != "1":
         return None
     if os.getenv("VPN_GATEWAY_ENABLED") == "1":
         try:
-            key = __import__("pathlib").Path(
-                os.getenv("VPN_CONTROL_TOKEN_FILE", "/data/state/.vpn-control-token")
-            ).read_text().strip()
-        except OSError:
-            return {"changed": False, "error": "VPN gateway not ready"}
-        req = Request("http://127.0.0.1:8787/rotate",
-                      data=b"{}", method="POST",
-                      headers={"X-VPN-Key": key, "Content-Type": "application/json"})
-        try:
-            with urlopen(req, timeout=240) as response:
-                obj = json.load(response)
+            obj = _gateway_request("/rotate", timeout=240)
             return {"changed": bool(obj.get("changed_ip")),
                     "new_ip": obj.get("ip", ""), "country": obj.get("country", "")}
-        except (RuntimeError, URLError, HTTPError, TimeoutError, ValueError, OSError):
+        except RuntimeError:
             return {"changed": False, "error": "VPN profile rotation failed."}
     if os.getenv("SURFSHARK_VPN_ENABLED") != "1":
         return None
