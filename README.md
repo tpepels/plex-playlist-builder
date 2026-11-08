@@ -32,6 +32,27 @@ against the Plex Music library and syncs them idempotently.
 - Exports recently added music directly as TSV: last X hours (new tracks only) or last N added albums (complete albums), with their Plex rating keys and addition timestamps.
 - Exports all current Plex audio playlists as importable YAML, preserving playlist order and exact Plex rating keys so the file can be uploaded in chat to avoid reusing tracks.
 
+## One integrated music workspace
+
+The default page at `http://media-server:5051/` is now the **Music workspace
+home**. Its dashboard displays live Plex connectivity, saved playlist counts,
+the download queue and playlists requiring sync. It also lists failures and
+pending work with direct links to the appropriate screen. All pages use one
+shared navigation menu and its keyboard-accessible drawer.
+
+The full playlist editor is at `/playlists`. Existing links to
+`/?view=health`, `/?view=duplicates`, `/?view=newmusic`,
+`/?view=isc` and `/?view=discover` remain functional, while the
+canonical navigation uses `/playlists?view=...`. The downloader continues
+at `/downloads`, with its existing queue, retry, history and VPN controls.
+
+Home status is read-only and loads from the existing Plex, configuration and
+download bridge endpoints. If one service is unavailable, the other sections
+remain navigable and the offline state is reported rather than treated as an
+empty collection. The overview refreshes periodically while the browser tab
+is visible, or on demand using **Refresh**. The full YAML import, sync and
+playlist-cover ZIP actions remain available in the playlist workspace.
+
 ## Unified downloads and Plex playlist workflow
 
 **Playlist Manager is the single browser entry point** on port **5051**.
@@ -116,7 +137,9 @@ python3 ~/media-stack/plex-playlist-manager/deploy/merge_media_stack.py \\
 If a migration validation or build fails, read the error; restore the
 `docker-compose.yml.pre-monorepo.<timestamp>.bak` file if needed.
 A failed container health check is reported rather than silently claiming
-success. After successful deployment visit `/downloads` on port 5051.
+success. After successful deployment, open `/` on port 5051 for the integrated
+home, `/playlists` for the playlist workspace or `/downloads` for the
+download engine.
 Do not attempt migration while download jobs are active or queued.
 
 Security: Playlist Manager proxies only to the configured internal
@@ -126,6 +149,35 @@ mutations. The Chrome extension has narrowly scoped CORS for
 manage VPN profiles or cookies through that exception. Port 4545 should
 remain internal, because the native downloader does not have its own user
 authentication.
+
+### Which repository to retire?
+
+Keep **`tpepels/plex-playlist-builder`**. This is the canonical monorepo,
+including the `yt-dlp-server/` subtree and both complete Git histories.
+
+After deploying from the monorepo and confirming both containers, the
+download queue, Surfshark profiles, cookies and Plex imports, the old
+**`tpepels/yt-dlp-server`** GitHub repository can be archived or deleted.
+Archiving is safer if you want to retain GitHub issues, releases and
+historical workflow runs; a subtree merge preserves Git commits but does not
+automatically import that GitHub-specific metadata.
+
+The local `~/media-stack/yt-dlp-server` checkout is no longer part of the
+Compose build after migration. Do not remove it during the migration;
+retain it for rollback until the new deployment has been verified. Deleting
+the GitHub repository or the old local checkout never requires deleting
+`/srv/yt-dlp-server`, which contains active persistent data.
+
+### Compose migration safety
+
+The deploy script validates the complete effective Compose configuration,
+including your override. It refuses missing music/state/profile mounts,
+unexpected build paths, split Docker networks, exposed download-engine
+ports, missing VPN privileges, and a missing port 5051 for Playlist Manager.
+It verifies the queue is idle before changes and immediately before container
+replacement. The downloader must become **healthy** before Playlist Manager
+is recreated. Existing Compose YAML is backed up privately; the script does
+not recreate unrelated services or remove volumes.
 
 ## Intelligent Playlist Generation (new playlists)
 
