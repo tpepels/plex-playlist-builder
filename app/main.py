@@ -207,8 +207,22 @@ def _config_payload(data: dict | None = None) -> dict:
     }
 
 
+DASHBOARD_VIEWS = frozenset({
+    "playlists", "health", "duplicates", "newmusic", "isc", "discover"
+})
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
+    """Primary landing page, retaining old /?view=... bookmarked sections."""
+    if request.query_params.get("view") in DASHBOARD_VIEWS:
+        return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("home.html", {"request": request})
+
+
+@app.get("/playlists", response_class=HTMLResponse)
+def playlist_workspace(request: Request):
+    """The full playlist management workspace, unchanged for saved data."""
     return templates.TemplateResponse("index.html", {"request": request})
 
 
