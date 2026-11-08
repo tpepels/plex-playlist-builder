@@ -53,6 +53,9 @@ jobs:
       - name: Browser import and sync flow tests
         if: ${{ always() }}
         run: node --test tests/test_import_ui.mjs
+      - name: Home YAML import and downloader entry workflows
+        if: ${{ always() }}
+        run: node --test tests/test_home_intake.mjs
       - name: Playlist Intelligence browser integration
         if: ${{ always() }}
         run: node tests/test_playlist_intelligence_ui.mjs
