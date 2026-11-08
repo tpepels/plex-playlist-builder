@@ -1,6 +1,6 @@
-# Same existing ~/media-stack/docker-compose.override.yml symlink.
-# Extends only the existing downloader service. No gateway service.
-# The parent Compose file retains the port 4545 mapping and project network.
+# Optional legacy override, repointed into this monorepo by the migration.
+# Extends only yt-dlp-server. The parent Compose file now keeps 4545 internal.
+# No separate gateway service or shared network namespace is required.
 services:
   yt-dlp-server:
     user: "0:0"

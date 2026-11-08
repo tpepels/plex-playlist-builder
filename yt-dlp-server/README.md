@@ -48,84 +48,35 @@ For YouTube/YouTube Music the server writes yt-dlp info JSON sidecars into stagi
 
 If both artist/album-artist and album are trustworthy, the server retags staged audio and publishes the complete collection. **Album imports also require a successful download, a known expected track count, no unresolved failures, and exactly that many staged audio files.** Otherwise the files remain in staging, outside Plex, even if the source or user has marked a missing track ignored. If metadata is unresolved, a complete album becomes **Needs metadata** until the user confirms it. A matching count cannot establish exact track identity; independent track-level verification is still advisable.
 
-## Install and update
+## Install and update (monorepo)
 
-**The downloader and managed WireGuard controller now run in one Docker
-container**, `yt-dlp-server`. A root-owned controller manages wg0 and
-iptables; the web server, yt-dlp and spotDL run as the configured non-root
-UID/GID. The control API binds to loopback port 8787, while the existing
-dashboard remains on port 4545.
+The canonical source now lives under
+`tpepels/plex-playlist-builder/yt-dlp-server/`. Do not maintain a separate
+Git checkout for the downloader after migrating your media-stack.
 
-The default connection is direct. WireGuard activates only when the
-existing bot-challenge/403 recovery policy requests it or when a profile
-is explicitly connected in the dashboard.
-
-For a new standalone deployment:
+For the existing media-stack installation:
 
 ```sh
-docker compose config --quiet
-docker compose up -d --build yt-dlp-server
-```
-
-### Migrating the existing `~/media-stack`
-
-The existing `~/media-stack/docker-compose.override.yml` symlink to
-`yt-dlp-server/compose.parent-vpn.yaml` **must remain**. Its target now
-augments only the downloader service, without defining a separate
-gateway service. The parent's `yt-dlp-server` network name and port
-4545 are preserved for the playlist manager and other clients.
-
-**Run this once, only when no download is running or queued.**
-Confirm this in the Downloads page before stopping containers.
-
-```sh
-cd ~/media-stack/yt-dlp-server
+cd ~/media-stack/plex-playlist-manager
 git pull --ff-only
-cd ..
-docker compose config --quiet
-docker compose build yt-dlp-server
-docker stop yt-dlp-server
-if docker container inspect yt-dlp-wireguard-gateway >/dev/null 2>&1; then
-    docker rm -f yt-dlp-wireguard-gateway
-fi
-docker compose up -d --no-build --force-recreate yt-dlp-server
-docker compose ps
+bash deploy/apply_media_stack.sh
 ```
 
-Removing the former `yt-dlp-wireguard-gateway` container is necessary:
-it previously owned host port 4545. The replacement service publishes
-this port itself. **Do not run `docker compose down -v` or
-`docker volume prune`.** Music, cookies, state, archives, staging and
-root-owned WireGuard profiles retain their existing bind-mount paths.
-The old container is not needed after this migration.
+The migration uses the embedded Dockerfile and preserves all existing music,
+staging, jobs, cookies, Surfshark profiles and download archives. The
+downloader retains its own container and root-owned loopback VPN controller,
+but its port 4545 is reachable only from the internal Docker network.
+Playlist Manager is the browser entry point at `http://media-server:5051/downloads`.
 
-Subsequent updates need only one rebuild:
+The installer checks active jobs, validates the parent Compose configuration,
+updates the downloader build context and any recognized legacy WireGuard
+override symlink, backs up the parent YAML, builds both images and recreates
+only the two affected services. It does not remove the old standalone checkout
+until the owner explicitly does so after successful live verification.
 
-```sh
-cd ~/media-stack/yt-dlp-server
-git pull --ff-only
-cd ..
-docker compose config --quiet
-docker compose up -d --build --force-recreate yt-dlp-server
-```
-
-Inspect both processes through the single container:
-
-```sh
-docker compose ps yt-dlp-server
-docker top yt-dlp-server
-docker compose logs --tail=80 yt-dlp-server
-```
-
-The image includes the existing yt-dlp, spotDL, ffmpeg, Deno and
-PO-token dependencies alongside WireGuard tools and iptables. Its PID 1
-supervisor starts the gateway first, starts Gunicorn through `gosu`
-as `VPN_DOWNLOADER_UID:VPN_DOWNLOADER_GID` (default `1000:1000`),
-and drops NET_ADMIN from the downloader capability bounding set with
-`setpriv --no-new-privs`. If either process fails, the supervisor stops
-the other and Docker restarts the whole container. The container requires `NET_ADMIN`, `/dev/net/tun` and
-`src_valid_mark` but **Gunicorn and its download workers run without
-root privileges**.
+For development outside the parent stack, the nested
+`yt-dlp-server/compose.yaml` still defines just the downloader service.
+The monorepo root `compose.yaml` defines both applications together.
 
 ## Surfshark VPN: upload and test entirely in the web interface
 
@@ -725,7 +676,7 @@ yt-dlp changes often because upstream sites change. The image intentionally inst
 
 Rebuild when downloads start failing:
 
-    git pull
+    git -C ~/media-stack/plex-playlist-manager pull --ff-only
     docker compose build --pull --no-cache yt-dlp-server
     docker compose up -d yt-dlp-server
 

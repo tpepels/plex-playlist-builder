@@ -1,6 +1,20 @@
-# Plex Playlist Manager
+# Plex Playlist Manager + yt-dlp
 
-A tiny local web service for defining Plex music playlists in YAML, previewing matches against your Plex Music library, and syncing them idempotently.
+One Git repository for the Plex Playlist Manager and the complete yt-dlp
+download service, with both original commit histories preserved in a
+non-squashed Git subtree merge. The two applications remain separate
+Docker containers, with one browser interface on port 5051.
+
+The repository structure is:
+
+- `app/`, `tests/`, `Dockerfile`: Playlist Manager
+- `yt-dlp-server/`: full yt-dlp engine and privileged WireGuard controller
+- `deploy/`: one-checkout media-stack migration and safe deployment
+- `compose.yaml`: coordinated two-service standalone Compose stack
+- `.github/workflows/`: unified application checks and downloader Docker CI
+
+This application defines Plex music playlists in YAML, previews matches
+against the Plex Music library and syncs them idempotently.
 
 ## What it does
 
@@ -51,6 +65,11 @@ Successful scan requests are recorded idempotently in the mounted file
 `/data/downloader-bridge.json`, with a validated `.bak` and corrupt-state
 quarantine. If Plex is unavailable, the pending scan is persisted and retried.
 
+The old `~/media-stack/yt-dlp-server` checkout is no longer read by
+Docker after migration. It is deliberately retained as a rollback source;
+remove or archive it only after confirming the new deployment works.
+No data or container volume is deleted by the migration.
+
 **Downloaded music is never automatically inserted into a playlist.**
 Review the new recordings in Plex and add them through Playlist Intelligence
 with the existing explicit approval and conflict checks. This maintains
@@ -67,20 +86,22 @@ git pull --ff-only
 bash deploy/apply_media_stack.sh
 ```
 
-The wrapper pulls both Git checkouts with fast-forward only, refuses an
-active/queued download, previews and validates a narrow update to the
-parent `docker-compose.yml`, retains an owner-readable private dated
-backup, builds both images while current services remain up, and recreates
-**only these two services**. The downloader's old external 4545 port is
+The wrapper pulls **one monorepo checkout** with fast-forward only, refuses
+an active/queued download, updates the downloader's build context to
+`./plex-playlist-manager/yt-dlp-server`, previews and validates a narrow
+update to the parent `docker-compose.yml`, saves an owner-readable private
+dated backup, builds both images while current services remain up, and
+recreates **only these two services**. The downloader's old external 4545 port is
 removed; the two services communicate via Docker DNS
 `http://yt-dlp-server:4545`. The existing 5051 binding remains. If the old
 standalone `yt-dlp-wireguard-gateway` container is present, the script
 removes that obsolete container only.
 
-The existing `docker-compose.override.yml` symlink to
-`yt-dlp-server/compose.parent-vpn.yaml` remains valid, and the script
-validates the **effective merged Compose configuration** including that
-override. Unrelated containers and services (Plex, Transmission, Pi-hole,
+If `docker-compose.override.yml` is a symlink to the old checkout's
+`yt-dlp-server/compose.parent-vpn.yaml`, the script atomically repoints it
+to the file in `plex-playlist-manager/yt-dlp-server/`, with rollback on
+failed validation. Other overrides are left untouched. The script validates
+the **effective merged Compose configuration**, including this override. Unrelated containers and services (Plex, Transmission, Pi-hole,
 Finance Dashboard, etc.) and the persisted music, jobs, staging, cookie,
 profile, playlist and AudioMuse mounts are left unchanged. The script never
 uses `docker compose down`, removes volumes or edits playlist YAML.
@@ -93,7 +114,7 @@ python3 ~/media-stack/plex-playlist-manager/deploy/merge_media_stack.py \\
 ```
 
 If a migration validation or build fails, read the error; restore the
-`docker-compose.yml.pre-download-merge.<timestamp>.bak` file if needed.
+`docker-compose.yml.pre-monorepo.<timestamp>.bak` file if needed.
 A failed container health check is reported rather than silently claiming
 success. After successful deployment visit `/downloads` on port 5051.
 Do not attempt migration while download jobs are active or queued.
