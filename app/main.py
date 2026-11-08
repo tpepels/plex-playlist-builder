@@ -17,6 +17,7 @@ from typing import Literal
 from fastapi import Query
 
 import yaml
+import httpx
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -77,6 +78,7 @@ from .download_audit import (read_downloader_jobs, read_disk_audit,
 from .disk_reconciliation import reconcile_inventory
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .downloader_bridge import router as downloader_router
+from .download_page import DownloadPageError, fetch_native_page
 from . import download_plex_sync
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
@@ -450,18 +452,19 @@ def export_library():
 
 
 @app.get("/downloads", response_class=HTMLResponse)
-def unified_downloads(request: Request, job: str = Query(default="", max_length=128)):
-    """Single visible downloader workspace; its engine stays in another container."""
+async def unified_downloads(request: Request, job: str = Query(default="", max_length=128)):
+    """Full native downloader page with Playlist Manager navigation and controls."""
     if job and not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", job):
         raise HTTPException(status_code=422, detail="Invalid download job ID")
-    engine_url = "/downloads/engine/" + (
-        "?" + urlencode({"job": job}) if job else ""
-    )
-    return templates.TemplateResponse(
-        "download_portal.html",
-        {"request": request, "engine_url": engine_url},
-        headers={"Cache-Control": "no-store"},
-    )
+    try:
+        markup = await fetch_native_page(request)
+    except (httpx.RequestError, DownloadPageError, OSError, RuntimeError):
+        # Navigation stays available even when the independent downloader fails.
+        return templates.TemplateResponse(
+            "download_portal.html", {"request": request},
+            headers={"Cache-Control": "no-store"},
+        )
+    return HTMLResponse(markup, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/downloads-audit")
