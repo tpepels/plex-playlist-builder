@@ -32,26 +32,45 @@ against the Plex Music library and syncs them idempotently.
 - Exports recently added music directly as TSV: last X hours (new tracks only) or last N added albums (complete albums), with their Plex rating keys and addition timestamps.
 - Exports all current Plex audio playlists as importable YAML, preserving playlist order and exact Plex rating keys so the file can be uploaded in chat to avoid reusing tracks.
 
-## One integrated music workspace
+## One navigation and two entry workflows
 
-The default page at `http://media-server:5051/` is now the **Music workspace
-home**. Its dashboard displays live Plex connectivity, saved playlist counts,
-the download queue and playlists requiring sync. It also lists failures and
-pending work with direct links to the appropriate screen. All pages use one
-shared navigation menu and its keyboard-accessible drawer.
+Open `http://media-server:5051/`. Home is a functional entry point, with
+two prominent actions:
 
-The full playlist editor is at `/playlists`. Existing links to
-`/?view=health`, `/?view=duplicates`, `/?view=newmusic`,
-`/?view=isc` and `/?view=discover` remain functional, while the
-canonical navigation uses `/playlists?view=...`. The downloader continues
-at `/downloads`, with its existing queue, retry, history and VPN controls.
+1. **Import playlist YAML** — select or drag in a `.yml` / `.yaml` file
+   (maximum 2 MB). The app validates it without modifying storage, shows
+   new/updated/unchanged/retained playlist counts, and requires explicit
+   confirmation. **Import & sync changes** merges definitions without
+   deleting playlists absent from the upload. Each changed playlist is
+   synced individually using the saved collection revision; progress and
+   failures are shown. A Plex outage does not discard the imported YAML.
+2. **Download music** — paste a source URL, optionally choose album/playlist
+   and force-download settings, and submit directly to the internal
+   downloader. The resulting job opens in `/downloads`.
 
-Home status is read-only and loads from the existing Plex, configuration and
-download bridge endpoints. If one service is unavailable, the other sections
-remain navigable and the offline state is reported rather than treated as an
-empty collection. The overview refreshes periodically while the browser tab
-is visible, or on demand using **Refresh**. The full YAML import, sync and
-playlist-cover ZIP actions remain available in the playlist workspace.
+Below the entry forms, Home shows live Plex, saved-playlist, download and
+pending-sync counts, followed by specific issues requiring attention. The
+read-only status portion refreshes every 30 seconds when the tab is visible
+or through **Refresh status**.
+
+**One shared navigation and theme** is used on every screen, including the
+complete native downloader. The header links to Home, Downloads, Playlists,
+Discover, Create and Curate; More provides playlist health, new music,
+duplicates, the album resolver, musical coherence, audits and exports.
+There are no separate page headers, second playlist tab bars, drawers or
+embedded frames. The mobile header collapses the same navigation into one
+Menu button.
+
+The playlist editor remains at `/playlists`. Its library sections have
+direct URLs such as `/playlists?view=health`,
+`/playlists?view=newmusic`, `/playlists?view=isc` and
+`/playlists?view=duplicates`. Existing `/?view=...` bookmarks work.
+The advanced YAML editor, cover ZIP upload, playlist-preview, and approval
+controls remain in the playlist workspace.
+
+The YAML configuration API does not require Plex connectivity. If Plex or
+the downloader is unavailable, their status is shown independently; the
+other tools and saved playlist definitions remain accessible.
 
 ## Unified downloads and Plex playlist workflow
 
@@ -84,9 +103,9 @@ instead of a partial interface. All existing controls remain available:
   extension's server address to
   `http://media-server:5051/downloads/engine`.
 
-Playlist Manager also displays a download health summary, lets you request
-a Plex Music scan and links to **New music**, **Download audit** and
-**Playlist Intelligence**. A background poller checks published downloader
+Playlist Manager also displays a download health summary and lets
+you request a Plex Music scan. New music, Download audit and Playlist
+Intelligence remain accessible through the single global navigation. A background poller checks published downloader
 jobs every 30 seconds and requests a Plex Music scan after *new*
 successfully published releases. The first observation establishes a
 historical baseline rather than rescanning all old imports. The scan is
