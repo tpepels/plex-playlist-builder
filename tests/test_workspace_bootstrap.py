@@ -11,9 +11,9 @@ TEMPLATE = (ROOT / "app/templates/index.html").read_text(encoding="utf-8")
 
 
 def test_every_inline_dom_id_lookup_exists_in_current_markup():
-    html_ids = set(re.findall(r'\\bid="([^"]+)"', TEMPLATE))
+    html_ids = set(re.findall(r'\bid="([^"]+)"', TEMPLATE))
     script = TEMPLATE.split("<script>", 1)[1].split("</script>", 1)[0]
-    lookups = set(re.findall(r'\\$\\("([^"]+)"\\)', script))
+    lookups = set(re.findall(r'\$\("([^"]+)"\)', script))
     missing = sorted(lookups - html_ids)
     assert not missing, (
         "Orphaned DOM lookup(s) abort playlist workspace initialization: "
