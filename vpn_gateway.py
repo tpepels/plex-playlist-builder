@@ -23,6 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from state_store import (StateCorruption, load_json, write_json,
+                         validate_profiles_payload)
 
 ROOT = Path(os.getenv("VPN_PROFILE_DIR", "/profiles"))
 ACTIVE_FILE = ROOT / "wg0.conf"
@@ -347,13 +349,22 @@ def write_private(path, text):
 
 
 def metadata():
-    if not META_FILE.exists():
-        return {"profiles": [], "active": None}
-    return json.loads(META_FILE.read_text())
+    """Recover profile index from the last valid durable generation.
+
+    A corrupted index must not quietly discard uploaded private keys.
+    """
+    value, recovered = load_json(
+        META_FILE, default={"profiles": [], "active": None},
+        validate=validate_profiles_payload,
+    )
+    if recovered:
+        print("WARNING: VPN profile index recovered from backup; "
+              "corrupt primary quarantined.", flush=True)
+    return value
 
 
 def save_metadata(value):
-    write_private(META_FILE, json.dumps(value, separators=(",", ":")))
+    write_json(META_FILE, value, validate=validate_profiles_payload)
 
 
 def firewall():
@@ -428,7 +439,14 @@ def _direct():
     global FIREWALL_ENABLED
     data = metadata()
     if not FIREWALL_ENABLED and not data.get("active"):
-        return {"direct": True, "mode": "direct"}
+        # In-memory FIREWALL_ENABLED resets when this process restarts, but a
+        # surviving wg0 interface or broken routing table does not. Never
+        # claim direct mode from a Python boolean alone.
+        interface = run("ip", "link", "show", "wg0", check=False)
+        route = run("ip", "-4", "route", "get", "1.1.1.1", check=False)
+        if (interface.returncode != 0 and route.returncode == 0
+                and "wg0" not in str(getattr(route, "stdout", ""))):
+            return {"direct": True, "mode": "direct"}
     # No direct egress may escape during tunnel teardown.
     try:
         run("iptables", "-P", "OUTPUT", "DROP")
@@ -449,14 +467,17 @@ def _direct():
                       "-j", "MARK", "--set-mark", str(WG_FWMARK))
         run("iptables", "-t", "mangle", "-D", "OUTPUT",
             *mark_match, check=False)
+        # Persist the recovered state while egress is still blocked.
+        # A full disk or corrupt metadata must never leave OUTPUT ACCEPT
+        # while telling callers that recovery failed.
+        data["active"] = None
+        save_metadata(data)
         # Reopen the normal connection last, after WireGuard is gone.
         run("iptables", "-P", "OUTPUT", "ACCEPT")
         run("ip6tables", "-P", "OUTPUT", "ACCEPT")
-        data["active"] = None
-        save_metadata(data)
         FIREWALL_ENABLED = False
         return {"direct": True, "mode": "direct"}
-    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+    except (RuntimeError, OSError, subprocess.TimeoutExpired, StateCorruption):
         try:
             firewall()
         except (RuntimeError, OSError, subprocess.TimeoutExpired):
@@ -500,7 +521,7 @@ def _activate(profile_id):
         stop_tunnel()
         allow_endpoint(candidate["endpoint"], candidate["port"])
         write_private(ACTIVE_FILE, candidate["text"])
-    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+    except (RuntimeError, OSError, subprocess.TimeoutExpired, StateCorruption):
         raise VPNConnectionError(
             "preparation", "Gateway could not prepare WireGuard's interface "
             "or permit the Surfshark server endpoint.") from None
@@ -655,10 +676,17 @@ def add_profile(filename, country, content):
         if not 1 <= len(country) <= 60 or not re.fullmatch(r"[\w .()-]+", country):
             raise ValueError("Enter a country label (max 60 characters)")
         profile_id = uuid.uuid4().hex
-        write_private(ROOT / (profile_id + ".conf"), parsed["text"])
+        profile_path = ROOT / (profile_id + ".conf")
+        write_private(profile_path, parsed["text"])
         data["profiles"].append({"id": profile_id, "filename": filename,
                                  "country": country})
-        save_metadata(data)
+        try:
+            save_metadata(data)
+        except (OSError, StateCorruption):
+            # An interrupted profile-index update must not leave an
+            # unmanageable orphaned private key or claim success.
+            profile_path.unlink(missing_ok=True)
+            raise
         return {"id": profile_id, "filename": filename, "country": country}
 
 
@@ -672,9 +700,18 @@ def delete_profile(profile_id):
         match = [p for p in data["profiles"] if p["id"] == profile_id]
         if not match:
             raise ValueError("Unknown profile")
+        profile_path = ROOT / (profile_id + ".conf")
+        pending = ROOT / ("." + profile_id + ".delete")
+        if profile_path.exists():
+            os.replace(profile_path, pending)
         data["profiles"] = [p for p in data["profiles"] if p["id"] != profile_id]
-        save_metadata(data)
-        (ROOT / (profile_id + ".conf")).unlink(missing_ok=True)
+        try:
+            save_metadata(data)
+        except (OSError, StateCorruption):
+            if pending.exists():
+                os.replace(pending, profile_path)
+            raise
+        pending.unlink(missing_ok=True)
         PROFILE_PUBLIC_CACHE.pop(profile_id, None)
         return {"deleted": True}
 
@@ -807,7 +844,15 @@ class Handler(BaseHTTPRequestHandler):
         if not TOKEN or self.headers.get("X-VPN-Key") != TOKEN:
             return self.reply(403, {"error": "VPN administrator authentication required"})
         if self.command == "GET" and self.path == "/profiles":
-            return self.reply(200, list_profiles())
+            try:
+                return self.reply(200, list_profiles())
+            except (StateCorruption, OSError, ValueError):
+                return self.reply(503, {
+                    "error": "WireGuard profile index is damaged or unreadable. "
+                             "Restore profiles.json or profiles.json.bak and "
+                             "restart this container.",
+                    "phase": "profile_state",
+                })
         if self.command == "POST":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -837,6 +882,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(400, {
                     "error": str(exc), "phase": exc.phase,
                     "diagnostics": getattr(exc, "diagnostics", {}),
+                })
+            except StateCorruption:
+                return self.reply(503, {
+                    "error": "WireGuard profile history cannot be read or saved. "
+                             "Restore profiles.json or profiles.json.bak.",
+                    "phase": "profile_state",
+                })
+            except OSError:
+                return self.reply(503, {
+                    "error": "WireGuard profile storage is unavailable or full; "
+                             "existing profiles were preserved.",
+                    "phase": "profile_storage",
                 })
             except (ValueError, KeyError, RuntimeError, TypeError) as exc:
                 return self.reply(400, {"error": str(exc)})
