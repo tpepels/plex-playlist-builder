@@ -471,24 +471,12 @@ test("cover ZIP picker rejects nonzip files before sending requests", async () =
 });
 
 
-test("hamburger navigation opens as a drawer and closes via backdrop, Close and Escape", async () => {
-  const h = makeHarness();
-  await new Promise(resolve => setImmediate(resolve));
-  const toggle=h.$("navigationToggle");
-  await toggle.onclick();
-  assert.equal(h.$("navigationPanel").hidden,false);
-  assert.equal(h.$("navigationBackdrop").hidden,false);
-  assert.equal(toggle["aria-expanded"],"true");
-  h.$("navigationBackdrop").onclick();
-  assert.equal(h.$("navigationPanel").hidden,true);
-  assert.equal(toggle["aria-expanded"],"false");
-  toggle.onclick();
-  h.$("navigationClose").onclick();
-  assert.equal(h.$("navigationPanel").hidden,true);
-  toggle.onclick();
-  h.document.onkeydown({key:"Escape",preventDefault() {}});
-  assert.equal(h.$("navigationPanel").hidden,true);
-  assert.equal(toggle.focused,true);
+test("playlist workspace uses the same shared menu as other pages", () => {
+  assert.match(html, /id="siteNavigationToggle"/);
+  assert.match(html, /id="siteNavigationPanel"/); // included Jinja fragment in rendered page
+  assert.match(html, /site-navigation\.js/);
+  assert.match(html, /data-view="playlists"/);
+  assert.doesNotMatch(html, /id="navigationPanel"/);
 });
 
 test("all six sections navigate without losing lazy-loading, selecting one section only", async () => {
@@ -503,10 +491,8 @@ test("all six sections navigate without losing lazy-loading, selecting one secti
     ["discover","Find album","viewDiscover"]
   ];
   for(const [key,title,active] of pairs){
-    h.$("navigationToggle").onclick();
     const tab=h.tabs.find(t=>t.dataset.view===key);
     await tab.onclick();
-    assert.equal(h.$("navigationPanel").hidden,true);
     assert.equal(h.$("activeSectionTitle").textContent,title);
     assert.equal(tab["aria-current"],"page");
     for(const [, ,other] of pairs) assert.equal(h.$(other).hidden,other!==active);
@@ -516,44 +502,18 @@ test("all six sections navigate without losing lazy-loading, selecting one secti
   assert.ok(h.calls.some(x=>x.startsWith("/api/discover/isc?")));
 });
 
-test("menu keeps imports, cover ZIP and TSV exports reachable without triggering writes", async () => {
-  const h=makeHarness();
-  await new Promise(resolve => setImmediate(resolve));
-  assert.match(html, /id="importPack"/);
-  assert.match(html, /id="importCoverZip"/);
-  assert.match(html, /id="coverZipFile"/);
-  assert.match(html, /id="recentForm"[^>]*action="\/api\/library-recent.tsv"/);
-  assert.match(html, /href="\/playlist-intelligence"/);
-  assert.match(html, /href="\/musical-coherence"/);
-  assert.match(html, /href="\/downloads-audit"/);
-  assert.match(html, /href="\/api\/library-albums.tsv"/);
-  assert.match(html, /href="\/api\/library-export.tsv"/);
-  assert.match(html, /href="\/api\/playlists-export.yml"/);
-  h.$("navigationToggle").onclick();
-  assert.equal(h.calls.some(x=>/import-config|sync-pending/.test(x)),false);
-  assert.equal(h.$("navigationPanel").hidden,false);
-});
-
-
-test("navigation drawer traps keyboard focus and does not expose hidden content", async () => {
+test("imports and global export links remain accessible", async () => {
+  const nav=fs.readFileSync(new URL("../app/templates/_site_navigation.html",import.meta.url),"utf8");
   const h=makeHarness();
   await new Promise(resolve=>setImmediate(resolve));
-  const first=fakeElement(),last=fakeElement();
-  first.getClientRects=()=>[{}];
-  last.getClientRects=()=>[{}];
-  h.$("navigationPanel").querySelectorAll=()=>[first,last];
-  h.$("navigationToggle").onclick();
-  let prevented=0;
-  h.document.activeElement=h.$("navigationPanel");
-  h.document.onkeydown({key:"Tab",shiftKey:true,preventDefault(){prevented++}});
-  assert.equal(last.focused,true);
-  assert.equal(prevented,1);
-  h.document.activeElement=last;
-  h.document.onkeydown({key:"Tab",shiftKey:false,preventDefault(){prevented++}});
-  assert.equal(first.focused,true);
-  assert.equal(prevented,2);
-  h.$("navigationClose").onclick();
-  assert.equal(h.$("navigationPanel").hidden,true);
+  for(const id of ["importPack","importCoverZip","coverZipFile"]) {
+    assert.match(html,new RegExp('id="'+id+'"'));
+  }
+  assert.match(nav,/id="siteNavRecentForm"/);
+  for(const path of ["/playlist-intelligence","/downloads","/downloads-audit",
+    "/api/library-albums.tsv","/api/library-export.tsv","/api/playlists-export.yml"])
+    assert(nav.includes('href="'+path+'"'));
+  assert.equal(h.calls.some(x=>/import-config|sync-pending/.test(x)),false);
 });
 
 test("cross-page deep links activate the requested dashboard view", async () => {
@@ -567,6 +527,7 @@ test("cross-page deep links activate the requested dashboard view", async () => 
     await h.tabs.find(t=>t.dataset.view==="playlists").onclick();
     assert.equal(h.$("viewPlaylists").hidden,false);
     assert.equal(h.windowObj.location.search,"");
+    assert.equal(h.windowObj.location.pathname,"/playlists");
   }
 });
 test("unknown deep-link views do not activate nonexisting sections", async () => {

@@ -8,9 +8,11 @@ const js=fs.readFileSync(new URL("static/site-navigation.js",root),"utf8");
 const css=fs.readFileSync(new URL("static/site-navigation.css",root),"utf8");
 new vm.Script(js,{filename:"site-navigation.js"});
 
-for(const route of ["/?view=playlists","/?view=health","/?view=duplicates",
-  "/?view=newmusic","/?view=isc","/?view=discover","/playlist-generator",
-  "/playlist-intelligence","/musical-coherence","/downloads-audit"])
+for(const route of ["/","/downloads","/playlists","/playlists?view=health",
+  "/playlists?view=duplicates","/playlists?view=newmusic",
+  "/playlists?view=isc","/playlists?view=discover",
+  "/playlist-generator","/playlist-intelligence","/musical-coherence",
+  "/downloads-audit"])
   assert(html.includes('href="'+route+'"'),"Missing destination "+route);
 assert(css.includes("@media(max-width:680px)"),"Mobile navigation styling missing");
 
@@ -72,11 +74,13 @@ const pages=[
   "http://media-server:5051/musical-coherence",
   "http://media-server:5051/downloads-audit",
   "http://media-server:5051/open-youtube-album?artist=A&album=B",
-  "http://media-server:5051/?view=health"
+  "http://media-server:5051/playlists?view=health",
+  "http://media-server:5051/",
+  "http://media-server:5051/downloads"
 ];
 for(const url of pages){
   const h=harness(url);
-  const expected=new URL(url).pathname==="/open-youtube-album"?"/?view=discover":
+  const expected=new URL(url).pathname==="/open-youtube-album"?"/playlists?view=discover":
     new URL(url).pathname+new URL(url).search;
   const matches=h.links.filter(l=>l.attrs.href===expected);
   assert.equal(matches.length,1,"Missing current page marker "+url);

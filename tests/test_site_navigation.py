@@ -16,6 +16,9 @@ PAGES=(
     "disk_audit.html",
     "download_audit.html",
     "album_download.html",
+    "download_portal.html",
+    "home.html",
+    "index.html",
 )
 VIEW_KEYS=("playlists","health","duplicates","newmusic","isc","discover")
 DESTINATIONS=(
@@ -23,6 +26,9 @@ DESTINATIONS=(
     "/playlist-intelligence",
     "/musical-coherence",
     "/downloads-audit",
+    "/",
+    "/downloads",
+    "/playlists",
     "/api/library-albums.tsv",
     "/api/library-export.tsv",
     "/api/playlists-export.yml",
@@ -36,7 +42,7 @@ def test_all_secondary_templates_render_the_same_navigation():
         rendered=env.get_template(page).render(
             artist="Bill Evans",album="Waltz for Debby",
             token="test",search_url="https://music.youtube.com/search?q=test",
-            downloader_url="http://media-server:4545",
+            downloader_url="/downloads", engine_url="/downloads/engine/",
         )
         assert rendered.count('id="siteNavigationToggle"')==1,page
         assert rendered.count('id="siteNavigationPanel"')==1,page
@@ -47,7 +53,7 @@ def test_all_secondary_templates_render_the_same_navigation():
         assert 'role="dialog" aria-modal="true"' in rendered,page
         assert 'aria-expanded="false"' in rendered,page
         for view in VIEW_KEYS:
-            assert f'href="/?view={view}"' in rendered,page
+            assert f'href="/playlists?view={view}"' in rendered,page
         for destination in DESTINATIONS:
             assert f'href="{destination}"' in rendered,page
         assert 'id="siteNavRecentForm"' in rendered,page
@@ -60,12 +66,15 @@ def test_all_secondary_templates_render_the_same_navigation():
     assert all(menu==menus[0] for menu in menus[1:])
 
 
-def test_dashboard_has_matching_destinations_and_deep_link_handler():
+def test_dashboard_uses_shared_navigation_and_keeps_tab_switching():
     html=(TEMPLATES/"index.html").read_text(encoding="utf-8")
-    assert html.count('id="navigationPanel"')==1
-    assert html.count('id="navigationToggle"')==1
-    for destination in DESTINATIONS:
-        assert f'href="{destination}"' in html
+    assert html.count('id="siteNavigationToggle"')==1
+    assert html.count('{% include "_site_navigation.html" %}')==1
+    assert 'id="navigationPanel"' not in html
+    assert 'setNavigationOpen(' not in html
+    assert 'id="importCoverZip"' in html
+    assert 'id="importPack"' in html
+    assert 'src="/static/site-navigation.js"' in html
     for view in VIEW_KEYS:
         assert f'data-view="{view}"' in html
     assert 'new URLSearchParams(window.location.search).get("view")' in html
@@ -77,7 +86,7 @@ def test_all_html_route_templates_are_covered():
     route_paths={
         route.path for route in main.app.routes if getattr(route,"path",None)
     }
-    for target in ("/","/playlist-generator","/playlist-intelligence",
+    for target in ("/","/playlists","/downloads","/playlist-generator","/playlist-intelligence",
                    "/musical-coherence","/downloads-audit",
                    "/open-youtube-album"):
         assert target in route_paths
