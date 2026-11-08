@@ -64,12 +64,15 @@
 
   const currentPath=window.location.pathname;
   const currentView=new URLSearchParams(window.location.search).get("view");
-  const targetPath=currentPath==="/open-youtube-album"?"/?view=discover":
-    currentPath+((currentPath==="/"&&currentView)?"?view="+currentView:"");
+  // Old /?view=... URLs remain supported; the canonical dashboard is /playlists.
+  const targetPath=currentPath==="/open-youtube-album"
+    ?"/playlists?view=discover"
+    :(currentPath==="/"&&currentView?"/playlists?view="+encodeURIComponent(currentView)
+    :(currentPath==="/playlists"&&currentView?"/playlists?view="+encodeURIComponent(currentView)
+    :currentPath));
   for(const link of panel.querySelectorAll("a[href]")){
     const url=new URL(link.getAttribute("href"),window.location.origin);
-    if(url.pathname+url.search===targetPath ||
-       (currentPath==="/"&&!currentView&&url.pathname==="/"&&url.searchParams.get("view")==="playlists")){
+    if(url.pathname+url.search===targetPath){
       link.setAttribute("aria-current","page");
     }
     link.addEventListener("click",()=>setOpen(false,false));
