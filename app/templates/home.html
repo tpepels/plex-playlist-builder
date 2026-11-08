@@ -3,136 +3,130 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0b141b">
-  <title>Music workspace · Plex Playlist Manager</title>
+  <meta name="theme-color" content="#0b141c">
+  <title>Home · Music workspace</title>
   <link rel="icon" type="image/svg+xml" href="/static/signal-mark.svg">
+  <link rel="stylesheet" href="/static/signal-console.css">
   <link rel="stylesheet" href="/static/site-navigation.css">
   <link rel="stylesheet" href="/static/home.css">
 </head>
 <body>
-
 <div class="home-shell">
-  <header class="home-header">
-    <div class="home-brand">
-      <button id="siteNavigationToggle" class="site-nav-toggle" type="button"
-        aria-label="Open navigation menu" aria-expanded="false"
-        aria-controls="siteNavigationPanel" title="Navigation">
-        <span class="site-nav-lines" aria-hidden="true"><span></span><span></span><span></span></span>
-      </button>
-      <a href="/" class="brand-link" aria-label="Music workspace home">
-        <img src="/static/signal-mark.svg" alt="" width="43" height="43">
-        <span><strong>Music workspace</strong><small>PLEX / DOWNLOADS / CURATION</small></span>
-      </a>
-    </div>
-    <nav class="home-top-nav" aria-label="Primary navigation">
-      <a class="selected" href="/" aria-current="page">Overview</a>
-      <a href="/downloads">Downloads</a>
-      <a href="/playlists">Playlists</a>
-      <a href="/playlist-intelligence">Curate</a>
-    </nav>
-  </header>
   {% include "_site_navigation.html" %}
-
   <main id="main-content">
-    <section class="home-hero" aria-labelledby="home-title">
-      <div class="hero-copy">
-        <span class="eyebrow"><span class="pulse" aria-hidden="true"></span> LIBRARY OPERATIONS / ONE WORKSPACE</span>
-        <h1 id="home-title">Your music.<br><span>One place to manage it.</span></h1>
-        <p>Download and import recordings, maintain your Plex collection, and build or refine playlists. Each step stays under your control.</p>
-        <div class="hero-actions">
-          <a class="action action-primary" href="/downloads">Open downloads <span aria-hidden="true">↗</span></a>
-          <a class="action action-secondary" href="/playlists">Manage playlists</a>
-        </div>
-      </div>
-      <div class="hero-diagram" aria-hidden="true">
-        <div class="diagram-label">MUSIC PIPELINE</div>
-        <div class="diagram-chain">
-          <div class="diagram-node"><span>01</span><strong>Discover</strong><small>Find albums & tracks</small></div>
-          <div class="diagram-connector"></div>
-          <div class="diagram-node"><span>02</span><strong>Import</strong><small>Download & verify</small></div>
-          <div class="diagram-connector"></div>
-          <div class="diagram-node"><span>03</span><strong>Curate</strong><small>Approve Plex changes</small></div>
-        </div>
-        <div class="diagram-footer"><span class="diagram-led"></span> Your library remains the source of truth</div>
-      </div>
+    <section class="home-intro" aria-labelledby="home-title">
+      <span class="home-eyebrow">MUSIC LIBRARY / START HERE</span>
+      <h1 id="home-title">Add music. Build playlists.</h1>
+      <p>Import an existing playlist collection or send a recording to the downloader. Then review, organise and sync it with Plex.</p>
     </section>
 
-    <section class="overview" aria-labelledby="overview-title">
-      <div class="section-heading">
-        <div>
-          <span class="section-overline">SYSTEM OVERVIEW</span>
-          <h2 id="overview-title">At a glance</h2>
+    <div class="home-intake-grid">
+      <section class="home-task" aria-labelledby="home-import-title">
+        <div class="home-task-top">
+          <span class="home-step">01 / PLAYLISTS</span>
+          <h2 id="home-import-title">Import playlist YAML</h2>
+          <p>Merge a <code>.yml</code> or <code>.yaml</code> file into the saved collection. Review new and changed playlists before syncing to Plex.</p>
         </div>
-        <span id="overview-updated" class="updated" role="status" aria-live="polite">Checking services…</span>
-      </div>
-      <div class="overview-grid" id="overview-grid">
-        <a href="/playlists" class="overview-card" aria-label="View Plex playlist collection">
-          <div class="card-top"><span class="card-label">Plex Music</span><span id="plex-indicator" class="status-chip loading">Checking</span></div>
-          <strong id="plex-value" class="card-value">—</strong>
-          <span id="plex-detail" class="card-detail">Checking the Plex connection</span>
-          <span class="card-route">Open library <span aria-hidden="true">↗</span></span>
-        </a>
-        <a href="/playlists" class="overview-card">
-          <div class="card-top"><span class="card-label">Saved playlists</span><span class="card-icon" aria-hidden="true">≡</span></div>
-          <strong id="playlist-count" class="card-value">—</strong>
-          <span id="playlist-detail" class="card-detail">Loading saved definitions</span>
-          <span class="card-route">Review playlists <span aria-hidden="true">↗</span></span>
-        </a>
-        <a href="/downloads" class="overview-card">
-          <div class="card-top"><span class="card-label">Downloads in progress</span><span id="download-indicator" class="status-chip loading">Checking</span></div>
-          <strong id="download-count" class="card-value">—</strong>
-          <span id="download-detail" class="card-detail">Connecting to download engine</span>
-          <span class="card-route">View download queue <span aria-hidden="true">↗</span></span>
-        </a>
-        <a href="/playlists?view=health" class="overview-card">
-          <div class="card-top"><span class="card-label">Playlists awaiting sync</span><span class="card-icon" aria-hidden="true">↺</span></div>
-          <strong id="sync-count" class="card-value">—</strong>
-          <span id="sync-detail" class="card-detail">Checking saved changes</span>
-          <span class="card-route">Review pending changes <span aria-hidden="true">↗</span></span>
-        </a>
-      </div>
-    </section>
-
-    <div class="home-columns">
-      <section class="panel next-panel" aria-labelledby="attention-title">
-        <div class="section-heading compact">
-          <div><span class="section-overline">CURRENT PRIORITIES</span><h2 id="attention-title">Needs attention</h2></div>
-          <button id="refresh-home" type="button" class="quiet-button" aria-label="Refresh overview">Refresh</button>
+        <div class="home-task-body">
+          <label class="home-file-picker" for="home-playlist-file" id="home-playlist-drop">
+            <span class="home-file-icon" aria-hidden="true">↑</span>
+            <span><strong id="home-file-label">Choose a YAML file</strong>
+              <small>Click to browse or drop a file here · max 2 MB</small></span>
+            <input id="home-playlist-file" type="file" accept=".yml,.yaml,text/yaml,application/x-yaml,text/plain">
+          </label>
+          <div id="home-import-status" class="home-form-status" role="status" aria-live="polite"></div>
+          <div id="home-import-preview" class="home-import-preview" hidden>
+            <div class="home-preview-title">Review import</div>
+            <div id="home-import-summary" class="home-preview-metrics"></div>
+            <p id="home-import-description"></p>
+            <div class="home-form-actions">
+              <button id="home-import-confirm" class="home-primary-button" type="button" disabled>Import &amp; sync changes</button>
+              <button id="home-import-cancel" class="home-secondary-button" type="button">Cancel</button>
+            </div>
+          </div>
+          <div id="home-import-progress-panel" class="home-import-progress" hidden>
+            <label for="home-import-progress">Syncing changed playlists</label>
+            <progress id="home-import-progress" max="1" value="0"></progress>
+            <p id="home-import-current" role="status" aria-live="polite"></p>
+            <div id="home-import-errors" role="alert"></div>
+          </div>
         </div>
-        <div id="attention-list" class="attention-list" aria-live="polite">
-          <div class="attention-row" id="attention-loading"><span class="attention-mark neutral"></span><div><strong>Checking your workspace</strong><small>Loading downloads and playlist state</small></div></div>
-        </div>
-        <p id="attention-error" class="attention-error" hidden></p>
+        <a class="home-task-link" href="/playlists">Open playlist collection <span aria-hidden="true">↗</span></a>
       </section>
 
-      <section class="panel next-panel" aria-labelledby="quick-title">
-        <div class="section-heading compact">
-          <div><span class="section-overline">COMMON TASKS</span><h2 id="quick-title">Quick access</h2></div>
+      <section class="home-task" aria-labelledby="home-download-title">
+        <div class="home-task-top">
+          <span class="home-step">02 / MUSIC</span>
+          <h2 id="home-download-title">Download a recording</h2>
+          <p>Paste a source link. The downloader handles staging, metadata, retries and publication to your music library.</p>
         </div>
-        <div class="quick-list">
-          <a href="/playlist-generator"><span class="quick-symbol">+</span><span><strong>Create a playlist</strong><small>Generate from the tracks you own</small></span><span aria-hidden="true">↗</span></a>
-          <a href="/playlist-intelligence"><span class="quick-symbol">◎</span><span><strong>Refine a playlist</strong><small>Review, audition and approve changes</small></span><span aria-hidden="true">↗</span></a>
-          <a href="/playlists?view=newmusic"><span class="quick-symbol">↧</span><span><strong>Recently added music</strong><small>Inspect new albums and tracks</small></span><span aria-hidden="true">↗</span></a>
-          <a href="/downloads-audit"><span class="quick-symbol">≋</span><span><strong>Download audit</strong><small>Find missing, failed or duplicate imports</small></span><span aria-hidden="true">↗</span></a>
-        </div>
+        <form id="home-download-form" action="/downloads/engine/download" method="post" class="home-download-form">
+          <label for="home-download-url">Music URL</label>
+          <input id="home-download-url" type="url" name="url" required
+                 placeholder="https://music.youtube.com/playlist?list=…" autocomplete="url">
+          <label class="home-check">
+            <input id="home-download-playlist" type="checkbox" name="playlist" checked>
+            Download whole album or playlist when available
+          </label>
+          <details class="home-advanced">
+            <summary>Advanced</summary>
+            <label class="home-check">
+              <input type="checkbox" name="force">
+              Ignore download archive / overwrite existing file
+            </label>
+          </details>
+          <button id="home-download-submit" type="submit" class="home-primary-button">Start download</button>
+          <p class="home-form-hint">You will see the job and its progress in Downloads. Available sources include YouTube, YouTube Music, Bandcamp, SoundCloud and Spotify via spotDL.</p>
+        </form>
+        <a class="home-task-link" href="/downloads">Open download queue <span aria-hidden="true">↗</span></a>
       </section>
     </div>
 
-    <section class="tools-section" aria-labelledby="toolkit-title">
-      <div class="section-heading"><div><span class="section-overline">EXPLORE THE WORKSPACE</span><h2 id="toolkit-title">Library tools</h2></div></div>
-      <div class="tools-grid">
-        <a href="/playlists?view=isc" class="tool-card"><span class="tool-number">01 / DISCOVERY</span><strong>Explore recordings</strong><p>Find albums, compare editions and identify music missing from Plex.</p><span>Music discovery ↗</span></a>
-        <a href="/playlists?view=duplicates" class="tool-card"><span class="tool-number">02 / COLLECTION</span><strong>Review duplicates</strong><p>Find repeated releases and inspect matching album folders.</p><span>Duplicate albums ↗</span></a>
-        <a href="/musical-coherence" class="tool-card"><span class="tool-number">03 / ANALYSIS</span><strong>Musical coherence</strong><p>Inspect listening flow and AudioMuse analysis for your playlists.</p><span>Explore analysis ↗</span></a>
+    <section class="home-overview" aria-labelledby="overview-title">
+      <div class="home-section-header">
+        <div><span class="home-eyebrow">CURRENT STATE</span><h2 id="overview-title">Your workspace</h2></div>
+        <span id="overview-updated" class="home-updated" role="status" aria-live="polite">Checking services…</span>
+      </div>
+      <div class="home-overview-grid" id="overview-grid">
+        <a href="/playlists" class="home-overview-card" aria-label="Plex music library status">
+          <span class="home-card-label">Plex Music <span id="plex-indicator" class="status-chip loading">Checking</span></span>
+          <strong id="plex-value" class="home-card-value">—</strong>
+          <small id="plex-detail">Checking the Plex connection</small>
+        </a>
+        <a href="/playlists" class="home-overview-card" aria-label="Saved playlist count">
+          <span class="home-card-label">Saved playlists</span>
+          <strong id="playlist-count" class="home-card-value">—</strong>
+          <small id="playlist-detail">Reading definitions</small>
+        </a>
+        <a href="/downloads" class="home-overview-card" aria-label="Active download count">
+          <span class="home-card-label">Active downloads <span id="download-indicator" class="status-chip loading">Checking</span></span>
+          <strong id="download-count" class="home-card-value">—</strong>
+          <small id="download-detail">Checking queue</small>
+        </a>
+        <a href="/playlists?view=health" class="home-overview-card" aria-label="Playlists waiting for sync">
+          <span class="home-card-label">Awaiting sync</span>
+          <strong id="sync-count" class="home-card-value">—</strong>
+          <small id="sync-detail">Review saved changes</small>
+        </a>
       </div>
     </section>
-    <footer class="home-footer">
-      <span>PLEX MUSIC WORKSPACE <span aria-hidden="true">/</span> Local services</span>
-      <div><a href="/api/library-export.tsv">Export library</a><a href="/api/playlists-export.yml">Export playlists</a></div>
-    </footer>
+
+    <section class="home-attention" aria-labelledby="attention-title">
+      <div class="home-section-header">
+        <div><span class="home-eyebrow">NEXT ACTIONS</span><h2 id="attention-title">Needs attention</h2></div>
+        <button id="refresh-home" class="home-secondary-button" type="button">Refresh status</button>
+      </div>
+      <div id="attention-list" class="attention-list" aria-live="polite">
+        <div class="attention-row" id="attention-loading"><span class="attention-mark neutral"></span>
+          <div><strong>Checking your workspace</strong><small>Reading services and saved playlists</small></div></div>
+      </div>
+      <p id="attention-error" class="attention-error" hidden></p>
+    </section>
   </main>
 </div>
+<script src="/static/signal-console.js" defer></script>
 <script src="/static/site-navigation.js" defer></script>
 <script src="/static/home.js" defer></script>
+<script src="/static/home-intake.js" defer></script>
 </body>
 </html>
