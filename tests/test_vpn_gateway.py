@@ -128,9 +128,11 @@ def test_normal_compose_provides_gateway_without_env_or_overrides():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     compose = (root / "compose.yaml").read_text()
-    assert "wireguard-gateway:" in compose
-    assert 'network_mode: "service:wireguard-gateway"' in compose
+    assert "wireguard-gateway:" not in compose
+    assert "network_mode:" not in compose
+    assert 'user: "0:0"' in compose
     assert 'VPN_GATEWAY_ENABLED: "1"' in compose
+    assert "/srv/yt-dlp-server/wireguard-profiles:/profiles" in compose
     assert "SURFSHARK_CONTROL_API_KEY" not in compose
     assert "compose.wireguard.yaml" not in compose
     html = (root / "templates/index.html").read_text()
@@ -145,14 +147,15 @@ def test_shared_parent_compose_override_survives_script_removal():
     root = Path(__file__).resolve().parents[1]
     overlay = (root / "compose.parent-vpn.yaml").read_text()
     docs = (root / "README.md").read_text()
-    assert "wireguard-gateway:" in overlay
-    assert 'network_mode: "service:wireguard-gateway"' in overlay
-    assert "ports: !reset []" in overlay
+    assert "wireguard-gateway:" not in overlay
+    assert "network_mode:" not in overlay
+    assert 'user: "0:0"' in overlay
+    assert "ports: !reset []" not in overlay
     assert "SURFSHARK_CONTROL_API_KEY" not in overlay
     assert 'VPN_GATEWAY_ENABLED: "1"' in overlay
     assert "docker-compose.override.yml" in docs
     assert "docker compose config --quiet" in docs
-    assert "docker compose up -d --build --force-recreate wireguard-gateway yt-dlp-server" in docs
+    assert "docker compose up -d --build --force-recreate yt-dlp-server" in docs
     assert not (root / "scripts").exists()
     assert not (root / "tools").exists()
 
@@ -348,7 +351,7 @@ def test_gateway_compose_preconfigures_full_tunnel_sysctl():
     for filename in ("compose.yaml", "compose.parent-vpn.yaml"):
         source = (root / filename).read_text()
         assert 'net.ipv4.conf.all.src_valid_mark: "1"' in source
-    image = (root / "Dockerfile.vpn-gateway").read_text()
+    image = (root / "Dockerfile").read_text()
     assert "wg-quick" in image
     assert "sysctl -n net.ipv4.conf.all.src_valid_mark" in image
     assert "cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1" in image

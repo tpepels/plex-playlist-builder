@@ -1,8 +1,9 @@
 """On-demand WireGuard profile gateway with direct-by-default outbound routing.
 
-Run only in an isolated NET_ADMIN container with network namespace shared by
-yt-dlp-server. The Flask downloader has NO NET_ADMIN permission. Uploaded
-configuration is parsed strictly; wg-quick never sees arbitrary hooks.
+Run as the root-owned service within the combined Docker container. Gunicorn
+and its download workers are launched by gosu as a separate non-root UID/GID,
+without NET_ADMIN. The controller listens on loopback only. Uploaded profiles
+are parsed strictly; wg-quick never receives arbitrary hooks.
 """
 from __future__ import annotations
 
