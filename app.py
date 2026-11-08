@@ -32,7 +32,7 @@ from surfshark_vpn import rotate_if_enabled, direct_if_enabled
 from vpn_ui import register as register_vpn_manager
 from extension_package import package_extension
 from state_store import StateCorruption, load_json, write_json, validate_jobs_payload
-from process_lifecycle import InactivityGuard, inactivity_limit
+from process_lifecycle import InactivityGuard, inactivity_limit, stop_process
 from youtube_cookies import cookie_path, register as register_youtube_cookies
 
 MAINTENANCE_ONLY = (
@@ -1467,14 +1467,21 @@ def run_job(job_id):
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                # yt-dlp may spawn ffmpeg and other children. An exception
+                # must stop the complete process group, not orphan those
+                # children while returning the gateway to direct mode.
+                start_new_session=True,
             )
-            assert process.stdout is not None
-            guard = InactivityGuard(process, seconds=inactivity_limit())
-            with guard:
-                for line in process.stdout:
-                    guard.beat()
-                    append_log(job_id, line)
-                returncode = process.wait()
+            try:
+                assert process.stdout is not None
+                guard = InactivityGuard(process, seconds=inactivity_limit())
+                with guard:
+                    for line in process.stdout:
+                        guard.beat()
+                        append_log(job_id, line)
+                    returncode = process.wait()
+            finally:
+                stop_process(process)
             if guard.timed_out:
                 with jobs_lock:
                     current = jobs[job_id]
