@@ -324,3 +324,51 @@ def test_failed_vpn_teardown_does_not_publish_success(isolated_job, monkeypatch)
     server.run_job(isolated_job["id"])
     assert isolated_job["status"] == "failed"
     assert "gateway" in isolated_job["message"].lower()
+
+
+def test_downloader_restart_clears_surviving_gateway_before_queue(monkeypatch):
+    monkeypatch.setenv("VPN_GATEWAY_ENABLED", "1")
+    events = []
+    monkeypatch.setattr(server, "direct_if_enabled", lambda: (
+        events.append("direct") or {"direct": True}
+    ))
+    monkeypatch.setattr(server, "load_persisted_jobs", lambda: (
+        events.append("restore_queue") or []
+    ))
+    monkeypatch.setattr(server, "staged_jobs_to_finalize_after_restore",
+                        lambda: [])
+    monkeypatch.setattr(server, "schedule_library_change_nudge",
+                        lambda **kw: None)
+
+    class NoStartThread:
+        def __init__(self, **kwargs):
+            pass
+        def start(self):
+            events.append("start_worker")
+    monkeypatch.setattr(server.threading, "Thread", NoStartThread)
+    server.start_runtime_workers()
+    assert events[0:2] == ["direct", "restore_queue"]
+    assert events.count("start_worker") == 2
+
+
+def test_gateway_startup_failure_keeps_dashboard_available(monkeypatch, capsys):
+    monkeypatch.setenv("VPN_GATEWAY_ENABLED", "1")
+    events = []
+    monkeypatch.setattr(server, "direct_if_enabled",
+                        lambda: {"direct": False, "error": "offline"})
+    monkeypatch.setattr(server, "load_persisted_jobs", lambda: (
+        events.append("restore_queue") or []
+    ))
+    monkeypatch.setattr(server, "staged_jobs_to_finalize_after_restore",
+                        lambda: [])
+    monkeypatch.setattr(server, "schedule_library_change_nudge",
+                        lambda **kw: None)
+    class NoStartThread:
+        def __init__(self, **kwargs):
+            pass
+        def start(self):
+            pass
+    monkeypatch.setattr(server.threading, "Thread", NoStartThread)
+    server.start_runtime_workers()
+    assert events == ["restore_queue"]
+    assert "will fail closed" in capsys.readouterr().out
