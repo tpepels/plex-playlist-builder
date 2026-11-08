@@ -108,8 +108,9 @@ def test_one_click_youtube_resolver_redirects_only_after_exact_match(monkeypatch
         "url": "https://music.youtube.com/playlist?list=OLAK5uy_correct",
     })
     response = main.open_youtube_album("Artist", "Album")
-    assert response.status_code == 302
-    assert response.headers["location"].startswith("https://music.youtube.com/playlist?")
+    assert response.status_code == 200
+    assert b"Finding album" in response.body
+    assert "location" not in response.headers
 
 
 def test_one_click_youtube_resolver_not_found_is_not_search_redirect(monkeypatch):
@@ -117,6 +118,7 @@ def test_one_click_youtube_resolver_not_found_is_not_search_redirect(monkeypatch
         "status": "not_found",
         "message": "No exact album match.",
     })
-    with pytest.raises(HTTPException) as raised:
-        main.open_youtube_album("Artist", "Unknown")
-    assert raised.value.status_code == 404
+    response = main.open_youtube_album("Artist", "Unknown")
+    assert response.status_code == 200
+    # Catalog decisions require an explicit subsequent POST from the browser.
+    assert b"queue-youtube-album" in response.body
