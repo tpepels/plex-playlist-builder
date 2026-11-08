@@ -1,69 +1,36 @@
-/* Native yt-dlp document inside the Playlist Manager; one scroll surface. */
-main.signal-shell {
-  width:min(1200px,calc(100% - 36px));
-  max-width:1200px;
-  margin:26px auto 64px;
-}
-.signal-header {margin-bottom:14px}
-.signal-header .signal-brand {gap:12px}
-.signal-header .signal-brand .signal-mark {width:45px;height:45px;flex:0 0 45px}
-.signal-header .signal-kicker {font-size:10px}
-.signal-header .signal-wordmark {font-size:clamp(22px,2.4vw,28px)!important}
-.signal-header .signal-badge {display:none}
-.signal-header .signal-tools {gap:8px}
-.download-native-primary {
-  display:flex;flex-wrap:wrap;align-items:center;gap:3px;
-  padding:2px 7px 2px 0;margin-right:3px;
-  border-right:1px solid var(--signal-line);
-}
-.download-native-primary a {
-  padding:8px 10px;border-radius:8px;font-size:12px;font-weight:600;
-  text-decoration:none;color:var(--signal-muted)!important;
-}
-.download-native-primary a:hover {background:var(--signal-surface);color:var(--signal-accent)!important}
-.download-native-primary a[aria-current="page"] {
-  background:#183a36;color:var(--signal-accent)!important;
-}
+/* Native downloader controls rendered in the shared Music workspace document.
+   Its form/queue/history/VPN implementation remains owned by yt-dlp. */
+main.signal-shell {width:min(1220px,calc(100% - 44px))!important}
+.signal-shell > section.panel,.signal-shell > details.panel {margin-bottom:15px}
+.signal-shell > section.panel:first-of-type {margin-top:12px}
 .download-native-actions {
-  display:flex;gap:9px;flex-wrap:wrap;align-items:center;
-  margin:10px 0 4px;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin:2px 0 8px;
 }
 .download-native-actions a,.download-native-actions button {
   display:inline-flex;align-items:center;justify-content:center;
-  min-height:35px;padding:8px 12px;border-radius:9px;
-  border:1px solid var(--signal-line);
-  background:var(--signal-panel);color:var(--signal-text);
-  font:600 12px/1.35 system-ui,-apple-system,sans-serif;
-  text-decoration:none;cursor:pointer;
+  min-height:36px;margin:0;padding:8px 13px;border-radius:8px;
+  border:1px solid var(--workspace-line);
+  background:var(--workspace-surface);color:var(--workspace-text);
+  font:650 12px/1.35 system-ui,sans-serif;text-decoration:none;cursor:pointer;
 }
-.download-native-actions button {background:#1b3a36;border-color:#356a5b;color:#c4f6e2}
-.download-native-actions a:hover,.download-native-actions button:hover {
-  background:var(--signal-surface);border-color:var(--signal-accent);
-}
+.download-native-actions button {background:#1a3935;border-color:#3b6a5c;color:#a7f1d5}
+.download-native-actions a:hover,.download-native-actions button:hover {border-color:var(--workspace-accent)}
 .download-native-actions button:disabled {opacity:.55;cursor:wait}
 .download-native-status,.download-native-result {
-  color:var(--signal-muted);font-size:12px;line-height:1.5;
-  min-height:18px;margin:7px 0;
+  color:var(--workspace-muted);font-size:12px;line-height:1.55;
+  margin:6px 0;min-height:19px;overflow-wrap:anywhere;
 }
-.download-native-status.error,.download-native-result.error {color:var(--bad)}
-.download-native-result:not(:empty) {margin-bottom:10px}
-/* The downloader owns these panels and controls. They remain at page level. */
-.signal-shell > section.panel,.signal-shell > details.panel {
-  margin-bottom:16px;
+.download-native-status.error,.download-native-result.error {color:#ffa8ad}
+.download-native-result:not(:empty) {margin-bottom:13px}
+.signal-shell .panel {background-color:var(--workspace-panel)!important}
+.signal-shell .job {background:var(--workspace-surface)!important}
+.signal-shell .history-entry {background:var(--workspace-surface)!important}
+.signal-shell .url-row input {min-height:44px}
+.signal-shell .url-row button {min-height:44px}
+@media(max-width:800px) {
+  main.signal-shell {width:calc(100% - 30px)!important}
 }
-.signal-shell > .signal-footer {margin-top:22px}
-@media(max-width:860px) {
-  .signal-header {flex-wrap:wrap}
-  .signal-header .signal-tools {justify-content:flex-start;width:100%}
-  .download-native-primary {flex:1 1 100%;border:0;padding:0;margin:0}
-}
-@media(max-width:620px) {
-  main.signal-shell {width:calc(100% - 20px);margin:14px auto 42px}
-  .signal-header {padding:13px 12px}
-  .signal-header .signal-brand {width:100%}
-  .signal-header .signal-brand .signal-mark {width:37px;height:37px;flex-basis:37px}
-  .download-native-primary {gap:1px}
-  .download-native-primary a {padding:8px 7px;font-size:11px}
-  .download-native-actions {gap:7px}
-  .download-native-actions a,.download-native-actions button {flex:1 1 auto;font-size:11px}
+@media(max-width:520px) {
+  main.signal-shell {width:calc(100% - 22px)!important}
 }
