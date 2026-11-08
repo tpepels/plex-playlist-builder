@@ -1776,6 +1776,15 @@ def staged_jobs_to_finalize_after_restore():
 
 
 def start_runtime_workers():
+    # A worker/container crash can leave the separate gateway's temporary
+    # WireGuard interface up. Reset it before resuming any persisted jobs.
+    if os.getenv("VPN_GATEWAY_ENABLED") == "1":
+        ready = direct_if_enabled()
+        if ready is None or not ready.get("direct"):
+            raise RuntimeError(
+                "VPN gateway could not restore the default direct connection "
+                "at downloader startup"
+            )
     restored_queue_ids = load_persisted_jobs()
     restored_finalize_ids = staged_jobs_to_finalize_after_restore()
 
