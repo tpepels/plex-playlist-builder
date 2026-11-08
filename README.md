@@ -768,3 +768,36 @@ started, queued jobs are not resumed, and no server port is opened.
 Original scripts and the historical ZIP remain recoverable in Git history.
 The cleanup does not delete music, WireGuard profiles, job history, archives,
 staging files or cached metadata.
+
+## Failure recovery and durable state
+
+The application keeps **a validated previous generation** of critical JSON
+state in the same mounted folder. A backup is a single previous version, not a
+substitute for external backups:
+
+| Failure | Detection and recovery |
+| --- | --- |
+| Corrupt `jobs.json` | Restore `jobs.json.bak` automatically, preserve the damaged original as `jobs.json.corrupt-*`, and report recovery in logs and health. |
+| Corrupt `ignored-tracks.json` | Use the previous generation; never silently erase ignored-track decisions. |
+| Corrupt `profiles.json` | Restore the last validated profile index; keep actual private `.conf` files in `/profiles`. |
+| No usable backup | Mark the application degraded, refuse mutations, preserve the damaged files and show the recovery instruction in the dashboard and `/health`. |
+| Disk full or state write failure | Fail the state update, block new mutations and downloads, retain existing on-disk state, and require disk repair/restart. |
+| Unexpected downloader exception | Fail only the affected job; keep the worker processing later jobs once persistent state remains healthy. |
+| VPN or routing restoration failure | Keep outbound traffic blocked and expose the gateway error. Never report a disconnected VPN based only on the Python flag. |
+| Failed copy or forced replacement | Keep the original staged audio. Do not pre-delete existing published tracks; use atomic replacement. |
+| Invalid staging directory from a saved job | Refuse the filesystem operation rather than creating/deleting paths outside the staging root. |
+
+The web dashboard shows **Storage recovery required** when persistent state is
+unavailable. `GET /health` then reports `"status":"degraded"` and responds
+with HTTP 503; the dashboard remains readable. Mutating requests return
+`state_unavailable` and HTTP 503 until repair. This avoids accepting downloads
+whose history cannot be retained.
+
+On a damaged primary JSON file, restart normally first: the application
+restores its `.bak` if that backup validates. If neither copy validates,
+**do not delete either file**. Restore a known-good version from your own
+backup into the corresponding bind mount under `/srv/yt-dlp-server/state`
+or `/srv/yt-dlp-server/wireguard-profiles`, preserve the `.corrupt-*`
+evidence, and restart `yt-dlp-server`. Correct disk space or permissions
+before restarting if the failure was a write error. No recovery action
+deletes staged music, published music, or download archives.
