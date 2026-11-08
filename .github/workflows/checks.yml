@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -60,6 +62,24 @@ jobs:
       - name: Shared navigation integration
         if: ${{ always() }}
         run: node tests/test_site_navigation.mjs
+      - name: Validate coordinated root Compose
+        run: |
+          docker compose -f compose.yaml config --quiet
+          python - <<'PY'
+          import json
+          import subprocess
+          config = json.loads(subprocess.check_output(
+              ["docker", "compose", "-f", "compose.yaml",
+               "config", "--format", "json"], text=True,
+          ))
+          assert set(config["services"]) == {
+              "plex-playlist-manager", "yt-dlp-server"
+          }
+          engine = config["services"]["yt-dlp-server"]
+          assert not engine.get("ports")
+          assert "NET_ADMIN" in engine["cap_add"]
+          assert engine["build"]["context"].endswith("/yt-dlp-server")
+          PY
       - name: Build Playlist Manager Docker image
         run: docker build -t plex-playlist-builder:ci .
       - name: Smoke-test unified downloads inside built image
@@ -93,6 +113,8 @@ jobs:
       STATE_DIR: /tmp/yt-dlp-ci-state
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
