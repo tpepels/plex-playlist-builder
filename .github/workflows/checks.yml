@@ -60,7 +60,23 @@ jobs:
       - name: Shared navigation integration
         if: ${{ always() }}
         run: node tests/test_site_navigation.mjs
-      # Full Docker build is manually triggered, never waited on for UI edits.
-      - name: Docker image build (manual only)
-        if: github.event_name == 'workflow_dispatch'
-        run: docker build --pull -t plex-playlist-builder:ci .
+      - name: Build Playlist Manager Docker image
+        run: docker build -t plex-playlist-builder:ci .
+      - name: Smoke-test unified downloads inside built image
+        run: |
+          docker run --rm -i \
+            -e DOWNLOAD_BRIDGE_SCAN_ENABLED=0 \
+            -e YTDLP_SERVER_URL=http://127.0.0.1:4545 \
+            plex-playlist-builder:ci python - <<'PY'
+          from fastapi.testclient import TestClient
+          from app.main import app
+
+          with TestClient(app) as client:
+              portal = client.get("/downloads?job=sample123")
+              assert portal.status_code == 200
+              assert 'src="/downloads/engine/?job=sample123"' in portal.text
+              assert "Scan Plex for new music" in portal.text
+              unavailable = client.get("/api/downloads/bridge/status")
+              assert unavailable.status_code == 503, unavailable.text
+              assert unavailable.json()["engine"] == "offline"
+          PY
