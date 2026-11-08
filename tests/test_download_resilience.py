@@ -465,3 +465,32 @@ def test_failure_cause_survives_job_reload_and_retry_reset(
     new = build_retry(restored, "new-attempt")
     assert not new.get("failure_reason")
     assert not new.get("download_items_seen")
+
+
+
+def test_log_exception_kills_downloader_process_before_releasing_gateway(
+    isolated_job, monkeypatch,
+):
+    events = []
+    monkeypatch.setattr(server, "direct_if_enabled", lambda: (
+        events.append("direct") or {"direct": True}
+    ))
+    class Process:
+        stdout = iter(["Starting extraction\n"])
+        def poll(self): return None
+        def terminate(self): events.append("terminate")
+        def kill(self): events.append("kill")
+        def wait(self, timeout=None):
+            events.append("reap")
+            return -15
+    def spawn(command, **kwargs):
+        assert kwargs["start_new_session"] is True
+        events.append("spawn")
+        return Process()
+    monkeypatch.setattr(server.subprocess, "Popen", spawn)
+    monkeypatch.setattr(server, "append_log",
+                        lambda *a: (_ for _ in ()).throw(ValueError("unexpected log error")))
+    server.run_job(isolated_job["id"])
+    assert isolated_job["status"] == "failed"
+    assert events.index("terminate") < events.index("direct", 1)
+    assert events.count("direct") == 2
