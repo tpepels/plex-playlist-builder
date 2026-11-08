@@ -143,34 +143,7 @@ small{color:var(--muted)}
 </head>
 <body>
 <main class="signal-shell">
-<header class="signal-header signal-transition">
-  <div class="signal-brand">
-    <button id="siteNavigationToggle" type="button" class="site-nav-toggle" aria-label="Open navigation menu"
-            aria-expanded="false" aria-controls="siteNavigationPanel" title="Open navigation menu">
-      <span class="site-nav-lines" aria-hidden="true"><span></span><span></span><span></span></span>
-    </button>
-    <img class="signal-mark" src="/static/signal-mark.svg" width="61" height="61" alt="" aria-hidden="true">
-    <div>
-      <div class="signal-kicker">SIGNAL CONSOLE / LIBRARY INTELLIGENCE</div>
-      <h1 class="signal-wordmark">PLAYLIST <span>/ CURATION</span></h1>
-      <p class="signal-tagline">Curate · Analyse · Synchronise</p>
-    </div>
-  </div>
-  <div class="signal-tools">
-    <span class="signal-badge">AUDIO LIBRARY</span>
-    <button id="signal-theme-toggle" type="button" class="signal-theme-button" aria-pressed="true">CYBER: ON</button>
-  </div>
-</header>
 {% include "_site_navigation.html" %}
-<nav class="view-tabs workspace-view-tabs" aria-label="Playlist workspace sections">
-  <button class="view-tab active" type="button" data-view="playlists" aria-current="page">Playlists</button>
-  <button class="view-tab" type="button" data-view="health">Playlist health</button>
-  <button class="view-tab" type="button" data-view="duplicates">Duplicate albums</button>
-  <button class="view-tab" type="button" data-view="newmusic">New music</button>
-  <button class="view-tab" type="button" data-view="isc">Music discovery</button>
-  <button class="view-tab" type="button" data-view="discover">Find album</button>
-</nav>
-
 <div class="workspace-heading">
   <div>
     <span class="workspace-label">LIBRARY / <span id="activeSectionPath">PLAYLISTS</span></span>
@@ -1129,46 +1102,27 @@ const NAVIGATION_TITLES = {
   playlists:"Playlists", health:"Playlist health", duplicates:"Duplicate albums",
   newmusic:"New music", isc:"Music discovery", discover:"Find album"
 };
-for (const b of document.querySelectorAll(".view-tab")) b.onclick = async () => {
-  activeView = b.dataset.view;
-  // Keep deep links from the other application pages aligned with the active
-  // dashboard view. Do not reload the page or lose unsaved playlist state.
-  if (typeof window !== "undefined" && window.history?.replaceState) {
-    const target = new URL(window.location.href);
-    if (target.pathname === "/") target.pathname = "/playlists";
-    if (activeView === "playlists") target.searchParams.delete("view");
-    else target.searchParams.set("view", activeView);
-    window.history.replaceState(null, "", target.pathname + target.search + target.hash);
-  }
-  for (const tab of document.querySelectorAll(".view-tab")) {
-    tab.classList.toggle("active", tab===b);
-    if(tab===b)tab.setAttribute("aria-current","page");
-    else tab.removeAttribute?.("aria-current");
-  }
-  $("activeSectionTitle").textContent=NAVIGATION_TITLES[activeView];
-  $("activeSectionPath").textContent=NAVIGATION_TITLES[activeView].toUpperCase();
+async function showWorkspaceView(view) {
+  activeView = Object.prototype.hasOwnProperty.call(NAVIGATION_TITLES, view) ? view : "playlists";
+  $("activeSectionTitle").textContent = NAVIGATION_TITLES[activeView];
+  $("activeSectionPath").textContent = NAVIGATION_TITLES[activeView].toUpperCase();
   $("importPack").parentElement?.classList?.toggle("secondary-view",activeView!=="playlists");
-
-  for (const [view,id] of Object.entries({
-    playlists:"viewPlaylists",health:"viewHealth",duplicates:"viewDuplicates",newmusic:"viewNewmusic",isc:"viewIsc",discover:"viewDiscover"
-  })) $(id).hidden = view !== activeView;
+  for (const [key,id] of Object.entries({
+    playlists:"viewPlaylists",health:"viewHealth",duplicates:"viewDuplicates",
+    newmusic:"viewNewmusic",isc:"viewIsc",discover:"viewDiscover"
+  })) $(id).hidden = key !== activeView;
   if ((activeView==="health" || activeView==="newmusic") && !insightsData)
     await loadInsights();
   if (activeView==="duplicates" && !duplicateData)
     await loadDuplicates();
   if (activeView==="isc" && !iscData)
     await loadIsc();
-};
-
-// Support navigation directly into any of the six dashboard views.
-if (typeof window !== "undefined") {
-  const requestedView = new URLSearchParams(window.location.search).get("view");
-  if (requestedView && Object.prototype.hasOwnProperty.call(NAVIGATION_TITLES, requestedView)) {
-    const viewButton = [...document.querySelectorAll(".view-tab")]
-      .find(button => button.dataset.view === requestedView);
-    if (viewButton) viewButton.onclick();
-  }
 }
+// The global header owns navigation. Each library section has its own URL,
+// so no second tab bar or page-specific router is necessary.
+const requestedView = typeof window === "undefined"
+  ? "playlists" : new URLSearchParams(window.location.search).get("view");
+void showWorkspaceView(requestedView || "playlists");
 // These are independent: a Plex outage cannot prevent local YAML editing.
 checkHealth();
 loadConfig().catch(e => {
