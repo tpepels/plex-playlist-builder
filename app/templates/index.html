@@ -1125,7 +1125,13 @@ const requestedView = typeof window === "undefined"
 void showWorkspaceView(requestedView || "playlists");
 // These are independent: a Plex outage cannot prevent local YAML editing.
 checkHealth();
-loadConfig().catch(e => {
+loadConfig().then(async () => {
+  // Deep links can select a Plex analysis view before saved YAML finishes
+  // loading. Start analysis once definitions are available; keep other views
+  // independent of Plex and preserve the initially selected section.
+  if ((activeView === "health" || activeView === "newmusic") && !insightsData)
+    await loadInsights();
+}).catch(e => {
   $("versionName").textContent = "Saved playlists unavailable";
   $("versionDetail").textContent = "Check the saved YAML and /data volume. You can still use other workspace pages.";
   $("versionMetrics").textContent = "";
