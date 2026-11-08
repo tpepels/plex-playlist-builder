@@ -38,41 +38,95 @@ def _validate(data):
                     for value in data["seen"] + data["pending"]))
 
 
-def _load(path=STATE_FILE):
-    if not path.is_file():
-        return None
+def _sync_dir(path):
+    fd = os.open(path, os.O_RDONLY)
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, UnicodeError) as exc:
-        raise RuntimeError(
-            "Plex download-sync state is damaged. Restore downloader-bridge.json "
-            "from backup; no scan state will be overwritten."
-        ) from exc
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _read_valid(path):
+    value = json.loads(path.read_text(encoding="utf-8"))
     if not _validate(value):
-        raise RuntimeError("Invalid Plex download-sync state; preserve the file and restore its backup")
+        raise ValueError("Invalid scan-state schema")
     return value
 
 
-def _save(data, path=STATE_FILE):
-    if not _validate(data):
-        raise ValueError("Invalid Plex download-sync state")
+def _write_atomic(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".downloader-bridge-", dir=path.parent)
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as output:
-            json.dump(data, output, separators=(",", ":"))
+            json.dump(value, output, separators=(",", ":"))
             output.flush()
             os.fsync(output.fileno())
         os.replace(tmp, path)
-        fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        _sync_dir(path.parent)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def _load(path=STATE_FILE):
+    path = Path(path)
+    backup = path.with_name(path.name + ".bak")
+    if not path.exists() and not backup.exists():
+        return None
+    if path.exists():
+        try:
+            return _read_valid(path)
+        except (OSError, ValueError, UnicodeError):
+            pass
+
+    if backup.exists():
+        try:
+            recovered = _read_valid(backup)
+        except (OSError, ValueError, UnicodeError):
+            pass
+        else:
+            if path.exists():
+                # Quarantine a damaged primary. Keep the backup as a separate
+                # valid generation for a second interrupted recovery.
+                import uuid
+                os.replace(path, path.with_name(
+                    path.name + ".corrupt-" + uuid.uuid4().hex[:12]))
+                _sync_dir(path.parent)
+            _write_atomic(path, recovered)
+            return recovered
+
+    raise RuntimeError(
+        "Plex download-sync state is damaged with no valid backup. "
+        "Preserve downloader-bridge.json and .bak; restore a known-good copy."
+    )
+
+
+def _save(data, path=STATE_FILE):
+    path = Path(path)
+    if not _validate(data):
+        raise ValueError("Invalid Plex download-sync state")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        try:
+            _read_valid(path)
+        except (OSError, ValueError, UnicodeError):
+            raise RuntimeError(
+                "Damaged Plex sync state; refusing to replace the last copy"
+            ) from None
+        # Preserve the previous *validated* generation by atomic hard link
+        # swap. The old backup is not overwritten with corrupt bytes.
+        import uuid
+        backup = path.with_name(path.name + ".bak")
+        temp_link = path.with_name(
+            "." + path.name + ".backup-" + uuid.uuid4().hex)
+        try:
+            os.link(path, temp_link)
+            os.replace(temp_link, backup)
+            _sync_dir(path.parent)
+        finally:
+            temp_link.unlink(missing_ok=True)
+    _write_atomic(path, data)
 
 
 def published_ids(jobs):
