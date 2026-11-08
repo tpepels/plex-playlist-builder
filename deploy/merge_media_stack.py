@@ -114,7 +114,34 @@ def merge_list(lines, name, values):
     return lines[:start] + block + lines[end:]
 
 
+def update_downloader_build(lines):
+    """Point Docker at the imported subtree, never the old Git checkout."""
+    fields = positions(lines)
+    if "build" not in fields:
+        raise MigrationError("yt-dlp-server has no build configuration")
+    start = fields["build"]
+    end = min((i for i in fields.values() if i > start), default=len(lines))
+    block = lines[start:end]
+    if block[0].strip().startswith("build:") and block[0].split(":", 1)[1].strip():
+        value = block[0].split(":", 1)[1].strip().strip('"').strip("'")
+        if value not in ("./yt-dlp-server", "./plex-playlist-manager/yt-dlp-server"):
+            raise MigrationError("Unexpected yt-dlp build context; refusing to replace it")
+        block = ["    build:\n", "      context: ./plex-playlist-manager/yt-dlp-server\n"]
+    else:
+        locations = [i for i, line in enumerate(block)
+                     if line.startswith("      context:")]
+        if len(locations) != 1:
+            raise MigrationError("Expected one yt-dlp build.context mapping")
+        i = locations[0]
+        value = block[i].split(":", 1)[1].strip().strip('"').strip("'")
+        if value not in ("./yt-dlp-server", "./plex-playlist-manager/yt-dlp-server"):
+            raise MigrationError("Unexpected yt-dlp build context; refusing to replace it")
+        block[i] = "      context: ./plex-playlist-manager/yt-dlp-server\n"
+    return lines[:start] + block + lines[end:]
+
+
 def downloader(lines):
+    lines = update_downloader_build(lines)
     if "network_mode" in positions(lines):
         raise MigrationError("Old yt-dlp network_mode must be removed manually first")
     lines = replace_field(lines, "user", ['    user: "0:0"\n'])
@@ -180,6 +207,15 @@ def validate(compose, override):
         raise MigrationError("yt-dlp needs /dev/net/tun")
     if engine.get("ports"):
         raise MigrationError("yt-dlp still exposes port 4545 externally")
+    build = engine.get("build")
+    if not isinstance(build, dict):
+        raise MigrationError("yt-dlp build context is missing")
+    context = Path(build.get("context", ""))
+    if not context.is_absolute():
+        context = Path(compose).parent / context
+    expected = Path(compose).parent / "plex-playlist-manager" / "yt-dlp-server"
+    if context.resolve() != expected.resolve():
+        raise MigrationError("yt-dlp must build from the imported monorepo subtree")
     if str(engine.get("environment", {}).get("VPN_GATEWAY_ENABLED")) != "1":
         raise MigrationError("yt-dlp VPN controller is disabled")
     if pm.get("environment", {}).get("YTDLP_SERVER_URL") != "http://yt-dlp-server:4545":
@@ -199,42 +235,67 @@ def migrate(stack, apply):
         raise MigrationError("Expected exactly one docker-compose.yml or compose.yaml")
     compose = found[0]
     override = root / "docker-compose.override.yml"
+    old_target = (root / "yt-dlp-server" / "compose.parent-vpn.yaml").resolve()
+    new_target = (root / "plex-playlist-manager" / "yt-dlp-server"
+                  / "compose.parent-vpn.yaml").resolve()
+    repoint = override.is_symlink() and override.resolve() == old_target
+    if repoint and not new_target.is_file():
+        raise MigrationError(
+            "Imported VPN override is missing; pull the merged repository first"
+        )
+    original_link = os.readlink(override) if repoint else None
     original = compose.read_text(encoding="utf-8")
     updated = transform(original)
-    if updated == original:
+    if updated == original and not repoint:
         validate(compose, override)
         print("Already merged. The effective configuration is valid.")
         return None
 
     fd, name = tempfile.mkstemp(prefix=".download-merge-", suffix=".yml", dir=root)
     tmp = Path(name)
+    candidate_override = None
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as writer:
             writer.write(updated)
             writer.flush()
             os.fsync(writer.fileno())
-        validate(tmp, override)
+        if repoint:
+            candidate_override = root / (".download-merge-vpn-" + os.urandom(6).hex() + ".yml")
+            os.symlink(new_target, candidate_override)
+        validate(tmp, candidate_override if repoint else override)
         if not apply:
-            print("Dry run passed. Only yt-dlp-server and plex-playlist-manager will change.")
+            print("Dry run passed: one Git checkout, both services and effective VPN override.")
             return None
+
         stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup = root / f"{compose.name}.pre-download-merge.{stamp}.bak"
+        backup = root / f"{compose.name}.pre-monorepo.{stamp}.bak"
         if backup.exists():
             raise MigrationError(f"Backup already exists: {backup}")
         shutil.copy2(compose, backup)
         backup.chmod(0o600)
         os.chmod(tmp, compose.stat().st_mode & 0o777)
         os.replace(tmp, compose)
+        if repoint:
+            os.replace(candidate_override, override)
+            candidate_override = None
         try:
             validate(compose, override)
         except MigrationError:
             shutil.copy2(backup, compose)
+            if repoint:
+                recovery_link = root / (".restore-vpn-" + os.urandom(6).hex())
+                os.symlink(original_link, recovery_link)
+                os.replace(recovery_link, override)
             raise
         print(f"Compose validated. Private backup: {backup.name}")
+        if repoint:
+            print("WireGuard override repointed into the monorepo.")
         return backup
     finally:
         tmp.unlink(missing_ok=True)
+        if candidate_override is not None:
+            candidate_override.unlink(missing_ok=True)
 
 
 def main(argv=None):
