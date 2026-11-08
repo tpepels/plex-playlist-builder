@@ -24,14 +24,14 @@
     a.action:hover,button.action:hover{background:#333c48}
     .engine-status{font-size:12px;color:#bac3d0;margin:12px 0;min-height:19px}
     .engine-status.error{color:#ffb5b5}
-    .engine-frame{display:block;width:100%;height:calc(100vh - 165px);
-      min-height:670px;border:1px solid #38414c;border-radius:12px;
-      background:#111820}
+    .engine-offline{margin:24px 0;padding:28px;border:1px solid #38414c;border-radius:12px;background:#111c25}
+    .engine-offline h2{font-size:18px;margin:0 0 10px}
+    .engine-offline p{color:#b7c7d0;font-size:14px;max-width:65ch}
+    .engine-offline button{padding:9px 15px;border:1px solid #3f4855;border-radius:8px;background:#252a32;color:#f3f4f6;cursor:pointer}
     .scan-result{margin:6px 0 10px;font-size:12px;color:#c3d2be;min-height:18px}
     .scan-result.error{color:#ffb5b5}
     [hidden]{display:none!important}
-    @media(max-width:700px){.download-shell{padding:10px 7px}
-      .engine-frame{height:calc(100vh - 230px)}.download-actions{width:100%}}
+    @media(max-width:700px){.download-shell{padding:10px 7px}.download-actions{width:100%}}
   </style>
 </head>
 <body>
@@ -47,7 +47,7 @@
         <img src="/static/signal-mark.svg" width="43" height="43" alt="">
         <div>
           <h1>Downloads</h1>
-          <p class="sub">Download engine and Plex library workflow · one workspace</p>
+          <p class="sub">The downloader is temporarily unavailable; navigation remains available.</p>
         </div>
       </div>
       <div class="download-actions">
@@ -62,9 +62,11 @@
       Connecting to the download engine…
     </div>
     <div id="scan-result" class="scan-result" role="status" aria-live="polite"></div>
-    <iframe id="download-engine" class="engine-frame"
-      src="{{ engine_url }}" title="yt-dlp downloads, retries, logs, cookies and VPN controls"
-      referrerpolicy="same-origin"></iframe>
+    <section class="engine-offline" role="alert">
+      <h2>Downloader unavailable</h2>
+      <p>The downloader did not return its complete interface. Your download queue, saved jobs, metadata, cookies and staged media have not been changed. Check the yt-dlp-server container, then reload this page.</p>
+      <button type="button" onclick="window.location.reload()">Retry connection</button>
+    </section>
   </main>
   <script src="/static/download-portal.js" defer></script>
   <script src="/static/site-navigation.js" defer></script>
