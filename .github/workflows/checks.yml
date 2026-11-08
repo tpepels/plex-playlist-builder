@@ -146,6 +146,9 @@ jobs:
           assert services["unrelated-app"]["image"] == "busybox:latest"
           assert len(list(root.glob("*.pre-monorepo.*.bak"))) == 1
           PY
+      - name: Home overview browser behavior
+        if: ${{ always() }}
+        run: node --test tests/test_home_ui.mjs
       - name: Build Playlist Manager Docker image
         run: docker build -t plex-playlist-builder:ci .
       - name: Verify live manager-to-downloader Docker network integration
@@ -224,6 +227,13 @@ jobs:
           from app.main import app
 
           with TestClient(app) as client:
+              home = client.get("/")
+              assert home.status_code == 200
+              assert "Your music." in home.text
+              assert 'id="siteNavigationToggle"' in home.text
+              playlist = client.get("/playlists?view=health")
+              assert playlist.status_code == 200
+              assert 'id="viewHealth"' in playlist.text
               portal = client.get("/downloads?job=sample123")
               assert portal.status_code == 200
               assert 'src="/downloads/engine/?job=sample123"' in portal.text
