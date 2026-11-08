@@ -30,7 +30,7 @@ jobs:
         run: docker build -t yt-dlp-server:test .
       - name: Verify single-container VPN toolchain and privileged supervisor
         run: |
-          docker run --rm yt-dlp-server:test python - <<'PY'
+          docker run --rm -i yt-dlp-server:test python - <<'PY'
           import shutil
           from pathlib import Path
           for command in ("gosu", "setpriv", "wg", "wg-quick", "iptables", "ip"):
@@ -42,16 +42,35 @@ jobs:
           assert "--no-new-privs" in runtime
           assert "gateway_ready(process=gateway)" in runtime
           PY
+      - name: Verify live non-root identity and capability isolation
+        run: |
+          docker run --rm -i --cap-add=NET_ADMIN yt-dlp-server:test \
+            setpriv --bounding-set=-net_admin --no-new-privs \
+            gosu 1000:1000 python - <<'PY'
+          import os
+          from pathlib import Path
+
+          assert os.geteuid() == 1000
+          assert os.getegid() == 1000
+          statuses = {}
+          for line in Path("/proc/self/status").read_text().splitlines():
+              if ":" in line:
+                  key, value = line.split(":", 1)
+                  statuses[key] = value.strip()
+          assert statuses["NoNewPrivs"] == "1"
+          assert not (int(statuses["CapEff"], 16) & (1 << 12))
+          assert not (int(statuses["CapBnd"], 16) & (1 << 12))
+          PY
       - name: Smoke-test installed tools
         run: |
           docker run --rm yt-dlp-server:test python -m py_compile /app/app.py /app/staging.py /app/library_repair.py /app/extension_package.py /app/container_runtime.py /app/vpn_gateway.py
           docker run --rm yt-dlp-server:test yt-dlp --version
           docker run --rm yt-dlp-server:test deno --version
           docker run --rm yt-dlp-server:test ffmpeg -version
-          docker run --rm yt-dlp-server:test sh -c 'spotdl --version | grep -qx 4.6.0'
-          docker run --rm --user 1000:1000 yt-dlp-server:test sh -c 'test -w "$HOME" && spotdl --version | grep -qx 4.6.0'
-          docker run --rm yt-dlp-server:test python -c "import importlib.metadata; assert importlib.metadata.version('bgutil-ytdlp-pot-provider') == '2.0.2'"
-          docker run --rm --user 1000:1000 yt-dlp-server:test sh -c 'test -f /opt/bgutil-ytdlp-pot-provider/server/src/generate_once.ts && deno run --allow-env --allow-net --allow-ffi=/opt/bgutil-ytdlp-pot-provider/server/node_modules --allow-write=/tmp/yt-dlp-cache/bgutil-ytdlp-pot-provider --allow-read=/tmp/yt-dlp-cache/bgutil-ytdlp-pot-provider,/opt/bgutil-ytdlp-pot-provider/server/node_modules /opt/bgutil-ytdlp-pot-provider/server/src/generate_once.ts --version | grep -qx 2.0.2'
+          docker run --rm -i yt-dlp-server:test sh -c 'spotdl --version | grep -qx 4.6.0'
+          docker run --rm -i --user 1000:1000 yt-dlp-server:test sh -c 'test -w "$HOME" && spotdl --version | grep -qx 4.6.0'
+          docker run --rm -i yt-dlp-server:test python -c "import importlib.metadata; assert importlib.metadata.version('bgutil-ytdlp-pot-provider') == '2.0.2'"
+          docker run --rm -i --user 1000:1000 yt-dlp-server:test sh -c 'test -f /opt/bgutil-ytdlp-pot-provider/server/src/generate_once.ts && deno run --allow-env --allow-net --allow-ffi=/opt/bgutil-ytdlp-pot-provider/server/node_modules --allow-write=/tmp/yt-dlp-cache/bgutil-ytdlp-pot-provider --allow-read=/tmp/yt-dlp-cache/bgutil-ytdlp-pot-provider,/opt/bgutil-ytdlp-pot-provider/server/node_modules /opt/bgutil-ytdlp-pot-provider/server/src/generate_once.ts --version | grep -qx 2.0.2'
       - name: Validate Chrome extension
         run: |
           python -m json.tool chrome-extension/manifest.json >/dev/null
@@ -81,7 +100,7 @@ jobs:
           assert "chrome.permissions.request" in options
           assert '"/health"' in options
           PY
-          docker run --rm \
+          docker run --rm -i \
             -v "$PWD/chrome-extension:/extension:ro" \
             yt-dlp-server:test deno eval \
             'new Function(await Deno.readTextFile("/extension/service-worker.js")); new Function(await Deno.readTextFile("/extension/options.js"));'
@@ -107,7 +126,7 @@ jobs:
         run: |
           grep -q "download_chrome_extension" templates/index.html
           grep -q "COPY chrome-extension ./chrome-extension" Dockerfile
-          docker run --rm --user 1000:1000 \
+          docker run --rm -i --user 1000:1000 \
             -e MUSIC_ROOT=/tmp/music \
             -e STATE_DIR=/tmp/state \
             -e TEMP_DIR=/tmp/work \
@@ -140,7 +159,7 @@ jobs:
             '
       - name: Validate Plex post-publish nudge
         run: |
-          docker run --rm --user 1000:1000 \
+          docker run --rm -i --user 1000:1000 \
             -e MUSIC_ROOT=/tmp/music \
             -e STATE_DIR=/tmp/state \
             -e TEMP_DIR=/tmp/work \
@@ -204,7 +223,7 @@ jobs:
             yt-dlp-server:test python -c 'import app, yt_dlp; y=yt_dlp.YoutubeDL({"outtmpl": app.OUTPUT_TEMPLATE}); p=y.prepare_filename({"id":"abc123","title":"Fallback title","ext":"webm","artist":"Test Artist","album":"Test Album","track":"Test Track","track_number":1}); assert "/" not in p, p; assert p.endswith("Test Track [abc123].webm"), p; q=y.prepare_filename({"id":"def456","title":"Loose Song","ext":"m4a","uploader":"Test Uploader"}); assert "/" not in q and q.endswith("Loose Song [def456].m4a"), q; assert "Test Uploader" not in q; assert app.classify_probe_info({"_type":"playlist","title":"Album","playlist_count":12}) == {"kind":"playlist","title":"Album","count":12,"extractor":None,"album_mode":False,"album_artist":None,"thumbnail":None}; assert app.classify_probe_info({"_type":"video","title":"Track"})["kind"] == "single"; assert app.classify_probe_info({"_type":"playlist","title":"Release"}, url="https://example.bandcamp.com/album/release")["album_mode"] is True; assert app.classify_probe_info({"_type":"playlist","title":"Mix"}, url="https://youtube.com/playlist?list=PL123")["album_mode"] is False; print(p); print(q)'
       - name: Validate release card metadata
         run: |
-          docker run --rm --user 1000:1000 \
+          docker run --rm -i --user 1000:1000 \
             -e MUSIC_ROOT=/tmp/music \
             -e STATE_DIR=/tmp/state \
             -e TEMP_DIR=/tmp/work \
@@ -387,7 +406,7 @@ jobs:
           grep -q 'COPY static ./static' Dockerfile
       - name: Validate staged metadata gate
         run: |
-          docker run --rm --user 1000:1000 \
+          docker run --rm -i --user 1000:1000 \
             -e MUSIC_ROOT=/tmp/music \
             -e STATE_DIR=/tmp/state \
             -e TEMP_DIR=/tmp/work \
@@ -520,7 +539,7 @@ jobs:
           PY
       - name: Validate safe retagging and job discard
         run: |
-          docker run --rm --user 1000:1000 \
+          docker run --rm -i --user 1000:1000 \
             -e MUSIC_ROOT=/tmp/music \
             -e STATE_DIR=/tmp/state \
             -e TEMP_DIR=/tmp/work \
@@ -644,7 +663,7 @@ jobs:
           PY
       - name: Validate legacy repair metadata inference
         run: |
-          docker run --rm --user 1000:1000 \
+          docker run --rm -i --user 1000:1000 \
             -e MUSIC_ROOT=/tmp/music \
             -e STATE_DIR=/tmp/state \
             -e TEMP_DIR=/tmp/work \
@@ -837,7 +856,7 @@ jobs:
             yt-dlp-server:test python -c 'import queue, app; u="https://open.spotify.com/album/4yP0hdKOZPNshxUOjY0cZj"; assert app.is_spotify_url(u); assert app.spotify_link_type(u)=="album"; j={"id":"sp1","staging_owner_id":"sp1","url":u,"force":False,"download_query":None}; cmd=app.build_spotdl_command(j); assert cmd[:3]==["spotdl","download",u]; ai=cmd.index("--audio"); assert cmd[ai+1:ai+5]==["youtube-music","youtube","bandcamp","soundcloud"]; assert "--archive" in cmd and str(app.SPOTDL_ARCHIVE_FILE) in cmd; assert "--format" in cmd and "opus" in cmd; assert "--bitrate" in cmd and "disable" in cmd; assert app.library_staging.staged_spotdl_output_template(app.TEMP_DIR, j).endswith("{track-number} - {title} [{track-id}].{output-ext}"); assert "/tmp/work/staging/sp1/" in app.library_staging.staged_spotdl_output_template(app.TEMP_DIR, j); assert "youtube:player_client=mweb" in app.spotdl_ytdlp_args(); assert "youtubepot-bgutilscript:server_home=" in app.spotdl_ytdlp_args(); force=app.build_spotdl_command({"id":"sp2","staging_owner_id":"sp2","url":u,"force":True}); assert "--archive" not in force; assert force[force.index("--overwrite")+1]=="force"; app.jobs.clear(); app.jobs["sp"]={"id":"sp","source":"spotify","completed_items":0,"total_items":0,"current_item":0,"retry_base_completed":0,"message":"","progress":"","files":[],"log":[],"http_403":False}; app.append_log("sp","INFO: 1/8 complete"); assert app.jobs["sp"]["total_items"]==8 and app.jobs["sp"]["current_item"]==1; app.append_log("sp", "INFO: Downloaded \"Artist - Track\": https://youtube.com/watch?v=x"); assert app.jobs["sp"]["completed_items"]==1; err="https://open.spotify.com/track/4EIGit0b2tPnfp4jPdrtKZ - LookupError: No results found for song: GAS - Pop 3"; missing=app.extract_spotdl_missing_tracks([err]); assert missing[0]["spotify_url"]=="https://open.spotify.com/track/4EIGit0b2tPnfp4jPdrtKZ"; assert missing[0]["label"]=="GAS - Pop 3"; assert missing[0]["reason"]==err; assert missing[0]["resolved"] is False; assert app.is_manual_spotify_source_url("https://kompakt-gas.bandcamp.com/track/pop-3"); assert app.is_manual_spotify_source_url("https://www.youtube.com/watch?v=abc123"); assert not app.is_manual_spotify_source_url("https://example.com/audio"); app.download_queue=queue.Queue(maxsize=5); app.jobs.clear(); app.jobs["parent"]={"id":"parent","source":"spotify","status":"failed","missing_tracks":missing,"total_items":7,"completed_items":6,"current_item":7,"progress":"","failed_items":1,"log":[]}; client=app.app.test_client(); rr=client.post("/api/jobs/parent/resolve", json={"spotify_url":missing[0]["spotify_url"],"source_url":"https://kompakt-gas.bandcamp.com/track/pop-3"}); assert rr.status_code==202, rr.data; child=app.jobs[rr.get_json()["job_id"]]; assert child["download_query"]=="https://kompakt-gas.bandcamp.com/track/pop-3|https://open.spotify.com/track/4EIGit0b2tPnfp4jPdrtKZ"; assert child["resolution_of"]=="parent"; child["completed_items"]=1; app.apply_manual_resolution_success(child); assert app.jobs["parent"]["status"]=="succeeded"; assert app.jobs["parent"]["completed_items"]==7; assert app.jobs["parent"]["missing_tracks"][0]["resolved"] is True; p=client.post("/api/probe", json={"url":u}); assert p.status_code==200 and p.get_json()["kind"]=="spotify" and p.get_json()["is_album"] is True; t=client.post("/api/probe", json={"url":"https://open.spotify.com/track/4EIGit0b2tPnfp4jPdrtKZ"}); assert t.status_code==200 and t.get_json()["kind"]=="spotify" and t.get_json()["is_album"] is False'
       - name: Validate partial Spotify playlist publishing
         run: |
-          docker run --rm --user 1000:1000 \
+          docker run --rm -i --user 1000:1000 \
             -e MUSIC_ROOT=/tmp/music \
             -e STATE_DIR=/tmp/state \
             -e TEMP_DIR=/tmp/work \
@@ -1029,7 +1048,7 @@ jobs:
           PY
       - name: Validate Monochrome fallback track endpoint
         run: |
-          docker run --rm --user 1000:1000 \
+          docker run --rm -i --user 1000:1000 \
             -e MUSIC_ROOT=/tmp/music \
             -e STATE_DIR=/tmp/state \
             -e TEMP_DIR=/tmp/work \
