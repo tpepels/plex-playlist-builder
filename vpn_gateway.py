@@ -436,6 +436,11 @@ def _direct():
         stop_tunnel()
         if run("ip", "link", "show", "wg0", check=False).returncode == 0:
             raise RuntimeError("WireGuard interface still active")
+        # Confirm a normal IPv4 underlay route exists before reopening egress.
+        # This is a local routing-table lookup, not a network request.
+        route = run("ip", "-4", "route", "get", "1.1.1.1", check=False)
+        if route.returncode != 0 or "wg0" in str(getattr(route, "stdout", "")):
+            raise RuntimeError("Normal IPv4 route was not restored")
         # Only the private gateway ever installed these OUTPUT rules.
         run("iptables", "-F", "OUTPUT")
         run("ip6tables", "-F", "OUTPUT")
