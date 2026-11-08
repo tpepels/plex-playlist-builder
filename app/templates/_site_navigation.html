@@ -1,26 +1,27 @@
 <div id="siteNavigationBackdrop" class="site-nav-backdrop" hidden></div>
 <aside id="siteNavigationPanel" class="site-nav-panel" role="dialog" aria-modal="true"
-      aria-label="Playlist manager navigation" tabindex="-1" hidden>
+      aria-label="Music workspace navigation" tabindex="-1" hidden>
   <div class="site-nav-head">
     <strong>Navigation</strong>
     <button id="siteNavigationClose" class="site-nav-close" type="button" aria-label="Close navigation menu">Close <span aria-hidden="true">×</span></button>
   </div>
-  <nav aria-label="Playlist manager sections" class="site-nav-links">
-    <span class="site-nav-section">WORKSPACE</span>
-    <a href="/?view=playlists">Playlists</a>
-    <a href="/?view=health">Playlist health</a>
-    <a href="/?view=duplicates">Duplicate albums</a>
-    <a href="/?view=newmusic">New music</a>
-    <a href="/?view=isc">Music discovery</a>
-    <a href="/?view=discover">Find album</a>
-    <span class="site-nav-section">ANALYSIS &amp; CURATION</span>
+  <nav aria-label="Music workspace sections" class="site-nav-links">
+    <span class="site-nav-section">OVERVIEW</span>
+    <a href="/">Home</a>
+    <a href="/downloads">Downloads</a>
+    <a href="/playlists">Playlists</a>
+    <a href="/playlists?view=newmusic">New music</a>
+    <span class="site-nav-section">CREATE &amp; CURATE</span>
     <a href="/playlist-generator">Create intelligent playlist</a>
     <a href="/playlist-intelligence">Playlist Intelligence</a>
+    <a href="/playlists?view=health">Playlist health</a>
     <a href="/musical-coherence">Musical coherence</a>
-    <span class="site-nav-section">LIBRARY TOOLS</span>
-    <a href="/downloads">Downloads</a>
+    <span class="site-nav-section">DISCOVER &amp; MAINTAIN</span>
+    <a href="/playlists?view=isc">Music discovery</a>
+    <a href="/playlists?view=discover">Find album</a>
+    <a href="/playlists?view=duplicates">Duplicate albums</a>
     <a href="/downloads-audit">Download audit</a>
-    <a href="/?view=playlists">Playlist imports and covers</a>
+    <a href="/playlists">Playlist imports and covers</a>
   </nav>
   <details class="site-nav-exports">
     <summary>Export data <span aria-hidden="true">⌄</span></summary>
