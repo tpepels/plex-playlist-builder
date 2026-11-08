@@ -189,7 +189,11 @@ def test_wrapper_only_recreates_two_containers_and_never_removes_volumes():
     assert 'git -C "$ENGINE" pull' not in content
     assert "Preflight: refuse migration" in content
     assert 'job.get("status") in {"queued", "running", "finalizing"}' in content
-    assert "Bridge health check failed" in content
+    assert "home/playlist/download verification" in content
+    for route in ('("/", b\'id="siteNavigationPanel"\')',
+                  '("/playlists", b\'id="viewPlaylists"\')',
+                  '("/downloads", b\'id="download-engine"\')'):
+        assert route in content
 
 
 def test_invalid_service_file_does_not_create_a_replacement():
