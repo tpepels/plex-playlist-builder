@@ -111,4 +111,4 @@ def test_cookie_file_is_wired_to_all_download_paths():
     assert source.count('"--cookie-file", COOKIES_FILE') == 2
     html = (root / "templates/index.html").read_text()
     assert 'id="youtube-cookie-upload-form"' in html
-    assert 'action="/youtube/cookies/remove"' in html
+    assert 'url_for(\'remove_youtube_cookies\')' in html
