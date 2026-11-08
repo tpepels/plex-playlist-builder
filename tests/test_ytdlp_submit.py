@@ -107,7 +107,7 @@ def test_album_browse_id_enriches_to_audio_playlist(monkeypatch):
 
 def test_public_url_never_uses_docker_dns(monkeypatch):
     monkeypatch.setenv("YTDLP_PUBLIC_URL", "http://media-server:4545/")
-    assert submit.downloader_ui_url() == "http://media-server:4545/"
+    assert submit.downloader_ui_url() == "/downloads"
 
 
 def test_server_claim_without_verifiable_job_is_an_error(monkeypatch):
