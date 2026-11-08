@@ -420,9 +420,9 @@ def test_youtube_lookup_retries_without_parenthetical_suffix(monkeypatch):
         found = service.lookup_album("Stan Getz", "Getz At The Gate (Live)")
         assert found["status"] == "found"
         assert found["match_type"] == "explicit_alias"
-        assert queries[:2] == [
-            "Stan Getz Getz At The Gate (Live)",
-            "Stan Getz Getz at the Gate",
-        ]
+        assert queries[0] == "Stan Getz Getz At The Gate (Live)"
+        assert "Stan Getz Getz at the Gate" in queries
+        # Multiple safe catalog editions are deliberately evaluated before
+        # choosing a single exact/explicit-alias match.
     finally:
         service._lookup.cache_clear()
