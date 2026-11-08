@@ -440,6 +440,7 @@ def normalize_persisted_job(raw):
         "staged_files": int(raw.get("staged_files") or 0),
         "final_dir": raw.get("final_dir"),
         "finalize_target_id": raw.get("finalize_target_id"),
+        "publication_pending": bool(raw.get("publication_pending", False)),
         "album_submission_key": raw.get("album_submission_key"),
         "match_audit": clean_match_audit(raw.get("match_audit")),
         "archive_skipped_items": int(raw.get("archive_skipped_items") or 0),
@@ -490,7 +491,8 @@ def normalize_persisted_job(raw):
     if job["status"] in {"running", "finalizing"}:
         job["status"] = "failed"
         job["finished_at"] = now
-        job["returncode"] = None
+        if not job["publication_pending"]:
+            job["returncode"] = None
         job["message"] = "Interrupted by server restart - use Retry / continue"
         job["log"].append("Server restarted while this job was running.")
         job["log"] = job["log"][-40:]
