@@ -54,8 +54,8 @@ def test_existing_files_missing_in_plex_are_reported_without_any_download_job():
     assert report["disk_audio_files"] == 3
     assert report["disk_status_counts"] == {"missing": 2}
     assert report["total_matches"] == 2
-    assert report["items"][0]["files_on_disk"] == 2
-    assert report["items"][0]["files_indexed"] == 0
+    assert sorted(item["files_on_disk"] for item in report["items"]) == [1, 2]
+    assert all(item["files_indexed"] == 0 for item in report["items"])
 
 
 def test_identical_artist_album_tags_never_count_as_matching_if_file_is_different():
