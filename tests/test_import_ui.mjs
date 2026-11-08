@@ -26,7 +26,7 @@ function fakeElement() {
 }
 
 function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false,
-  albumFound = true, initialUrl = null } = {}) {
+  albumFound = true, initialUrl = null, empty = false } = {}) {
   const elements = new Map();
   const rows = [];
   const cards = fakeElement();
@@ -83,10 +83,12 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
   function snapshot() {
     const alpha = { items: [{ rating_key: "1" }] };
     const beta = { items: [{ rating_key: "2" }] };
-    const definitions = imported && !alreadyLoaded ? { Alpha: alpha, Beta: beta } : { Alpha: alpha };
-    const statuses = imported && !alreadyLoaded
-      ? { Alpha: "synced", Beta: synced ? "synced" : "needs_sync" }
-      : { Alpha: "synced" };
+    const definitions = empty && !imported ? {}
+      : imported && !alreadyLoaded ? { Alpha: alpha, Beta: beta } : { Alpha: alpha };
+    const statuses = empty && !imported ? {}
+      : imported && !alreadyLoaded
+        ? { Alpha: "synced", Beta: synced ? "synced" : "needs_sync" }
+        : { Alpha: "synced" };
     const counts = {
       total: Object.keys(definitions).length,
       needs_sync: Object.values(statuses).filter((x) => x === "needs_sync").length,
@@ -524,4 +526,18 @@ test("unknown deep-link views do not activate nonexisting sections", async () =>
   const h=makeHarness({initialUrl:"http://media-server:5051/?view=unknown"});
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(h.$("viewPlaylists").hidden,false);
+});
+
+
+test("empty YAML boots the entire playlist workspace without blocking Plex status", async () => {
+  const h = makeHarness({empty:true});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(h.calls.includes("/api/config"), "the collection must load on startup");
+  assert.ok(h.calls.includes("/api/health"), "Plex health checks must run separately");
+  assert.equal(h.$("versionName").textContent, "No saved playlists");
+  assert.match(h.$("cards").innerHTML, /No playlist definitions yet/);
+  assert.match(h.$("cards").innerHTML, /Import & sync/);
+  assert.match(h.$("health").innerHTML, /Test Plex/);
+  assert.equal(h.$("importPack").disabled, false);
+  assert.equal(h.$("syncPending").disabled, true);
 });
