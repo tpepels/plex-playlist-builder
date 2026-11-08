@@ -388,6 +388,32 @@ def discard_stage(temp_dir, job):
     return path
 
 
+def cleanup_interrupted_publications(import_root):
+    """Remove only abandoned hidden copies made by this application.
+
+    Called before starting the download worker after a container restart,
+    when no publication can be in progress. Source audio still resides in
+    the staging directory until the publication succeeds. Never touch
+    unknown directories or symlinks in the music library.
+    """
+    incoming = Path(import_root) / ".incoming"
+    if not incoming.is_dir() or incoming.is_symlink():
+        return 0
+    count = 0
+    for entry in incoming.iterdir():
+        if (entry.is_dir() and not entry.is_symlink()
+                and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}-[0-9a-f]{8}",
+                                 entry.name)):
+            shutil.rmtree(entry)
+            count += 1
+    try:
+        if not any(incoming.iterdir()):
+            incoming.rmdir()
+    except OSError:
+        pass
+    return count
+
+
 def publish_spotdl_stage(temp_dir, import_root, job):
     """Publish successful spotDL files while preserving their native album tree."""
     stage = stage_dir(temp_dir, job)
