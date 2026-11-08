@@ -480,5 +480,10 @@
     }
   });
   panel.addEventListener("toggle", () => { if (panel.open) refresh(); });
+  // VPN fallback is automatic: an open panel must not show stale routing
+  // state while the download worker temporarily switches endpoints.
+  window.setInterval(() => {
+    if (panel.open && !busy && !testing) refresh();
+  }, 5000);
   refresh();
 })();
