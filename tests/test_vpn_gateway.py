@@ -661,7 +661,8 @@ def test_vpn_dashboard_has_public_key_view_without_private_key_controls():
     assert "Client public key" in js
     assert "item.client_public_key" in js
     assert "different client keys" in js.lower()
-    assert "PrivateKey =" not in js
+    # Match a literal WireGuard directive, not JavaScript needsPrivateKey.
+    assert not __import__("re").search(r"(?<![A-Za-z])PrivateKey\\s*=", js)
 
 
 def test_rotation_skips_same_ip_and_uses_next_verified_profile(monkeypatch, tmp_path):
