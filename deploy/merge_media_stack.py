@@ -184,6 +184,68 @@ def transform(source):
     return "".join(lines)
 
 
+def _mount_sources(service):
+    """Normalize Compose resolved bind mounts without touching data."""
+    mounts = {}
+    for item in service.get("volumes", []):
+        if isinstance(item, dict):
+            target = item.get("target")
+            source = item.get("source")
+            kind = item.get("type", "bind")
+        elif isinstance(item, str):
+            parts = item.split(":")
+            if len(parts) < 2:
+                continue
+            source, target, kind = parts[0], parts[1], "bind"
+        else:
+            continue
+        if target and source and kind == "bind":
+            mounts[target] = str(source)
+    return mounts
+
+
+def _network_names(service):
+    if service.get("network_mode"):
+        # Host, bridge and container-network sharing would bypass the
+        # project DNS namespace and break yt-dlp-server name resolution.
+        raise MigrationError("Both applications must use a shared Compose network")
+    networks = service.get("networks")
+    if not networks:
+        return {"default"}
+    if isinstance(networks, dict):
+        return set(networks)
+    if isinstance(networks, list):
+        return set(networks)
+    raise MigrationError("Unsupported Compose network format")
+
+
+def _build_context(service, compose):
+    build = service.get("build")
+    if isinstance(build, dict):
+        path = build.get("context")
+    elif isinstance(build, str):
+        path = build
+    else:
+        path = None
+    if not path:
+        raise MigrationError("Docker build context is required")
+    root = Path(compose).parent
+    target = Path(path)
+    return (target if target.is_absolute() else root / target).resolve()
+
+
+def _has_manager_port(manager):
+    for item in manager.get("ports", []):
+        if isinstance(item, dict):
+            if (str(item.get("published")) == "5051"
+                    and str(item.get("target")) == "8000"
+                    and item.get("protocol", "tcp") == "tcp"):
+                return True
+        elif isinstance(item, str) and item.rsplit(":", 2)[-2:] == ["5051", "8000"]:
+            return True
+    return False
+
+
 def validate(compose, override):
     cmd = ["docker", "compose", "-f", str(compose)]
     if override.is_file():
@@ -207,23 +269,37 @@ def validate(compose, override):
         raise MigrationError("yt-dlp needs /dev/net/tun")
     if engine.get("ports"):
         raise MigrationError("yt-dlp still exposes port 4545 externally")
-    build = engine.get("build")
-    if not isinstance(build, dict):
-        raise MigrationError("yt-dlp build context is missing")
-    context = Path(build.get("context", ""))
-    if not context.is_absolute():
-        context = Path(compose).parent / context
-    expected = Path(compose).parent / "plex-playlist-manager" / "yt-dlp-server"
-    if context.resolve() != expected.resolve():
+    root = Path(compose).parent
+    expected = root / "plex-playlist-manager"
+    if _build_context(pm, compose) != expected.resolve():
+        raise MigrationError("Playlist Manager must build from the monorepo")
+    if _build_context(engine, compose) != (expected / "yt-dlp-server").resolve():
         raise MigrationError("yt-dlp must build from the imported monorepo subtree")
+    if not _has_manager_port(pm):
+        raise MigrationError("Playlist Manager must publish port 5051 to container port 8000")
+    if not (_network_names(pm) & _network_names(engine)):
+        raise MigrationError("Playlist Manager and yt-dlp need a common Docker network")
+    for target, source in {
+        "/data/music": "/srv/completed/music",
+        "/data/state": "/srv/yt-dlp-server/state",
+        "/data/tmp": "/srv/yt-dlp-server/tmp",
+        "/profiles": "/srv/yt-dlp-server/wireguard-profiles",
+    }.items():
+        actual = _mount_sources(engine).get(target)
+        if actual != source:
+            raise MigrationError(
+                f"yt-dlp mount {target} must preserve {source}; found {actual!r}"
+            )
+    if _mount_sources(pm).get("/data") != "/srv/plex-playlist-manager":
+        raise MigrationError("Playlist Manager must retain /srv/plex-playlist-manager:/data")
+    if str(engine.get("environment", {}).get("VPN_PROFILE_DIR", "")) != "/profiles":
+        raise MigrationError("VPN profiles must remain in the /profiles bind mount")
     if str(engine.get("environment", {}).get("VPN_GATEWAY_ENABLED")) != "1":
         raise MigrationError("yt-dlp VPN controller is disabled")
     if pm.get("environment", {}).get("YTDLP_SERVER_URL") != "http://yt-dlp-server:4545":
         raise MigrationError("Playlist Manager cannot reach the download engine")
     if str(pm.get("environment", {}).get("DOWNLOAD_BRIDGE_SCAN_ENABLED")) != "1":
         raise MigrationError("Plex download scan polling is not enabled")
-    if str(engine.get("network_mode", "")).startswith("service:"):
-        raise MigrationError("Legacy shared-gateway network mode remains")
     return True
 
 
