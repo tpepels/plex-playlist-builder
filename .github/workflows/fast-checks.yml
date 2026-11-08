@@ -13,9 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      MUSIC_ROOT: ${{ runner.temp }}/music
-      TEMP_DIR: ${{ runner.temp }}/staging
-      STATE_DIR: ${{ runner.temp }}/state
+      # GitHub does not allow the runner context in jobs.<job_id>.env.
+      # The hosted runner is ephemeral; no persistent user data resides here.
+      MUSIC_ROOT: /tmp/yt-dlp-ci-music
+      TEMP_DIR: /tmp/yt-dlp-ci-staging
+      STATE_DIR: /tmp/yt-dlp-ci-state
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
