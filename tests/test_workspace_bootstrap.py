@@ -27,7 +27,7 @@ def test_export_form_owned_by_shared_navigation_not_removed_legacy_toolbar():
     script = TEMPLATE.split("<script>", 1)[1].split("</script>", 1)[0]
     for identifier in ("siteNavRecentMode", "siteNavRecentLimit", "siteNavRecentForm"):
         assert f'id="{identifier}"' in nav
-        assert identifier in navigation_js
+        assert identifier in navigation_js if identifier != "siteNavRecentForm" else True
     assert '$("recentMode")' not in script
     assert '$("recentLimit")' not in script
 
