@@ -1,81 +1,75 @@
-/* Page-independent drawer. The main dashboard keeps its own in-page view controls. */
+/* The one workspace navigation. No page-specific drawers, tab navigation or modal menu. */
 (() => {
   "use strict";
-  const toggle=document.getElementById("siteNavigationToggle");
-  const panel=document.getElementById("siteNavigationPanel");
-  const backdrop=document.getElementById("siteNavigationBackdrop");
-  const close=document.getElementById("siteNavigationClose");
-  if(!toggle||!panel||!backdrop||!close)return;
+  const panel = document.getElementById("siteNavigationPanel");
+  const toggle = document.getElementById("siteNavigationToggle");
+  const more = document.getElementById("workspaceMore");
+  if (!panel || !toggle || !more) return;
 
-  let previousFocus=null;
-  const isOpen=()=>!panel.hidden;
-  function setOpen(open,restore=true){
-    if(open===isOpen())return;
-    if(open)previousFocus=document.activeElement;
-    panel.hidden=!open;
-    backdrop.hidden=!open;
-    toggle.setAttribute("aria-expanded",String(open));
-    toggle.setAttribute("aria-label",open?"Close navigation menu":"Open navigation menu");
-    document.body.classList.toggle("site-navigation-open",open);
-    if(open)panel.focus();
-    else if(restore)(previousFocus&&previousFocus.isConnected?
-      previousFocus:toggle).focus();
+  const links = Array.from(panel.querySelectorAll("a[href]"));
+  const current = new URL(window.location.href);
+  const requestedView = new URLSearchParams(current.search).get("view");
+  let currentRoute = current.pathname + current.search;
+  if (current.pathname === "/open-youtube-album") {
+    currentRoute = "/playlists?view=discover";
+  } else if ((current.pathname === "/" || current.pathname === "/playlists") && requestedView) {
+    currentRoute = requestedView === "playlists"
+      ? "/playlists" : "/playlists?view=" + encodeURIComponent(requestedView);
+  } else if (current.pathname === "/downloads/engine" || current.pathname.startsWith("/downloads/engine/")) {
+    currentRoute = "/downloads";
   }
-  toggle.addEventListener("click",()=>setOpen(!isOpen()));
-  close.addEventListener("click",()=>setOpen(false));
-  backdrop.addEventListener("click",()=>setOpen(false));
-  document.addEventListener("keydown",event=>{
-    if(!isOpen())return;
-    if(event.key==="Escape"){
+  let moreActive = false;
+  for (const link of links) {
+    const href = link.getAttribute("href");
+    if (href === currentRoute) {
+      link.setAttribute("aria-current", "page");
+      if (link.closest(".workspace-more")) moreActive = true;
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  }
+  if (moreActive) more.querySelector("summary")?.setAttribute("aria-current", "page");
+
+  function closeMobile(restore = false) {
+    panel.dataset.open = "false";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-label", "Open workspace navigation");
+    if (restore) toggle.focus();
+  }
+  toggle.addEventListener("click", () => {
+    const expanded = panel.dataset.open !== "true";
+    panel.dataset.open = String(expanded);
+    toggle.setAttribute("aria-expanded", String(expanded));
+    toggle.setAttribute("aria-label", expanded
+      ? "Close workspace navigation" : "Open workspace navigation");
+  });
+  for (const link of links) link.addEventListener("click", () => {
+    closeMobile();
+    more.open = false;
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    if (more.open) {
+      more.open = false;
+      more.querySelector("summary")?.focus();
       event.preventDefault();
-      setOpen(false);
-      return;
-    }
-    if(event.key!=="Tab")return;
-    const visible=[...panel.querySelectorAll(
-      "a[href],button:not([disabled]),summary,input:not([disabled]),select:not([disabled])"
-    )].filter(element=>element.getClientRects().length>0);
-    if(!visible.length){
-      event.preventDefault();panel.focus();return;
-    }
-    const first=visible[0],last=visible[visible.length-1];
-    if(!visible.includes(document.activeElement)){
-      event.preventDefault();(event.shiftKey?last:first).focus();
-    }else if(event.shiftKey&&document.activeElement===first){
-      event.preventDefault();last.focus();
-    }else if(!event.shiftKey&&document.activeElement===last){
-      event.preventDefault();first.focus();
+    } else if (panel.dataset.open === "true") {
+      closeMobile(true);
+      event.preventDefault();
     }
   });
+  document.addEventListener("click", event => {
+    if (more.open && !more.contains(event.target)) more.open = false;
+    if (panel.dataset.open === "true" && !panel.contains(event.target)
+        && !toggle.contains(event.target)) closeMobile();
+  });
 
-  const mode=document.getElementById("siteNavRecentMode");
-  const limit=document.getElementById("siteNavRecentLimit");
-  const form=document.getElementById("siteNavRecentForm");
-  if(mode&&limit){
-    mode.addEventListener("change",()=>{
-      if(mode.value==="albums"){
-        limit.max="200";limit.value="20";
-      }else{
-        limit.max="8760";limit.value="48";
-      }
-    });
-  }
-  if(form)form.addEventListener("submit",()=>setOpen(false,false));
-
-  const currentPath=window.location.pathname;
-  const currentView=new URLSearchParams(window.location.search).get("view");
-  // Old /?view=... URLs remain supported; the canonical dashboard is /playlists.
-  const targetPath=currentPath==="/open-youtube-album"
-    ?"/playlists?view=discover"
-    :((currentPath==="/"||currentPath==="/playlists")&&currentView
-      ?(currentView==="playlists"?"/playlists":
-        "/playlists?view="+encodeURIComponent(currentView))
-      :currentPath);
-  for(const link of panel.querySelectorAll("a[href]")){
-    const url=new URL(link.getAttribute("href"),window.location.origin);
-    if(url.pathname+url.search===targetPath){
-      link.setAttribute("aria-current","page");
-    }
-    link.addEventListener("click",()=>setOpen(false,false));
-  }
+  const mode = document.getElementById("siteNavRecentMode");
+  const limit = document.getElementById("siteNavRecentLimit");
+  if (mode && limit) mode.addEventListener("change", () => {
+    const albums = mode.value === "albums";
+    limit.value = albums ? "20" : "48";
+    limit.max = albums ? "200" : "8760";
+    limit.setAttribute("aria-label", albums ? "Number of albums" : "Number of hours");
+  });
 })();
