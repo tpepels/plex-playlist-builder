@@ -1297,6 +1297,7 @@ def finalize_staged_job(job_id):
                     "media_count": staged_count}
 
         target_job["status"] = "finalizing"
+        target_job["publication_pending"] = True
         target_job["message"] = "Publishing complete download"
         persist_jobs_locked()
 
@@ -1311,6 +1312,7 @@ def finalize_staged_job(job_id):
             snapshot,
             artist=artist_override,
             album=album_override,
+            defer_cleanup=True,
         )
     except Exception as exc:
         result = {
@@ -1327,6 +1329,7 @@ def finalize_staged_job(job_id):
         if not target_job:
             return result
 
+        target_job["publication_pending"] = False
         target_job["metadata_artist"] = result.get("artist") or ""
         target_job["metadata_album"] = result.get("album") or ""
         target_job["staged_files"] = int(result.get("media_count") or 0)
@@ -1414,6 +1417,10 @@ def finalize_staged_job(job_id):
         persist_jobs_locked()
 
     if result.get("status") == "published":
+        # This must occur only AFTER the successful publication is written
+        # to jobs.json. A crash before persistence leaves staged originals
+        # available for idempotent recovery of the complete album snapshot.
+        library_staging.discard_stage(TEMP_DIR, snapshot)
         schedule_library_change_nudge()
 
     return result
@@ -1863,6 +1870,28 @@ def staged_jobs_to_finalize_after_restore():
                 library_staging.stage_dir(TEMP_DIR, job)
             )
             if not staged:
+                continue
+
+            if job.get("publication_pending"):
+                # Crash after filesystem commit but before durable job update:
+                # stage originals remain. Rebuild the same complete album
+                # snapshot idempotently, never expose an incomplete one.
+                recovery = {**job, "status": "succeeded"}
+                hold_reason = album_hold_reason(recovery, len(staged))
+                if not hold_reason:
+                    job["status"] = "succeeded"
+                    job["message"] = "Recovering interrupted album publication"
+                    finalize_ids.append(job["id"])
+                    changed = True
+                    continue
+                job["publication_pending"] = False
+                job["status"] = "partial"
+                job["staged_files"] = len(staged)
+                job["message"] = (
+                    f"Interrupted publication is incomplete: {hold_reason}. "
+                    "Staged files were preserved."
+                )
+                changed = True
                 continue
 
             if job.get("status") in {"succeeded", "partial"}:
