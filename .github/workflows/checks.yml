@@ -159,20 +159,54 @@ jobs:
           cat > /tmp/monorepo-test-engine.py <<'PY'
           import json
           from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          from pathlib import Path
+          from types import SimpleNamespace
+          from jinja2 import Environment
+
+          TEMPLATE = Environment(autoescape=True).from_string(
+              Path("/tmp/engine-template.html").read_text(encoding="utf-8")
+          )
 
           class Handler(BaseHTTPRequestHandler):
-              def send(self, data):
-                  body = json.dumps(data).encode()
+              def send_content(self, data, mime):
                   self.send_response(200)
-                  self.send_header("Content-Type", "application/json")
-                  self.send_header("Content-Length", str(len(body)))
+                  self.send_header("Content-Type", mime)
+                  self.send_header("Content-Length", str(len(data)))
                   self.end_headers()
-                  self.wfile.write(body)
+                  self.wfile.write(data)
+              def send(self, data):
+                  self.send_content(json.dumps(data).encode(), "application/json")
+              def native_html(self):
+                  prefix = self.headers.get("X-Forwarded-Prefix", "")
+                  def url_for(endpoint, **kwargs):
+                      if endpoint == "static":
+                          return prefix + "/static/" + kwargs["filename"]
+                      routes = {
+                          "download": "/download",
+                          "download_chrome_extension": "/chrome-extension.zip",
+                          "upload_youtube_cookies": "/youtube/cookies/upload",
+                          "remove_youtube_cookies": "/youtube/cookies/remove",
+                      }
+                      return prefix + routes[endpoint]
+                  markup = TEMPLATE.render(
+                      url_for=url_for,
+                      request=SimpleNamespace(script_root=prefix),
+                      versions=SimpleNamespace(
+                          server="ci", spotdl="ci", yt_dlp="ci", deno="ci", bgutil="ci",
+                      ),
+                      jobs=[{"id": "integration-1", "status": "queued"}],
+                      state_fault=None, error="", import_root="/data/music",
+                      youtube_cookies_ready=False, youtube_cookie_notice="",
+                      youtube_cookie_token="ci",
+                  )
+                  self.send_content(markup.encode(), "text/html; charset=utf-8")
               def do_GET(self):
                   if self.path.startswith("/api/jobs"):
                       self.send({"jobs": [{"id": "integration-1", "status": "queued"}]})
                   elif self.path.startswith("/health"):
                       self.send({"status": "ok"})
+                  elif self.path == "/" or self.path.startswith("/?"):
+                      self.native_html()
                   else:
                       self.send({"ok": True, "prefix": self.headers.get("X-Forwarded-Prefix", "")})
               def do_POST(self):
@@ -180,7 +214,7 @@ jobs:
                   self.send({"ok": True, "queued": True})
           ThreadingHTTPServer(("0.0.0.0", 4545), Handler).serve_forever()
           PY
-          docker run -d --name monorepo-test-engine --network monorepo-test-network             --network-alias yt-dlp-server             -v /tmp/monorepo-test-engine.py:/tmp/monorepo-test-engine.py:ro             plex-playlist-builder:ci python -u /tmp/monorepo-test-engine.py
+          docker run -d --name monorepo-test-engine --network monorepo-test-network             --network-alias yt-dlp-server             -v /tmp/monorepo-test-engine.py:/tmp/monorepo-test-engine.py:ro             -v "$PWD/yt-dlp-server/templates/index.html:/tmp/engine-template.html:ro"             plex-playlist-builder:ci python -u /tmp/monorepo-test-engine.py
           docker run -d --name monorepo-test-manager --network monorepo-test-network             -e DOWNLOAD_BRIDGE_SCAN_ENABLED=0             -e YTDLP_SERVER_URL=http://yt-dlp-server:4545             plex-playlist-builder:ci
           docker exec -i monorepo-test-manager python - <<'PY'
           import json
@@ -193,7 +227,9 @@ jobs:
               try:
                   with urlopen(base + "/downloads", timeout=3) as response:
                       page = response.read().decode()
-                  assert 'src="/downloads/engine/"' in page
+                  assert 'id="download-form"' in page
+                  assert 'id="siteNavigationPanel"' in page
+                  assert "<iframe" not in page.lower()
                   break
               except URLError:
                   if attempt == 24:
@@ -202,8 +238,9 @@ jobs:
 
           with urlopen(base + "/downloads/engine/health", timeout=5) as response:
               assert json.load(response)["status"] == "ok"
-          with urlopen(base + "/downloads/engine/", timeout=5) as response:
-              assert json.load(response)["prefix"] == "/downloads/engine"
+          with urlopen(base + "/downloads/engine/?job=integration-1", timeout=5) as response:
+              assert response.geturl().endswith("/downloads?job=integration-1")
+              assert 'id="download-form"' in response.read().decode()
           with urlopen(base + "/api/downloads/bridge/status", timeout=5) as response:
               counts = json.load(response)
           assert counts["ok"] is True, counts
@@ -236,7 +273,9 @@ jobs:
               assert 'id="viewHealth"' in playlist.text
               portal = client.get("/downloads?job=sample123")
               assert portal.status_code == 200
-              assert 'src="/downloads/engine/?job=sample123"' in portal.text
+              assert "Downloader unavailable" in portal.text
+              assert "<iframe" not in portal.text.lower()
+              assert 'id="siteNavigationPanel"' in portal.text
               assert "Scan Plex for new music" in portal.text
               unavailable = client.get("/api/downloads/bridge/status")
               assert unavailable.status_code == 503, unavailable.text
