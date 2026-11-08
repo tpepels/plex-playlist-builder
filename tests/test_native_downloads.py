@@ -86,8 +86,9 @@ def test_real_downloader_document_is_one_integrated_workspace():
         'const downloaderFetch = ',
     ):
         assert marker in html, marker
-    assert 'aria-current="page">Downloads</a>' in html
-    assert "MUSIC WORKSPACE / AUDIO IMPORTS" in html
+    assert 'href="/downloads" data-nav="downloads"' in html
+    assert 'id="workspaceTopbar"' in html
+    assert html.count('id="signal-theme-toggle"') == 1
 
 
 def test_native_download_route_uses_engine_html_directly(monkeypatch):
