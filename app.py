@@ -31,6 +31,7 @@ from job_diagnostics import explain_job
 from surfshark_vpn import rotate_if_enabled, direct_if_enabled
 from vpn_ui import register as register_vpn_manager
 from extension_package import package_extension
+from state_store import StateCorruption, load_json, write_json, validate_jobs_payload
 from youtube_cookies import cookie_path, register as register_youtube_cookies
 
 MAINTENANCE_ONLY = (
@@ -79,6 +80,9 @@ archived_jobs = {}
 # Stable album-ID claims survive restarts and job-history pruning.
 album_submissions = {}
 jobs_lock = threading.Lock()
+STATE_FAULT = None
+STATE_RECOVERED = False
+download_worker_thread = None
 register_vpn_manager(app, jobs, jobs_lock)
 probe_cache = {}
 probe_cache_lock = threading.Lock()
@@ -234,25 +238,42 @@ def persist_jobs_locked():
         "archived_jobs": list(archived_jobs.values()),
         "album_submissions": album_submissions,
     }
-    tmp_path = JOBS_STATE_FILE.with_suffix(".json.tmp")
+    global STATE_FAULT
+    if STATE_FAULT:
+        raise StateCorruption(STATE_FAULT)
     try:
-        tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
+        write_json(JOBS_STATE_FILE, payload, validate=validate_jobs_payload)
+    except (OSError, StateCorruption, ValueError, TypeError):
+        STATE_FAULT = (
+            "Download history could not be saved. Downloads and changes are "
+            "disabled to prevent loss of existing job history. Check disk "
+            "space and jobs.json / jobs.json.bak, then restart the service."
         )
-        os.replace(tmp_path, JOBS_STATE_FILE)
-        return True
-    except OSError:
-        try:
-            tmp_path.unlink()
-        except OSError:
-            pass
-        return False
-
+        raise StateCorruption(STATE_FAULT) from None
+    return True
 
 def persist_jobs():
     with jobs_lock:
         persist_jobs_locked()
+
+
+@app.before_request
+def prevent_mutation_without_durable_state():
+    if STATE_FAULT and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        # Do not accept operations that might overwrite history or produce
+        # media without a durable record. Read-only dashboard/health remain.
+        return jsonify({
+            "error": STATE_FAULT, "code": "state_unavailable",
+            "next_action": (
+                "Restore jobs.json or jobs.json.bak and restart the container. "
+                "Do not discard the .corrupt-* evidence files."
+            ),
+        }), 503
+
+
+@app.context_processor
+def persistent_state_context():
+    return {"state_fault": STATE_FAULT}
 
 
 def load_ignored_tracks():
@@ -466,13 +487,17 @@ def normalize_persisted_job(raw):
 
 
 def load_persisted_jobs():
-    if not JOBS_STATE_FILE.is_file():
-        return []
-
-    try:
-        raw = json.loads(JOBS_STATE_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
+    global STATE_RECOVERED
+    raw, restored_from_backup = load_json(
+        JOBS_STATE_FILE,
+        default={"version": 1, "jobs": [], "archived_jobs": [],
+                 "album_submissions": {}},
+        validate=validate_jobs_payload,
+    )
+    STATE_RECOVERED = restored_from_backup
+    if restored_from_backup:
+        print("WARNING: jobs.json recovered from the last valid backup; "
+              "the corrupt original was quarantined.", flush=True)
 
     items = raw.get("jobs", []) if isinstance(raw, dict) else raw
     if not isinstance(items, list):
@@ -1752,10 +1777,37 @@ def backfill_job_display_metadata():
 
 
 def worker():
+    """A failing job may fail itself, but may never silently kill the queue."""
     while True:
+        # Never process another queued job when durable persistence is broken.
+        # The dashboard stays available to explain the required repair.
+        if STATE_FAULT:
+            time.sleep(1)
+            continue
         job_id = download_queue.get()
         try:
             run_job(job_id)
+        except Exception as exc:
+            print(f"ERROR: download worker recovered from {type(exc).__name__} "
+                  f"while processing job {job_id}", flush=True)
+            with jobs_lock:
+                job = jobs.get(job_id)
+                if job:
+                    job["status"] = "failed"
+                    job["finished_at"] = time.time()
+                    job["message"] = (
+                        "Unexpected downloader failure; use Retry / continue "
+                        "after checking the server log."
+                    )
+                    job["log"].append(
+                        f"ERROR: Worker recovered from {type(exc).__name__}."
+                    )
+                    job["log"] = job["log"][-40:]
+                    if not STATE_FAULT:
+                        try:
+                            persist_jobs_locked()
+                        except (OSError, StateCorruption):
+                            pass
         finally:
             download_queue.task_done()
 
@@ -1813,8 +1865,9 @@ def staged_jobs_to_finalize_after_restore():
 
 
 def start_runtime_workers():
-    # A worker/container crash can leave the separate gateway's temporary
-    # WireGuard interface up. Reset it before resuming any persisted jobs.
+    global STATE_FAULT, download_worker_thread
+    # The combined gateway starts first and uses the same container network.
+    # Verify the direct route before resuming work after an interrupted job.
     if os.getenv("VPN_GATEWAY_ENABLED") == "1":
         ready = direct_if_enabled()
         if ready is None or not ready.get("direct"):
@@ -1825,7 +1878,16 @@ def start_runtime_workers():
                 "startup; downloads will fail closed until recovery.",
                 flush=True,
             )
-    restored_queue_ids = load_persisted_jobs()
+    try:
+        restored_queue_ids = load_persisted_jobs()
+    except (StateCorruption, OSError, ValueError, TypeError):
+        STATE_FAULT = (
+            "Download history is damaged and no usable backup was found. "
+            "The original files are preserved. Restore jobs.json or "
+            "jobs.json.bak from a known-good backup and restart this container."
+        )
+        print("ERROR: " + STATE_FAULT, flush=True)
+        return
     restored_finalize_ids = staged_jobs_to_finalize_after_restore()
 
     for restored_id in restored_finalize_ids:
@@ -1843,7 +1905,10 @@ def start_runtime_workers():
                     restored_job["finished_at"] = time.time()
                     persist_jobs_locked()
 
-    threading.Thread(target=worker, name="yt-dlp-worker", daemon=True).start()
+    download_worker_thread = threading.Thread(
+        target=worker, name="yt-dlp-worker", daemon=True,
+    )
+    download_worker_thread.start()
     threading.Thread(
         target=backfill_job_display_metadata,
         name="job-display-metadata",
@@ -2940,9 +3005,14 @@ def api_import_audit():
 
 @app.get("/health")
 def health():
+    state_status = "degraded" if STATE_FAULT else "ok"
     return jsonify(
         {
-            "status": "ok",
+            "status": state_status,
+            "state_error": STATE_FAULT,
+            "state_recovered_from_backup": STATE_RECOVERED,
+            "worker_alive": bool(download_worker_thread and download_worker_thread.is_alive())
+                            if not MAINTENANCE_ONLY else None,
             "queue": download_queue.qsize(),
             "import_root": str(IMPORT_ROOT),
             "versions": VERSIONS,
