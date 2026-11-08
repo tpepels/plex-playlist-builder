@@ -202,14 +202,17 @@ def test_stop_processes_terminates_both_process_groups(monkeypatch):
     assert len([a for a in calls if a[0] == "wait"]) == 2
 
 
-def test_migration_docs_preserve_state_and_remove_orphan_container():
-    docs = (ROOT / "README.md").read_text()
+def test_monorepo_migration_preserves_volumes_and_removes_old_gateway():
+    root = ROOT.parent
+    docs = (root / "README.md").read_text()
+    wrapper = (root / "deploy" / "apply_media_stack.sh").read_text()
     assert "docker-compose.override.yml" in docs
-    assert "docker rm -f yt-dlp-wireguard-gateway" in docs
-    assert "docker compose up -d --no-build --force-recreate yt-dlp-server" in docs
-    assert "docker compose down -v" in docs  # explicitly prohibited
-    assert "docker compose exec -u 1000:1000" in docs
-    assert "docker volume prune" in docs  # explicitly prohibited
+    assert "docker rm -f yt-dlp-wireguard-gateway" in wrapper
+    assert "docker compose up -d --no-deps --no-build --force-recreate yt-dlp-server" in wrapper
+    assert "docker compose down" not in wrapper
+    assert "docker volume prune" not in wrapper
+    assert "rm -rf" not in wrapper
+    assert "one monorepo checkout" in docs.lower()
 
 
 

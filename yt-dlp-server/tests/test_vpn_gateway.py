@@ -146,7 +146,8 @@ def test_shared_parent_compose_override_survives_script_removal():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     overlay = (root / "compose.parent-vpn.yaml").read_text()
-    docs = (root / "README.md").read_text()
+    docs = (root.parent / "README.md").read_text()
+    deploy = (root.parent / "deploy" / "apply_media_stack.sh").read_text()
     assert "wireguard-gateway:" not in overlay
     assert "network_mode:" not in overlay
     assert 'user: "0:0"' in overlay
@@ -154,8 +155,8 @@ def test_shared_parent_compose_override_survives_script_removal():
     assert "SURFSHARK_CONTROL_API_KEY" not in overlay
     assert 'VPN_GATEWAY_ENABLED: "1"' in overlay
     assert "docker-compose.override.yml" in docs
-    assert "docker compose config --quiet" in docs
-    assert "docker compose up -d --build --force-recreate yt-dlp-server" in docs
+    assert "docker compose config --quiet" in deploy
+    assert "docker compose up -d --no-deps --no-build --force-recreate yt-dlp-server" in deploy
     assert not (root / "scripts").exists()
     assert not (root / "tools").exists()
 
