@@ -39,11 +39,6 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     return elements.get(id);
   }
 
-  const tabs = ["playlists", "health", "duplicates", "newmusic", "isc", "discover"].map(view => {
-    const e = fakeElement();
-    e.dataset.view = view;
-    return e;
-  });
   $("insightDays").value = "30";
   $("duplicateKind").value = "all";
   $("iscStatus").value = "missing";
@@ -55,7 +50,6 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     addEventListener(name, callback) { this["on" + name] = callback; },
     getElementById: $,
     querySelectorAll(query) {
-      if (query === ".view-tab") return tabs;
       if (query === ".build") return rows.map((row) => row.querySelector(".build"));
       return [];
     },
@@ -222,8 +216,10 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
                           search:next.search,hash:next.hash};
     }}
   } : undefined;
-  vm.runInNewContext(script, { document, fetch,
-    ...(windowObj?{window:windowObj,URL,URLSearchParams}:{}) });
+  const context = { document, fetch,
+    ...(windowObj?{window:windowObj,URL,URLSearchParams}:{}) };
+  vm.runInNewContext(script + "\n;globalThis.__switchView = showWorkspaceView;", context);
+
   async function chooseFile() {
     // Let initial health/config fetches and DOM rendering settle.
     await new Promise((resolve) => setImmediate(resolve));
@@ -231,7 +227,8 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     input.files = [{ name: filename, text: async () => "playlists:\n  Beta: {}\n" }];
     await input.onchange();
   }
-  return { chooseFile, calls, requests, $, tabs, document, windowObj,
+  return { chooseFile, calls, requests, $, document, windowObj,
+    showWorkspaceView: view => context.__switchView(view),
     filename, get imported() { return imported; }, get synced() { return synced; } };
 }
 
@@ -299,12 +296,12 @@ test("dashboard hides idle bulk controls and shows only pending work", async () 
 test("health and new-music tabs load analysis on demand, without changing playlists", async () => {
   const h = makeHarness();
   await new Promise(resolve => setImmediate(resolve));
-  await h.tabs[1].onclick();
+  await h.showWorkspaceView("health");
   assert.equal(h.$("viewHealth").hidden, false);
   assert.equal(h.$("viewPlaylists").hidden, true);
   assert.match(h.$("healthTotals").innerHTML, /not in playlists/);
   const count = h.calls.filter(c=>c.startsWith("/api/insights?")).length;
-  await h.tabs.find(t=>t.dataset.view === "newmusic").onclick();
+  await h.showWorkspaceView("newmusic");
   assert.equal(h.$("viewNewmusic").hidden, false);
   assert.equal(h.calls.filter(c=>c.startsWith("/api/insights?")).length, count);
   assert.equal(h.calls.some(c=>c.startsWith("/api/curate-tracks")), false);
@@ -341,7 +338,7 @@ test("Duplicates view groups complete albums with candidate folders and edition 
   const h = makeHarness();
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(!h.calls.some(c => c.startsWith("/api/duplicates?")));
-  await h.tabs.find(t => t.dataset.view === "duplicates").onclick();
+  await h.showWorkspaceView("duplicates");
   assert.equal(h.$("viewDuplicates").hidden, false);
   assert.equal(h.$("viewHealth").hidden, true);
   assert.match(h.$("duplicateTotals").innerHTML, /complete duplicate albums/);
@@ -379,7 +376,7 @@ test("Choosing the retained album only marks other complete folders for manual r
     pickers.push(picker);
     return [picker];
   };
-  await h.tabs.find(t => t.dataset.view === "duplicates").onclick();
+  await h.showWorkspaceView("duplicates");
   assert.match(node.innerHTML, /Choose a copy to keep/);
   assert.doesNotMatch(node.innerHTML, /Review for removal/);
   const picker = pickers.at(-1);
@@ -397,7 +394,7 @@ test("Discover tab compares curated albums with Plex and offers exact resolver U
   const h = makeHarness();
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(!h.calls.some(x=>x.startsWith("/api/discover/isc?")));
-  await h.tabs.find(x=>x.dataset.view==="isc").onclick();
+  await h.showWorkspaceView("isc");
   assert.equal(h.$("viewIsc").hidden, false);
   assert.match(h.$("iscTotals").innerHTML, /curated albums/);
   assert.match(h.$("iscRows").innerHTML, /Hiroshi Suzuki/);
