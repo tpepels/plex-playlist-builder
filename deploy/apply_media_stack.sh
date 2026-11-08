@@ -110,7 +110,7 @@ step "Check the updated services"
 docker compose ps yt-dlp-server plex-playlist-manager ||
     error "Could not list service status"
 
-step "Verify the home, playlists and downloads interfaces on port 5051"
+step "Verify the home, playlists and native downloads interface on port 5051"
 python3 - <<'PY'
 import json
 import sys
@@ -122,7 +122,7 @@ base = "http://127.0.0.1:5051"
 checks = (
     ("/", b'id="siteNavigationPanel"'),
     ("/playlists", b'id="viewPlaylists"'),
-    ("/downloads", b'id="download-engine"'),
+    ("/downloads", b'id="download-form"'),
 )
 for attempt in range(15):
     try:
@@ -131,11 +131,13 @@ for attempt in range(15):
                 page = response.read(1_500_000)
             if marker not in page:
                 raise ValueError("Expected UI component missing from " + path)
+            if path == "/downloads" and b"<iframe" in page.lower():
+                raise ValueError("Downloads still contains a nested iframe")
         with urlopen(base + "/api/downloads/bridge/status", timeout=5) as response:
             state = json.load(response)
         if not state.get("ok"):
             raise ValueError("Download engine is not reachable through Playlist Manager")
-        print("Home, Playlists, Downloads and internal downloader bridge: OK")
+        print("Home, Playlists, native Downloads and internal downloader bridge: OK")
         sys.exit(0)
     except (OSError, ValueError, HTTPError, URLError) as exc:
         if attempt == 14:
