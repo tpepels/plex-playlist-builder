@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""Merge downloader and Playlist Manager settings into media-stack safely.
+
+Only those two service blocks change. A read-only preview runs by default.
+--apply validates the effective Docker Compose JSON, saves a mode-0600 backup
+and atomically replaces the existing Compose file; other services are untouched.
+No third-party Python modules needed on the media server.
+"""
+from __future__ import annotations
+import argparse
+import datetime as dt
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+class MigrationError(RuntimeError):
+    pass
+
+
+SERVICE = re.compile(r"^  ([A-Za-z0-9_.-]+):\s*(?:#.*)?$")
+FIELD = re.compile(r"^    ([A-Za-z0-9_-]+):(?:\s|$)")
+TOP = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*:\s*(?:#.*)?$")
+
+
+def service_bounds(lines, name):
+    active = False
+    start = None
+    for index, line in enumerate(lines):
+        if TOP.match(line):
+            active = line.startswith("services:")
+            if start is not None and not active:
+                return start, index
+        if not active:
+            continue
+        match = SERVICE.match(line)
+        if not match:
+            continue
+        if start is not None:
+            return start, index
+        if match.group(1) == name:
+            start = index
+    if start is None:
+        raise MigrationError(f"Missing service: {name}")
+    return start, len(lines)
+
+
+def positions(lines):
+    found = {}
+    for index, line in enumerate(lines):
+        match = FIELD.match(line)
+        if match:
+            if match.group(1) in found:
+                raise MigrationError("Duplicate Compose field: " + match.group(1))
+            found[match.group(1)] = index
+    return found
+
+
+def replace_field(lines, name, replacement):
+    fields = positions(lines)
+    if name not in fields:
+        return lines + replacement
+    start = fields[name]
+    end = min((index for index in fields.values() if index > start),
+              default=len(lines))
+    return lines[:start] + replacement + lines[end:]
+
+
+def merge_mapping(lines, name, values):
+    fields = positions(lines)
+    if name not in fields:
+        return lines + [f"    {name}:\n"] + [
+            f"      {key}: {value}\n" for key, value in values.items()
+        ]
+    start = fields[name]
+    end = min((index for index in fields.values() if index > start),
+              default=len(lines))
+    block = lines[start:end]
+    if any(re.match(r"^      -\s", line) for line in block[1:]):
+        raise MigrationError(f"Cannot safely merge list-form {name}")
+    for key, value in values.items():
+        matches = [i for i, line in enumerate(block)
+                   if re.match(r"^      " + re.escape(key) + r":\s", line)]
+        if len(matches) > 1:
+            raise MigrationError(f"Duplicate {name}.{key}")
+        if matches:
+            block[matches[0]] = f"      {key}: {value}\n"
+        else:
+            block.append(f"      {key}: {value}\n")
+    return lines[:start] + block + lines[end:]
+
+
+def merge_list(lines, name, values):
+    fields = positions(lines)
+    if name not in fields:
+        return lines + [f"    {name}:\n"] + [
+            f"      - {value}\n" for value in values
+        ]
+    start = fields[name]
+    end = min((index for index in fields.values() if index > start),
+              default=len(lines))
+    block = lines[start:end]
+    if not any(line.strip().startswith("-") for line in block[1:]):
+        raise MigrationError(f"Cannot safely merge non-list {name}")
+    for value in values:
+        if not any(line.strip().lstrip("- ").strip('"') == value.strip('"')
+                   for line in block[1:]):
+            block.append(f"      - {value}\n")
+    return lines[:start] + block + lines[end:]
+
+
+def downloader(lines):
+    if "network_mode" in positions(lines):
+        raise MigrationError("Old yt-dlp network_mode must be removed manually first")
+    lines = replace_field(lines, "user", ['    user: "0:0"\n'])
+    lines = replace_field(lines, "ports", [])
+    lines = replace_field(lines, "expose",
+                          ['    expose:\n', '      - "4545"\n'])
+    lines = merge_list(lines, "cap_add", ["NET_ADMIN"])
+    lines = merge_list(lines, "devices", ["/dev/net/tun:/dev/net/tun"])
+    lines = merge_mapping(lines, "sysctls", {
+        "net.ipv4.conf.all.src_valid_mark": '"1"',
+    })
+    lines = merge_mapping(lines, "environment", {
+        "VPN_GATEWAY_ENABLED": '"1"',
+        "VPN_PROFILE_DIR": '"/profiles"',
+        "VPN_CONTROL_TOKEN_FILE": '"/data/state/.vpn-control-token"',
+        "VPN_DOWNLOADER_UID": '${UID:-1000}',
+        "VPN_DOWNLOADER_GID": '${GID:-1000}',
+        "SURFSHARK_ROTATE_ON_403": '${SURFSHARK_ROTATE_ON_403:-1}',
+    })
+    return merge_list(lines, "volumes",
+                      ["/srv/yt-dlp-server/wireguard-profiles:/profiles"])
+
+
+def manager(lines):
+    return merge_mapping(lines, "environment", {
+        "YTDLP_SERVER_URL": '"http://yt-dlp-server:4545"',
+        "YTDLP_PUBLIC_URL": '"/downloads"',
+        "DOWNLOAD_BRIDGE_SCAN_ENABLED": '"1"',
+    })
+
+
+def transform(source):
+    lines = source.splitlines(keepends=True)
+    if "services:" not in source:
+        raise MigrationError("Compose file lacks a services section")
+    for name, fn in (("yt-dlp-server", downloader),
+                     ("plex-playlist-manager", manager)):
+        start, end = service_bounds(lines, name)
+        lines = lines[:start] + fn(lines[start:end]) + lines[end:]
+    return "".join(lines)
+
+
+def validate(compose, override):
+    cmd = ["docker", "compose", "-f", str(compose)]
+    if override.is_file():
+        cmd.extend(("-f", str(override)))
+    result = subprocess.run(cmd + ["config", "--format", "json"],
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        raise MigrationError("Docker Compose validation failed:\n"
+                             + result.stderr[-1600:])
+    try:
+        config = json.loads(result.stdout)["services"]
+        engine = config["yt-dlp-server"]
+        pm = config["plex-playlist-manager"]
+    except (KeyError, ValueError, TypeError) as exc:
+        raise MigrationError("Compose lacks required resolved services") from exc
+    if str(engine.get("user")) != "0:0":
+        raise MigrationError("yt-dlp supervisor needs user 0:0")
+    if "NET_ADMIN" not in engine.get("cap_add", []):
+        raise MigrationError("yt-dlp needs NET_ADMIN")
+    if not any("/dev/net/tun" in str(dev) for dev in engine.get("devices", [])):
+        raise MigrationError("yt-dlp needs /dev/net/tun")
+    if engine.get("ports"):
+        raise MigrationError("yt-dlp still exposes port 4545 externally")
+    if str(engine.get("environment", {}).get("VPN_GATEWAY_ENABLED")) != "1":
+        raise MigrationError("yt-dlp VPN controller is disabled")
+    if pm.get("environment", {}).get("YTDLP_SERVER_URL") != "http://yt-dlp-server:4545":
+        raise MigrationError("Playlist Manager cannot reach the download engine")
+    if str(pm.get("environment", {}).get("DOWNLOAD_BRIDGE_SCAN_ENABLED")) != "1":
+        raise MigrationError("Plex download scan polling is not enabled")
+    if str(engine.get("network_mode", "")).startswith("service:"):
+        raise MigrationError("Legacy shared-gateway network mode remains")
+    return True
+
+
+def migrate(stack, apply):
+    root = Path(stack).expanduser().resolve()
+    found = [p for p in (root / "docker-compose.yml", root / "compose.yaml")
+             if p.is_file()]
+    if len(found) != 1:
+        raise MigrationError("Expected exactly one docker-compose.yml or compose.yaml")
+    compose = found[0]
+    override = root / "docker-compose.override.yml"
+    original = compose.read_text(encoding="utf-8")
+    updated = transform(original)
+    if updated == original:
+        validate(compose, override)
+        print("Already merged. The effective configuration is valid.")
+        return None
+
+    fd, name = tempfile.mkstemp(prefix=".download-merge-", suffix=".yml", dir=root)
+    tmp = Path(name)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as writer:
+            writer.write(updated)
+            writer.flush()
+            os.fsync(writer.fileno())
+        validate(tmp, override)
+        if not apply:
+            print("Dry run passed. Only yt-dlp-server and plex-playlist-manager will change.")
+            return None
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup = root / f"{compose.name}.pre-download-merge.{stamp}.bak"
+        if backup.exists():
+            raise MigrationError(f"Backup already exists: {backup}")
+        shutil.copy2(compose, backup)
+        backup.chmod(0o600)
+        os.chmod(tmp, compose.stat().st_mode & 0o777)
+        os.replace(tmp, compose)
+        try:
+            validate(compose, override)
+        except MigrationError:
+            shutil.copy2(backup, compose)
+            raise
+        print(f"Compose validated. Private backup: {backup.name}")
+        return backup
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--stack", type=Path,
+                        default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--apply", action="store_true")
+    args = parser.parse_args(argv)
+    try:
+        migrate(args.stack, args.apply)
+        return 0
+    except (MigrationError, OSError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
