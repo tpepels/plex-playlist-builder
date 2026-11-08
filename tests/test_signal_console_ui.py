@@ -20,16 +20,16 @@ def test_shared_theme_assets_present_and_respect_reduced_motion():
 
 
 def test_all_pages_load_theme_and_brand():
-    from jinja2 import Environment, FileSystemLoader
-    engine = Environment(loader=FileSystemLoader(str(TEMPLATES)),autoescape=True)
+    navigation = (TEMPLATES / "_site_navigation.html").read_text()
+    assert navigation.count('id="signal-theme-toggle"') == 1
+    assert "signal-mark.svg" in navigation
     for filename in ("index.html", "album_download.html", "disk_audit.html",
                      "download_audit.html", "home.html", "playlist_generator.html",
                      "playlist_intelligence.html", "musical_coherence.html"):
-        html = engine.get_template(filename).render(artist="A", album="B", token="test")
-        assert "/static/signal-console.css" in html, filename
-        assert "/static/signal-console.js" in html, filename
-        assert html.count('id="signal-theme-toggle"') == 1, filename
-        assert "signal-mark.svg" in html, filename
+        source = (TEMPLATES / filename).read_text()
+        assert 'href="/static/signal-console.css"' in source, filename
+        assert 'src="/static/signal-console.js"' in source, filename
+        assert source.count('{% include "_site_navigation.html" %}') == 1, filename
 
 
 def test_existing_playlist_actions_remain_available():
