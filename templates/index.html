@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>yt-dlp music server</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <meta name="downloader-base" content="{{ request.script_root }}">
   <style>
     :root { color-scheme: dark; --bg:#111315; --panel:#191c1f; --panel2:#22262a; --text:#f4f5f5; --muted:#9ca4aa; --line:#30363b; --good:#6fdc8c; --bad:#ff7b72; --wait:#d4b45f; }
     * { box-sizing:border-box; }
@@ -248,7 +249,7 @@
     </div>
     {% endif %}
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
-    <form id="download-form" action="/download" method="post">
+    <form id="download-form" action="{{ url_for('download') }}" method="post">
       <div class="url-row">
         <input id="url-input" type="url" name="url" placeholder="https://music.youtube.com/watch?v=..." required autofocus>
         <button id="download-button" type="submit">Download</button>
@@ -307,7 +308,7 @@
         {% endif %}
       </p>
       {% endif %}
-      <form id="youtube-cookie-upload-form" action="/youtube/cookies/upload" method="post" enctype="multipart/form-data" class="vpn-fields">
+      <form id="youtube-cookie-upload-form" action="{{ url_for('upload_youtube_cookies') }}" method="post" enctype="multipart/form-data" class="vpn-fields">
         <input type="hidden" name="_cookie_token" value="{{ youtube_cookie_token }}">
         <label for="youtube-cookie-file">Exported cookies.txt file</label>
         <input type="file" id="youtube-cookie-file" name="cookies" accept=".txt,text/plain" required>
@@ -318,7 +319,7 @@
         <button id="youtube-cookie-verify-button" type="button" class="vpn-secondary">Verify cookies</button>
         <span id="youtube-cookie-verify-result" class="vpn-feedback" role="status" aria-live="polite"></span>
       </div>
-      <form action="/youtube/cookies/remove" method="post" class="vpn-actions">
+      <form action="{{ url_for('remove_youtube_cookies') }}" method="post" class="vpn-actions">
         <input type="hidden" name="_cookie_token" value="{{ youtube_cookie_token }}">
         <button type="submit" id="youtube-cookie-remove-button" class="vpn-secondary">Remove saved cookies</button>
       </form>
@@ -396,6 +397,8 @@
 </main>
 <script>
   const initialJobs = {{ jobs | tojson }};
+  const downloaderPath = (path) => (document.querySelector('meta[name="downloader-base"]')?.content || "") + path;
+  const downloaderFetch = (path, options) => fetch(downloaderPath(path), options);
   const ACTIVE_STATES = new Set(["queued", "running", "finalizing", "needs_metadata"]);
   let focusedDetailIds = new Set();
   let activeVisibleIds = new Set();
@@ -710,7 +713,7 @@
           album.disabled = true;
           publish.textContent = "Publishing…";
           try {
-            const response = await fetch("/api/jobs/" + encodeURIComponent(job.id) + "/metadata", {
+            const response = await downloaderFetch("/api/jobs/" + encodeURIComponent(job.id) + "/metadata", {
               method: "POST",
               headers: {"Content-Type": "application/json", "Accept": "application/json"},
               body: JSON.stringify({
@@ -773,7 +776,7 @@
             ignore.textContent = "Ignoring…";
             error.textContent = "";
             try {
-              const response = await fetch("/api/jobs/" + encodeURIComponent(job.id) + "/ignore", {
+              const response = await downloaderFetch("/api/jobs/" + encodeURIComponent(job.id) + "/ignore", {
                 method: "POST",
                 headers: {"Content-Type": "application/json", "Accept": "application/json"},
                 body: JSON.stringify({source_id: missing.source_id}),
@@ -852,7 +855,7 @@
             input.disabled = true;
             resolve.textContent = "Resolving…";
             try {
-              const response = await fetch("/api/jobs/" + encodeURIComponent(job.id) + "/resolve", {
+              const response = await downloaderFetch("/api/jobs/" + encodeURIComponent(job.id) + "/resolve", {
                 method: "POST",
                 headers: {"Content-Type": "application/json", "Accept": "application/json"},
                 body: JSON.stringify({
@@ -899,7 +902,7 @@
           retry.disabled = true;
           retry.textContent = "Retrying…";
           try {
-            const response = await fetch("/api/jobs/" + encodeURIComponent(job.id) + "/retry", {
+            const response = await downloaderFetch("/api/jobs/" + encodeURIComponent(job.id) + "/retry", {
               method: "POST",
               headers: {"Accept": "application/json"},
             });
@@ -948,7 +951,7 @@
           const originalText = remove.textContent;
           remove.textContent = destructive ? "Discarding…" : "Removing…";
           try {
-            const response = await fetch("/api/jobs/" + encodeURIComponent(job.id), {
+            const response = await downloaderFetch("/api/jobs/" + encodeURIComponent(job.id), {
               method: "DELETE",
               headers: {"Accept": "application/json"},
             });
@@ -1034,7 +1037,7 @@
 
     const currentProbe = (async () => {
       try {
-        const response = await fetch("/api/probe", {
+        const response = await downloaderFetch("/api/probe", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({url}),
@@ -1122,7 +1125,7 @@
   async function refreshJobs(force = false) {
     if (!force && document.activeElement && document.activeElement.matches("#jobs input")) return;
     try {
-      const response = await fetch("/api/jobs", {cache:"no-store"});
+      const response = await downloaderFetch("/api/jobs", {cache:"no-store"});
       if (response.ok) {
         const jobs = await response.json();
         const active = new Set(jobs.filter(job => ACTIVE_STATES.has(job.status))
@@ -1278,7 +1281,7 @@
       // instead of showing two copies of the same job.
       if (!item.removed_from_queue) {
         const detail = historyNode("a", "", "Details");
-        detail.href = "/?job=" + encodeURIComponent(item.job_id);
+        detail.href = downloaderPath("/?job=") + encodeURIComponent(item.job_id);
         links.append(detail);
       }
       if (item.url) {
@@ -1296,7 +1299,7 @@
           retry.disabled = true;
           retry.textContent = "Retrying…";
           try {
-            const response = await fetch("/api/jobs/" +
+            const response = await downloaderFetch("/api/jobs/" +
               encodeURIComponent(item.job_id) + "/retry", {method:"POST"});
             const result = await response.json();
             if (!response.ok || !result.ok) throw Error(result.error || "Could not queue retry.");
@@ -1352,7 +1355,7 @@
         const params = new URLSearchParams({
           status:"all", q:"", offset:String(offset), limit:String(HISTORY_BATCH)
         });
-        const response = await fetch("/api/download-history?" + params, {cache:"no-store"});
+        const response = await downloaderFetch("/api/download-history?" + params, {cache:"no-store"});
         const data = await response.json();
         if (version !== historyLoadVersion) return;
         if (!response.ok) throw Error(data.error || "History unavailable");
@@ -1385,7 +1388,7 @@
     const status = document.getElementById("history-status");
     button.disabled = true;
     try {
-      const previewResponse = await fetch("/api/jobs/retry-failed/preview", {cache:"no-store"});
+      const previewResponse = await downloaderFetch("/api/jobs/retry-failed/preview", {cache:"no-store"});
       const preview = await previewResponse.json();
       if (!previewResponse.ok || !preview.ok) {
         throw new Error(preview.error || "Cannot inspect failed downloads.");
@@ -1407,7 +1410,7 @@
         " Completed and active albums are excluded. Existing staged audio is kept." +
         capacityNotice + " Downloads will run sequentially and may take hours."
       )) return;
-      const response = await fetch("/api/jobs/retry-failed", {method:"POST",
+      const response = await downloaderFetch("/api/jobs/retry-failed", {method:"POST",
         headers:{"Accept":"application/json"}});
       const result = await response.json();
       if (!response.ok || !result.ok) {

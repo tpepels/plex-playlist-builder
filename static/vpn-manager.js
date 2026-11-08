@@ -24,7 +24,8 @@
 
   async function api(path, options = {}) {
     const headers = {"X-Requested-With": "XMLHttpRequest", ...(options.headers || {})};
-    const response = await fetch("/api/vpn" + path, {
+    const prefix = document.querySelector('meta[name="downloader-base"]')?.content || "";
+    const response = await fetch(prefix + "/api/vpn" + path, {
       method: options.method || "GET",
       headers,
       body: options.body,

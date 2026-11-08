@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from flask import Flask, jsonify, redirect, render_template, request, send_file, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import staging as library_staging
 from album_completeness import album_hold_reason, is_album_job
@@ -41,6 +42,10 @@ MAINTENANCE_ONLY = (
 )
 
 app = Flask(__name__)
+# The playlist-manager reverse proxy supplies these three headers from a
+# fixed internal target. URL generation must retain its /downloads/engine
+# mount prefix. Direct port-4545 access still has an empty script_root.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
 
 PORT = int(os.getenv("PORT", "4545"))
 MUSIC_ROOT = Path(os.getenv("MUSIC_ROOT", "/data/music"))
