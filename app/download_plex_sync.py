@@ -147,7 +147,7 @@ async def poll_once(*, state_file=None):
 def snapshot():
     """Read-only UI diagnostics; no network requests and no Plex scans."""
     try:
-        state = _load()
+        state = _load(STATE_FILE)
     except RuntimeError as exc:
         return {"pending": None, "last_scan": None, "error": str(exc)}
     if state is None:
