@@ -21,7 +21,8 @@ def test_proxied_ui_forms_assets_and_actions_use_playlist_manager_origin():
         assert '<meta name="downloader-base" content="/downloads/engine">' in html
         assert f'action="{PREFIX}/download"' in html
         assert f'action="{PREFIX}/youtube/cookies/upload"' in html
-        assert f'action="{PREFIX}/youtube/cookies/remove"' in html
+        # Remove form is displayed only after a cookie file has been installed.
+        assert "remove_youtube_cookies" in (Path(__file__).resolve().parents[1] / "templates/index.html").read_text()
         assert f'href="{PREFIX}/chrome-extension.zip"' in html
         assert f'{PREFIX}/static/vpn-manager.js' in html
         assert f'{PREFIX}/static/youtube-cookies.js' in html
