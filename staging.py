@@ -353,14 +353,21 @@ def _retag_audio_only_with_ffmpeg(path, album, album_artist, track_artist=""):
     cmd.append(str(tmp))
 
     try:
-        completed = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                f"Metadata update timed out for {path.name}; the original "
+                "staged file was preserved. Retry after checking disk and audio."
+            ) from None
         if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout or "").strip()
+            detail = (completed.stderr or completed.stdout or "").strip()[:800]
             raise RuntimeError(
                 f"metadata update failed for {path.name}: "
                 f"{detail or completed.returncode}"
