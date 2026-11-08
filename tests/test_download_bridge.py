@@ -24,11 +24,16 @@ def intercept(monkeypatch, callback):
     monkeypatch.setattr(bridge.httpx, "AsyncClient", factory)
 
 
-def test_one_download_portal_contains_all_engine_controls_and_music_actions(client):
+def test_unavailable_download_engine_keeps_native_workspace_navigation(client, monkeypatch):
+    def unavailable(req):
+        raise httpx.ConnectError("offline", request=req)
+    intercept(monkeypatch, unavailable)
     response = client.get("/downloads?job=retry_123")
     assert response.status_code == 200
     html = response.text
-    assert 'src="/downloads/engine/?job=retry_123"' in html
+    assert "<iframe" not in html
+    assert 'id="download-engine"' not in html
+    assert "Downloader unavailable" in html
     assert "Scan Plex for new music" in html
     assert "Add tracks to playlists" in html
     assert 'href="/downloads-audit"' in html
@@ -84,7 +89,7 @@ def test_multipart_and_cookie_form_are_forwarded_without_header_leaks(client, mo
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/downloads/engine/?cookies=saved"
+    assert response.headers["location"] == "/downloads?cookies=saved"
     assert len(data) == 1
 
 
@@ -96,7 +101,7 @@ def test_proxy_rewrites_redirects_and_keeps_query_strings(client, monkeypatch):
     intercept(monkeypatch, respond)
     result = client.post("/downloads/engine/download?run=1", follow_redirects=False)
     assert result.status_code == 303
-    assert result.headers["location"] == "/downloads/engine/?job=abc"
+    assert result.headers["location"] == "/downloads?job=abc"
 
 
 def test_proxy_rejects_cross_origin_mutations_and_large_uploads(client, monkeypatch):
