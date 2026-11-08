@@ -83,11 +83,12 @@ cd ~/media-stack/yt-dlp-server
 git pull --ff-only
 cd ..
 docker compose config --quiet
+docker compose build yt-dlp-server
 docker stop yt-dlp-server
 if docker container inspect yt-dlp-wireguard-gateway >/dev/null 2>&1; then
     docker rm -f yt-dlp-wireguard-gateway
 fi
-docker compose up -d --build --force-recreate yt-dlp-server
+docker compose up -d --no-build --force-recreate yt-dlp-server
 docker compose ps
 ```
 
@@ -120,8 +121,9 @@ The image includes the existing yt-dlp, spotDL, ffmpeg, Deno and
 PO-token dependencies alongside WireGuard tools and iptables. Its PID 1
 supervisor starts the gateway first, starts Gunicorn through `gosu`
 as `VPN_DOWNLOADER_UID:VPN_DOWNLOADER_GID` (default `1000:1000`),
-and stops both processes if either fails. Docker restarts the whole
-container. The container requires `NET_ADMIN`, `/dev/net/tun` and
+and drops NET_ADMIN from the downloader capability bounding set with
+`setpriv --no-new-privs`. If either process fails, the supervisor stops
+the other and Docker restarts the whole container. The container requires `NET_ADMIN`, `/dev/net/tun` and
 `src_valid_mark` but **Gunicorn and its download workers run without
 root privileges**.
 

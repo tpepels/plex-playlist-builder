@@ -1,9 +1,16 @@
 name: Docker CI
 
-# Full Docker integration is intentionally manual; normal pushes use
-# fast-checks.yml rather than rebuilding the large toolchain.
+# Build only when container wiring changes; regular code uses fast checks.
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - Dockerfile
+      - compose.yaml
+      - compose.parent-vpn.yaml
+      - container_runtime.py
+      - vpn_gateway.py
+      - .github/workflows/docker.yml
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -12,10 +19,13 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Validate Compose
-        run: docker compose config
+      - name: Validate single-service Compose
+        run: |
+          docker compose config --quiet
+          test "$(docker compose config --services)" = "yt-dlp-server"
       - name: Build image
         run: docker build -t yt-dlp-server:test .
       - name: Verify single-container VPN toolchain and privileged supervisor
@@ -23,11 +33,13 @@ jobs:
           docker run --rm yt-dlp-server:test python - <<'PY'
           import shutil
           from pathlib import Path
-          for command in ("gosu", "wg", "wg-quick", "iptables", "ip"):
+          for command in ("gosu", "setpriv", "wg", "wg-quick", "iptables", "ip"):
               assert shutil.which(command), command
           runtime = Path("/app/container_runtime.py").read_text()
           assert "/app/vpn_gateway.py" in runtime
           assert "gosu" in runtime
+          assert "--bounding-set=-net_admin" in runtime
+          assert "--no-new-privs" in runtime
           assert "gateway_ready(process=gateway)" in runtime
           PY
       - name: Smoke-test installed tools
