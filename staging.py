@@ -57,7 +57,13 @@ def staging_owner_id(job):
 
 
 def stage_dir(temp_dir, job):
-    return Path(temp_dir) / "staging" / staging_owner_id(job)
+    parent = Path(temp_dir) / "staging"
+    path = parent / staging_owner_id(job)
+    # Reading/publishing an existing symlinked stage would otherwise let a
+    # malformed saved job import files from outside the private staging area.
+    if parent.is_symlink() or path.is_symlink():
+        raise ValueError("Staging path must not be a symbolic link")
+    return path
 
 
 def ensure_stage_dir(temp_dir, job):
