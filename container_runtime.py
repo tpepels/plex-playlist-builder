@@ -11,18 +11,55 @@ can resume the download queue.
 """
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
 import subprocess
 import sys
 import time
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 GATEWAY_HOST = "127.0.0.1"
 GATEWAY_PORT = 8787
 BIND_PORT = 4545
 READY_TIMEOUT = 30
 STOP_TIMEOUT = 10
+HEALTH_INTERVAL = 10
+HEALTH_STARTUP_GRACE = 15
+HEALTH_FAILURE_LIMIT = 3
+
+
+def web_health():
+    """Read a bounded local health report, including on HTTP 503.
+
+    Persistent state faults are operator-recoverable. Do not restart in a
+    loop and hide the dashboard while the owner repairs a damaged volume.
+    """
+    try:
+        with urlopen(f"http://127.0.0.1:{BIND_PORT}/health", timeout=2) as reply:
+            value = json.load(reply)
+    except HTTPError as exc:
+        try:
+            value = json.loads(exc.read(16384))
+        except (ValueError, OSError, UnicodeError):
+            return None
+    except (OSError, URLError, TimeoutError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def evaluate_web_health(value, failures):
+    """Consecutive failed checks restart a dead worker or unresponsive UI."""
+    if isinstance(value, dict) and value.get("state_error"):
+        # The UI remains reachable for diagnosis; a restart cannot repair
+        # corrupt backups or disk-full conditions.
+        return 0, False
+    if isinstance(value, dict) and value.get("worker_alive") is True:
+        return 0, False
+    failures += 1
+    return failures, failures >= HEALTH_FAILURE_LIMIT
 
 
 def runtime_ids(environment):
@@ -113,6 +150,8 @@ def supervise():
             "--access-logfile", "-", "--error-logfile", "-", "app:app",
         ], start_new_session=True)
         children.append(downloader)
+        next_health = time.monotonic() + HEALTH_STARTUP_GRACE
+        health_failures = 0
 
         while not terminated:
             if gateway.poll() is not None:
@@ -121,6 +160,19 @@ def supervise():
             if downloader.poll() is not None:
                 print("ERROR: downloader web server exited", flush=True)
                 return 1
+            if time.monotonic() >= next_health:
+                health_failures, broken = evaluate_web_health(
+                    web_health(), health_failures,
+                )
+                next_health = time.monotonic() + HEALTH_INTERVAL
+                if broken:
+                    print(
+                        "ERROR: downloader worker or local web service is "
+                        "unresponsive; restarting the container to recover "
+                        "the durable queue.",
+                        flush=True,
+                    )
+                    return 1
             time.sleep(0.2)
         return 0
     finally:
