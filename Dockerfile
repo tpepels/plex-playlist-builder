@@ -23,7 +23,7 @@ RUN apt-get update \
 
 # Docker /proc/sys may be read-only when src_valid_mark is already 1.
 # Fail the build if the version of wg-quick changes unexpectedly.
-RUN python -c 'from pathlib import Path; p=Path("/usr/bin/wg-quick"); s=p.read_text(); old="[[ $proto == -4 ]] && cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1"; new="[[ $proto == -4 && $(sysctl -n net.ipv4.conf.all.src_valid_mark) != 1 ]] && cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1"; assert old in s, "Unknown wg-quick sysctl handling"; p.write_text(s.replace(old, new))'
+RUN python -c 'from pathlib import Path; p=Path("/usr/bin/wg-quick"); s=p.read_text(); old="[[ $proto == -4 ]] && cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1"; new="[[ $proto == -4 && $(sysctl -n net.ipv4.conf.all.src_valid_mark) != 1 ]] && cmd sysctl -q net.ipv4.conf.all.src_valid_mark=1"; assert old in s or "sysctl -n net.ipv4.conf.all.src_valid_mark" in s, "Unknown wg-quick sysctl handling"; p.write_text(s.replace(old, new))'
 
 RUN git clone --depth 1 --branch "${BGUTIL_VERSION}" \
       https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git \
