@@ -176,9 +176,15 @@ def _hidden_playlist_titles() -> set[str]:
 
 
 def _config_payload(data: dict | None = None) -> dict:
-    data = data or load()
+    """Read the saved YAML without depending on Plex availability.
+
+    The dynamically discovered Plex smart/radio playlists are checked at the
+    actual sync boundary. A network failure must never block local definitions,
+    imports, or the playlist editor.
+    """
+    data = load() if data is None else data
     definitions = data.get("playlists", {})
-    hidden = _hidden_playlist_titles()
+    hidden = set(DEFAULT_HIDDEN_PLAYLIST_TITLES)
     version = version_details(definitions)
     pending = [
         name for name in definitions
