@@ -107,7 +107,6 @@ def test_proxy_rejects_cross_origin_mutations_and_large_uploads(client, monkeypa
                        headers={"Referer":"https://evil.invalid/"}).status_code == 403
     assert client.post("/downloads/engine/api/jobs/foo/retry",
                        content=b"0" * (bridge.MAX_REQUEST + 1)).status_code == 413
-    assert client.get("/downloads/engine/foo").status_code == 500 if False else True
 
 
 def test_upstream_timeout_is_actionable_and_does_not_redirect(client, monkeypatch):
@@ -152,3 +151,72 @@ def test_downloads_navigation_and_existing_album_deeplinks_use_port_5051():
     assert 'href="/downloads"' in nav
     assert ytdlp_submit.downloader_ui_url() == "/downloads"
     assert "http://media-server:4545" not in nav
+
+
+
+CHROME = "chrome-extension://" + "a" * 32
+
+
+def test_chrome_extension_preflight_limited_to_download_endpoints(client, monkeypatch):
+    intercept(monkeypatch, lambda req: pytest.fail("Preflight must not contact yt-dlp"))
+    allowed = client.options("/downloads/engine/api/probe", headers={
+        "Origin": CHROME,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+    })
+    assert allowed.status_code == 204
+    assert allowed.headers["access-control-allow-origin"] == CHROME
+    assert "POST" in allowed.headers["access-control-allow-methods"]
+    assert client.options("/downloads/engine/api/vpn/profiles",
+                          headers={"Origin":CHROME}).status_code == 403
+    assert client.post("/downloads/engine/youtube/cookies/remove",
+                       headers={"Origin":CHROME}).status_code == 403
+    assert client.post("/downloads/engine/api/jobs/foo/retry",
+                       headers={"Origin":CHROME}).status_code == 403
+    assert client.options("/downloads/engine/api/probe",
+                          headers={"Origin":"https://evil.invalid"}).status_code == 403
+
+
+def test_chrome_extension_can_check_health_and_probe_video(client, monkeypatch):
+    requests = []
+    def response(req):
+        requests.append(req)
+        if req.url.path == "/health":
+            return httpx.Response(200, json={"status":"ok"})
+        return httpx.Response(200, json={"ok":True,"kind":"playlist"})
+    intercept(monkeypatch, response)
+    health = client.get("/downloads/engine/health", headers={"Origin":CHROME})
+    assert health.status_code == 200
+    assert health.headers["access-control-allow-origin"] == CHROME
+    probe = client.post("/downloads/engine/api/probe", headers={
+        "Origin":CHROME, "Content-Type":"application/json",
+    }, json={"url":"https://music.youtube.com/watch?v=abc123"})
+    assert probe.status_code == 200
+    assert probe.json()["kind"] == "playlist"
+    assert probe.headers["access-control-allow-origin"] == CHROME
+    assert len(requests) == 2
+
+
+def test_chrome_extension_gets_confirmed_job_without_following_redirect(
+    client, monkeypatch,
+):
+    intercept(monkeypatch, lambda req: httpx.Response(303, headers={
+        "location": "/downloads/engine/?job=confirmed_123",
+    }))
+    response = client.post("/downloads/engine/download", headers={"Origin":CHROME},
+        data={"url":"https://youtube.com/watch?v=abc123","playlist":"on"},
+        follow_redirects=False)
+    assert response.status_code == 200
+    assert response.json()["job_id"] == "confirmed_123"
+    assert response.json()["download_url"] == "/downloads?job=confirmed_123"
+    assert response.headers["access-control-allow-origin"] == CHROME
+
+
+def test_chrome_extension_rejects_unconfirmed_queue_submission(client, monkeypatch):
+    intercept(monkeypatch, lambda req: httpx.Response(302, headers={
+        "location": "/downloads/engine/",
+    }))
+    response = client.post("/downloads/engine/download", headers={"Origin":CHROME},
+        data={"url":"https://youtube.com/watch?v=abc123"})
+    assert response.status_code == 502
+    assert "not confirmed" in response.json()["error"]
