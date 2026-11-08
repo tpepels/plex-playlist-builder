@@ -398,8 +398,10 @@ def test_silent_zero_of_twelve_album_has_specific_durable_cause(
     assert "Cause:" in isolated_job["message"]
     assert "exit code 0" in isolated_job["failure_evidence"]
     assert "0/12" in isolated_job["message"]
+    grouped = {**isolated_job, "progress": "", "current_item": 0,
+               "retry_of": None}
     with server.jobs_lock:
-        card = server.public_job_from_group_locked(isolated_job["id"], [isolated_job])
+        card = server.public_job_from_group_locked(isolated_job["id"], [grouped])
     assert card["diagnosis"]["failure_code"] == "no_playlist_entries"
     assert card["diagnosis"]["next_action"] == isolated_job["failure_action"]
 
