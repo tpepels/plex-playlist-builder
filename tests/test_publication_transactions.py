@@ -211,3 +211,33 @@ def test_hidden_publication_directory_cannot_be_symlink(tmp_path, monkeypatch):
         staging.publish_stage(temp, music, job)
     assert not list(outside.iterdir())
     assert len(staging.media_files(stage)) == 1
+
+
+
+def test_staging_root_or_job_directory_symlinks_are_rejected(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    (temp / "staging").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symbolic link"):
+        staging.stage_dir(temp, {"id": "safe-id"})
+    (temp / "staging").unlink()
+    (temp / "staging").mkdir()
+    (temp / "staging" / "safe-id").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symbolic link"):
+        staging.stage_dir(temp, {"id": "safe-id"})
+
+
+def test_existing_album_tree_symlink_is_not_followed(tmp_path, monkeypatch):
+    temp, job, stage = yt_fixture(tmp_path, monkeypatch, n=1)
+    music = tmp_path / "music"
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "important.opus").write_bytes(b"external-untouched")
+    (music / "Artist").mkdir(parents=True)
+    (music / "Artist" / "Album").symlink_to(external, target_is_directory=True)
+    with pytest.raises(RuntimeError, match="symlinked library album"):
+        staging.publish_stage(temp, music, job)
+    assert (external / "important.opus").read_bytes() == b"external-untouched"
+    assert len(staging.media_files(stage)) == 1
