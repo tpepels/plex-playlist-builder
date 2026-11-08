@@ -1,3 +1,5 @@
+import ctypes
+import errno
 import json
 import os
 import re
@@ -421,106 +423,138 @@ def cleanup_interrupted_publications(import_root):
     return count
 
 
+def _exchange_directories(candidate, existing):
+    """Atomically replace a whole album tree, including on nonempty targets.
+
+    Linux RENAME_EXCHANGE retains the previous tree at candidate until cleanup.
+    A filesystem not supporting atomic exchange fails without altering the
+    published album. Never fall back to per-track moves into a scanned album.
+    """
+    renameat2 = getattr(ctypes.CDLL(None, use_errno=True), "renameat2", None)
+    if renameat2 is None:
+        raise OSError(errno.ENOSYS, "Filesystem does not support atomic album replacement")
+    renameat2.argtypes = [
+        ctypes.c_int, ctypes.c_char_p,
+        ctypes.c_int, ctypes.c_char_p, ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    if renameat2(-100, os.fsencode(candidate), -100,
+                 os.fsencode(existing), 2) != 0:  # RENAME_EXCHANGE
+        failure = ctypes.get_errno()
+        raise OSError(
+            failure,
+            "Atomic album exchange failed; existing library album was preserved",
+        )
+
+
+def _publish_album_tree(import_root, incoming_parent, job, artist, album, files):
+    """Build an entire album out of sight, then commit the complete tree.
+
+    files is a sequence of (staged Path, output filename) pairs. Existing
+    files, including cover art and custom metadata, remain in the snapshot
+    unless force explicitly replaces a matching staged audio filename.
+    """
+    final_dir = Path(import_root) / safe_component(artist) / safe_component(album)
+    if final_dir.is_symlink() or final_dir.parent.is_symlink():
+        raise RuntimeError("Refusing to publish through a symlinked library album")
+    final_dir.parent.mkdir(parents=True, exist_ok=True)
+    incoming_parent.mkdir(parents=True, exist_ok=True)
+    incoming = incoming_parent / f"{staging_owner_id(job)}-{uuid.uuid4().hex[:8]}"
+    incoming.mkdir(parents=True, exist_ok=False)
+    paths = []
+    try:
+        if final_dir.exists():
+            if not final_dir.is_dir():
+                raise RuntimeError("An existing non-album file blocks publication")
+            shutil.copytree(final_dir, incoming, dirs_exist_ok=True, symlinks=True)
+
+        for staged, name in files:
+            destination = incoming / name
+            if destination.is_symlink():
+                raise RuntimeError("Refusing to replace a symlinked library track")
+            if not destination.exists() or job.get("force"):
+                shutil.copy2(staged, destination)
+            paths.append(str(final_dir / name))
+
+        if final_dir.exists():
+            _exchange_directories(incoming, final_dir)
+        else:
+            os.replace(incoming, final_dir)
+    except Exception:
+        # The staged originals and pre-existing published album were untouched.
+        shutil.rmtree(incoming, ignore_errors=True)
+        raise
+    else:
+        # After an exchange, incoming contains the previous published tree.
+        # A crash here leaves only an unscanned, recognizable hidden copy;
+        # startup cleanup removes it, while the complete album stays visible.
+        shutil.rmtree(incoming, ignore_errors=True)
+        return str(final_dir), paths
+
+
+def _cleanup_incoming_parent(incoming_parent):
+    try:
+        if incoming_parent.is_dir() and not any(incoming_parent.iterdir()):
+            incoming_parent.rmdir()
+    except OSError:
+        pass
+
+
 def publish_spotdl_stage(temp_dir, import_root, job):
-    """Publish successful spotDL files while preserving their native album tree."""
+    """Publish each Spotify album atomically, preserving other albums on error."""
     stage = stage_dir(temp_dir, job)
     files = media_files(stage)
     if not files:
         return {
             "status": "error",
             "message": "No staged audio files were found.",
-            "artist": "",
-            "album": "",
-            "records": [],
-            "info_count": 0,
-            "media_count": 0,
-            "stage_dir": str(stage),
-            "needs_metadata": False,
+            "artist": "", "album": "", "records": [],
+            "info_count": 0, "media_count": 0,
+            "stage_dir": str(stage), "needs_metadata": False,
         }
 
     import_root = Path(import_root)
     import_root.mkdir(parents=True, exist_ok=True)
     incoming_parent = import_root / ".incoming"
-    incoming_parent.mkdir(parents=True, exist_ok=True)
-    incoming = incoming_parent / f"{staging_owner_id(job)}-{uuid.uuid4().hex[:8]}"
-    incoming.mkdir(parents=True, exist_ok=False)
+    grouped = {}
+    for source in files:
+        rel = source.relative_to(stage)
+        if len(rel.parts) < 3:
+            raise RuntimeError(f"Spotify stage lacks Artist/Album folders: {rel}")
+        artist = clean_artist_name(rel.parts[0])
+        album = clean_album_name(rel.parts[1])
+        if not artist or not album:
+            raise RuntimeError(f"Spotify album metadata unresolved: {rel}")
+        grouped.setdefault((artist, album), []).append((source, source.name))
 
-    prepared = []
-    try:
-        for source in files:
-            source = Path(source)
-            rel = source.relative_to(stage)
-            if len(rel.parts) < 3:
-                raise RuntimeError(
-                    f"Spotify staged path is missing Artist/Album folders: {rel}"
-                )
+    final_files = []
+    final_dirs = []
+    # A multi-album playlist may legitimately publish some complete albums
+    # before a later album fails. Replaying the stage is idempotent.
+    for (artist, album), sources in grouped.items():
+        directory, paths = _publish_album_tree(
+            import_root, incoming_parent, job, artist, album, sources,
+        )
+        final_dirs.append(directory)
+        final_files.extend(paths)
 
-            artist = clean_artist_name(rel.parts[0])
-            album = clean_album_name(rel.parts[1])
-            if not artist or not album:
-                raise RuntimeError(
-                    f"Spotify staged path has unresolved Artist/Album metadata: {rel}"
-                )
-
-            destination = (
-                incoming
-                / safe_component(artist)
-                / safe_component(album)
-                / source.name
-            )
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-            prepared.append(destination)
-
-        final_files = []
-        final_dirs = set()
-        for source in prepared:
-            rel = source.relative_to(incoming)
-            destination = import_root / rel
-            destination.parent.mkdir(parents=True, exist_ok=True)
-
-            if destination.exists():
-                if not job.get("force"):
-                    source.unlink()
-                    final_files.append(str(destination))
-                    final_dirs.add(str(destination.parent))
-                    continue
-                # os.replace atomically overwrites the existing track.
-                # Do not unlink the previously published copy first:
-                # a failed rename must leave the old file intact.
-
-            os.replace(source, destination)
-            final_files.append(str(destination))
-            final_dirs.add(str(destination.parent))
-
-        shutil.rmtree(incoming, ignore_errors=True)
-        shutil.rmtree(stage, ignore_errors=True)
-
-        try:
-            if incoming_parent.is_dir() and not any(incoming_parent.iterdir()):
-                incoming_parent.rmdir()
-        except OSError:
-            pass
-
-        ordered_dirs = sorted(final_dirs)
-        return {
-            "status": "published",
-            "message": (
-                f"Published {len(final_files)} file(s) across "
-                f"{len(ordered_dirs)} album folder(s)"
-            ),
-            "artist": "",
-            "album": "",
-            "final_dir": ordered_dirs[0] if len(ordered_dirs) == 1 else str(import_root),
-            "final_dirs": ordered_dirs,
-            "files": final_files,
-            "media_count": len(final_files),
-            "stage_dir": str(stage),
-            "needs_metadata": False,
-        }
-    except Exception:
-        shutil.rmtree(incoming, ignore_errors=True)
-        raise
+    shutil.rmtree(stage, ignore_errors=True)
+    _cleanup_incoming_parent(incoming_parent)
+    ordered_dirs = sorted(set(final_dirs))
+    return {
+        "status": "published",
+        "message": (
+            f"Published {len(final_files)} file(s) across "
+            f"{len(ordered_dirs)} album folder(s)"
+        ),
+        "artist": "", "album": "",
+        "final_dir": ordered_dirs[0] if len(ordered_dirs) == 1 else str(import_root),
+        "final_dirs": ordered_dirs,
+        "files": final_files,
+        "media_count": len(final_files),
+        "stage_dir": str(stage),
+        "needs_metadata": False,
+    }
 
 
 def publish_stage(temp_dir, import_root, job, artist=None, album=None):
@@ -559,53 +593,14 @@ def publish_stage(temp_dir, import_root, job, artist=None, album=None):
     import_root = Path(import_root)
     import_root.mkdir(parents=True, exist_ok=True)
     incoming_parent = import_root / ".incoming"
-    incoming_parent.mkdir(parents=True, exist_ok=True)
-    incoming = incoming_parent / f"{staging_owner_id(job)}-{uuid.uuid4().hex[:8]}"
-    incoming.mkdir(parents=True, exist_ok=False)
-
-    try:
-        copied = []
-        for record in analysis["records"]:
-            source = Path(record["path"])
-            destination = incoming / source.name
-            shutil.copy2(source, destination)
-            copied.append(destination)
-
-        final_dir = import_root / safe_component(artist) / safe_component(album)
-        final_dir.parent.mkdir(parents=True, exist_ok=True)
-
-        final_files = []
-        if not final_dir.exists():
-            os.replace(incoming, final_dir)
-            final_files = [str(final_dir / path.name) for path in copied]
-        else:
-            final_dir.mkdir(parents=True, exist_ok=True)
-            for path in list(incoming.iterdir()):
-                destination = final_dir / path.name
-                if destination.exists():
-                    if not job.get("force"):
-                        path.unlink()
-                        final_files.append(str(destination))
-                        continue
-                    # Atomic replacement retains the prior track on failure.
-                os.replace(path, destination)
-                final_files.append(str(destination))
-            incoming.rmdir()
-
-    except Exception:
-        # Publishing failures must not discard staged media. Remove only
-        # partial hidden copies; any already published files remain visible.
-        shutil.rmtree(incoming, ignore_errors=True)
-        raise
-
+    final_dir, final_files = _publish_album_tree(
+        import_root, incoming_parent, job, artist, album,
+        [(Path(record["path"]), Path(record["path"]).name)
+         for record in analysis["records"]],
+    )
     stage = stage_dir(temp_dir, job)
     shutil.rmtree(stage, ignore_errors=True)
-
-    try:
-        if incoming_parent.is_dir() and not any(incoming_parent.iterdir()):
-            incoming_parent.rmdir()
-    except OSError:
-        pass
+    _cleanup_incoming_parent(incoming_parent)
 
     return {
         "status": "published",
