@@ -7,6 +7,7 @@ import vm from "node:vm";
 
 const html = fs.readFileSync(new URL("../app/templates/index.html", import.meta.url), "utf8");
 const script = html.split("<script>", 2)[1]?.split("</script>", 1)[0];
+const nav = fs.readFileSync(new URL("../app/templates/_site_navigation.html", import.meta.url), "utf8");
 assert.ok(script, "Inline browser JavaScript must exist");
 
 function fakeElement() {
@@ -273,27 +274,15 @@ test("failed Plex sync keeps import and reports a retryable error", async () => 
 });
 
 test("compact album export remains available beside full library export", () => {
-  assert.match(html, /href="\/api\/library-albums\.tsv"[^>]+download="plex-albums\.tsv"/);
-  assert.match(html, /href="\/api\/library-export\.tsv"[^>]+download="plex-music-library\.tsv"/);
+  assert.match(nav, /href="\/api\/library-albums\.tsv"[^>]+download="plex-albums\.tsv"/);
+  assert.match(nav, /href="\/api\/library-export\.tsv"[^>]+download="plex-music-library\.tsv"/);
 });
 
-test("recent export form supports last hours and last N albums", async () => {
-  const h = makeHarness();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.match(html, /id="recentForm"[^>]+action="\/api\/library-recent.tsv"/);
-  assert.match(html, /name="mode"/);
-  assert.match(html, /name="limit"/);
-  const mode = h.$("recentMode");
-  const limit = h.$("recentLimit");
-  assert.equal(typeof mode.onchange, "function");
-  mode.value = "albums";
-  mode.onchange();
-  assert.equal(limit.value, "20");
-  assert.equal(limit.max, "200");
-  mode.value = "hours";
-  mode.onchange();
-  assert.equal(limit.value, "48");
-  assert.equal(limit.max, "8760");
+test("recent export form is handled by shared navigation", () => {
+  assert.match(nav, /id="siteNavRecentForm"/);
+  assert.match(nav, /action="\/api\/library-recent.tsv"/);
+  assert.match(nav, /name="mode"/);
+  assert.match(nav, /name="limit"/);
 });
 
 test("dashboard hides idle bulk controls and shows only pending work", async () => {
@@ -473,7 +462,8 @@ test("cover ZIP picker rejects nonzip files before sending requests", async () =
 
 test("playlist workspace uses the same shared menu as other pages", () => {
   assert.match(html, /id="siteNavigationToggle"/);
-  assert.match(html, /id="siteNavigationPanel"/); // included Jinja fragment in rendered page
+  assert.match(html, /include "_site_navigation.html"/);
+  assert.match(nav, /id="siteNavigationPanel"/);
   assert.match(html, /site-navigation\.js/);
   assert.match(html, /data-view="playlists"/);
   assert.doesNotMatch(html, /id="navigationPanel"/);

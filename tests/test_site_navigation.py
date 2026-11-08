@@ -53,7 +53,8 @@ def test_all_secondary_templates_render_the_same_navigation():
         assert 'role="dialog" aria-modal="true"' in rendered,page
         assert 'aria-expanded="false"' in rendered,page
         for view in VIEW_KEYS:
-            assert f'href="/playlists?view={view}"' in rendered,page
+            href="/playlists" if view=="playlists" else f"/playlists?view={view}"
+            assert f'href="{href}"' in rendered,page
         for destination in DESTINATIONS:
             assert f'href="{destination}"' in rendered,page
         assert 'id="siteNavRecentForm"' in rendered,page
