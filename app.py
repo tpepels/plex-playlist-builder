@@ -32,6 +32,7 @@ from surfshark_vpn import rotate_if_enabled, direct_if_enabled
 from vpn_ui import register as register_vpn_manager
 from extension_package import package_extension
 from state_store import StateCorruption, load_json, write_json, validate_jobs_payload
+from process_lifecycle import InactivityGuard, inactivity_limit
 from youtube_cookies import cookie_path, register as register_youtube_cookies
 
 MAINTENANCE_ONLY = (
@@ -180,7 +181,7 @@ VERSIONS = {
 def current_software_version():
     """Fingerprint deployed downloader code and toolchain, not historical retries."""
     digest = hashlib.sha256()
-    for name in ("app.py", "staging.py", "state_store.py", "album_completeness.py",
+    for name in ("app.py", "staging.py", "state_store.py", "process_lifecycle.py", "album_completeness.py",
                  "retry_queue.py", "download_resilience.py", "youtube_cookies.py",
                  "library_repair.py", "extension_package.py",
                  "album_failure.py",
@@ -1468,9 +1469,23 @@ def run_job(job_id):
                 bufsize=1,
             )
             assert process.stdout is not None
-            for line in process.stdout:
-                append_log(job_id, line)
-            returncode = process.wait()
+            guard = InactivityGuard(process, seconds=inactivity_limit())
+            with guard:
+                for line in process.stdout:
+                    guard.beat()
+                    append_log(job_id, line)
+                returncode = process.wait()
+            if guard.timed_out:
+                with jobs_lock:
+                    current = jobs[job_id]
+                    current["failure_kind"] = "stalled"
+                    current["last_download_error"] = (
+                        f"Downloader produced no output for "
+                        f"{inactivity_limit()} seconds and was stopped."
+                    )
+                    current["log"].append("ERROR: " + current["last_download_error"])
+                    current["log"] = current["log"][-40:]
+                    persist_jobs_locked()
 
             with jobs_lock:
                 current = jobs[job_id]
@@ -1682,6 +1697,11 @@ def run_job(job_id):
                             f"YouTube bot verification after {retries} automatic restart(s) "
                             "using temporary VPN connections. YouTube still requires verification."
                         )
+                elif job.get("failure_kind") == "stalled":
+                    job["message"] = (
+                        "Download stopped after prolonged inactivity. "
+                        "Check the source and network, then Retry / continue."
+                    )
                 elif job["http_403"] and is_youtube_url(job["url"]):
                     retries = int(job.get("automatic_403_restarts") or 0)
                     if BGUTIL_SERVER_HOME.is_dir():
