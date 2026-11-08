@@ -266,8 +266,10 @@ jobs:
           with TestClient(app) as client:
               home = client.get("/")
               assert home.status_code == 200
-              assert "Your music." in home.text
+              assert "Add music. Build playlists." in home.text
               assert 'id="siteNavigationToggle"' in home.text
+              assert 'id="home-playlist-file"' in home.text
+              assert 'id="home-download-form"' in home.text
               playlist = client.get("/playlists?view=health")
               assert playlist.status_code == 200
               assert 'id="viewHealth"' in playlist.text
