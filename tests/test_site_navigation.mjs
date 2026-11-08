@@ -2,124 +2,100 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
-const root=new URL("../app/",import.meta.url);
-const html=fs.readFileSync(new URL("templates/_site_navigation.html",root),"utf8");
-const js=fs.readFileSync(new URL("static/site-navigation.js",root),"utf8");
-const css=fs.readFileSync(new URL("static/site-navigation.css",root),"utf8");
-new vm.Script(js,{filename:"site-navigation.js"});
+const root = new URL("../app/", import.meta.url);
+const html = fs.readFileSync(new URL("templates/_site_navigation.html", root), "utf8");
+const js = fs.readFileSync(new URL("static/site-navigation.js", root), "utf8");
+const css = fs.readFileSync(new URL("static/site-navigation.css", root), "utf8");
+new vm.Script(js, {filename:"site-navigation.js"});
 
-for(const route of ["/","/downloads","/playlists","/playlists?view=health",
-  "/playlists?view=duplicates","/playlists?view=newmusic",
-  "/playlists?view=isc","/playlists?view=discover",
-  "/playlist-generator","/playlist-intelligence","/musical-coherence",
-  "/downloads-audit"])
-  assert(html.includes('href="'+route+'"'),"Missing destination "+route);
-assert(css.includes("@media(max-width:680px)"),"Mobile navigation styling missing");
+for(const route of ["/", "/downloads", "/playlists", "/playlists?view=isc",
+  "/playlist-generator", "/playlist-intelligence", "/playlists?view=health",
+  "/playlists?view=duplicates", "/playlists?view=newmusic",
+  "/playlists?view=discover", "/musical-coherence", "/downloads-audit",
+  "/api/library-export.tsv", "/api/playlists-export.yml"])
+  assert(html.includes('href="'+route+'"'), "Missing route "+route);
+assert(html.includes('id="workspaceTopbar"'));
+assert(html.includes('id="siteNavRecentForm"'));
+assert(css.includes("@media(max-width:800px)"));
+assert(!html.includes("siteNavigationBackdrop"));
+assert(!html.includes("siteNavigationClose"));
 
-function harness(url="http://media-server:5051/playlist-generator"){
-  const uri=new URL(url),all=new Map();
-  const classes=new Set();
-  const document={
-    activeElement:null,
-    body:{classList:{toggle(name,enabled){
-      if(enabled)classes.add(name);else classes.delete(name);
-    }}},
-    handlers:{},
-    getElementById(id){return all.get(id)||null},
-    addEventListener(event,callback){this.handlers[event]=callback},
-  };
-  function element(id){
-    const e={id,hidden:id!=="siteNavigationToggle",isConnected:true,
-      listeners:{},attrs:{},rects:[{}],
-      addEventListener(name,callback){this.listeners[name]=callback},
-      setAttribute(name,value){this.attrs[name]=String(value)},
-      getAttribute(name){return this.attrs[name]},
-      focus(){document.activeElement=this},
-      getClientRects(){return this.rects},
+function harness(page="http://media-server:5051/playlist-generator") {
+  const uri=new URL(page), nodes=new Map(), handlers={};
+  let active;
+  function node(id) {
+    const attrs={}, listeners={};
+    const n={id,dataset:{},hidden:false,open:false,attrs,listeners,
+      setAttribute(key,value){attrs[key]=String(value)},
+      removeAttribute(key){delete attrs[key]},
+      getAttribute(key){return attrs[key]},
+      addEventListener(key,cb){listeners[key]=cb},
+      focus(){active=n},
+      contains(target){return target===n},
+      closest(selector){return selector===".workspace-more" && n.inMore ? more : null},
+      querySelector(){return null},
     };
-    all.set(id,e);
-    return e;
+    nodes.set(id,n);return n;
   }
-  const toggle=element("siteNavigationToggle"),panel=element("siteNavigationPanel");
-  const backdrop=element("siteNavigationBackdrop"),close=element("siteNavigationClose");
-  toggle.hidden=false;close.hidden=false;
-  const mode=element("siteNavRecentMode"),limit=element("siteNavRecentLimit");
-  const form=element("siteNavRecentForm");
-  const links=[...html.matchAll(/<a href="([^"]+)"/g)].map(([,href])=>{
-    const e=element("link-"+href);
-    e.attrs.href=href;
-    return e;
+  const panel=node("siteNavigationPanel");
+  const toggle=node("siteNavigationToggle");
+  const more=node("workspaceMore");
+  const summary=node("summary");
+  more.contains=(target)=>target===more||target===summary;
+  more.querySelector=(selector)=>selector==="summary"?summary:null;
+  const mode=node("siteNavRecentMode"),limit=node("siteNavRecentLimit");
+  const links=[...html.matchAll(/<a\b[^>]*href="([^"]+)"/g)].map(([,href])=>{
+    const link=node("link-"+href);link.attrs.href=href;
+    link.inMore=html.indexOf('href="'+href+'"')>html.indexOf('id="workspaceMore"');
+    return link;
   });
-  panel.querySelectorAll=(selector)=>{
-    if(selector==="a[href]")return links;
-    return [close,...links,mode,limit];
-  };
-  document.activeElement=toggle;
-  vm.runInNewContext(js,{document,
-    window:{location:{pathname:uri.pathname,search:uri.search,
-      origin:uri.origin}},URL,URLSearchParams});
-  return {document,toggle,panel,backdrop,close,mode,limit,form,links,classes};
+  panel.querySelectorAll=selector=>selector==="a[href]"?links:[];
+  panel.contains=(target)=>links.includes(target)||target===panel||target===more;
+  const document={getElementById:id=>nodes.get(id)||null,
+    addEventListener:(key,fn)=>handlers[key]=fn};
+  vm.runInNewContext(js,{document,window:{location:uri},URL,URLSearchParams});
+  return {document,panel,toggle,more,summary,mode,limit,links,handlers};
 }
-
-function click(e){assert.equal(typeof e.listeners.click,"function");e.listeners.click()}
-function key(h,key,shiftKey=false){
-  let prevented=false;
-  h.document.handlers.keydown({key,shiftKey,preventDefault(){prevented=true}});
-  return prevented;
-}
-
+function click(n){assert.equal(typeof n.listeners.click,"function");n.listeners.click()}
 const pages=[
-  "http://media-server:5051/playlist-generator",
-  "http://media-server:5051/playlist-intelligence",
-  "http://media-server:5051/musical-coherence",
-  "http://media-server:5051/downloads-audit",
-  "http://media-server:5051/open-youtube-album?artist=A&album=B",
-  "http://media-server:5051/playlists?view=health",
-  "http://media-server:5051/",
-  "http://media-server:5051/downloads"
+  ["http://media-server:5051/","/"],
+  ["http://media-server:5051/downloads","/downloads"],
+  ["http://media-server:5051/playlist-generator","/playlist-generator"],
+  ["http://media-server:5051/playlists?view=health","/playlists?view=health"],
+  ["http://media-server:5051/playlists?view=newmusic","/playlists?view=newmusic"],
+  ["http://media-server:5051/playlists?view=isc","/playlists?view=isc"],
+  ["http://media-server:5051/open-youtube-album?artist=A","/playlists?view=discover"],
+  ["http://media-server:5051/downloads/engine/?job=123","/downloads"],
 ];
-for(const url of pages){
+for(const [url,expected] of pages){
   const h=harness(url);
-  const expected=new URL(url).pathname==="/open-youtube-album"?"/playlists?view=discover":
-    new URL(url).pathname+new URL(url).search;
-  const matches=h.links.filter(l=>l.attrs.href===expected);
-  assert.equal(matches.length,1,"Missing current page marker "+url);
-  assert.equal(matches[0].attrs["aria-current"],"page");
+  const marked=h.links.filter(n=>n.attrs["aria-current"]==="page");
+  assert.equal(marked.length,1,url);
+  assert.equal(marked[0].attrs.href,expected,url);
   click(h.toggle);
-  assert.equal(h.panel.hidden,false);
-  assert.equal(h.backdrop.hidden,false);
+  assert.equal(h.panel.dataset.open,"true");
   assert.equal(h.toggle.attrs["aria-expanded"],"true");
-  assert(h.classes.has("site-navigation-open"));
-  assert.equal(key(h,"Escape"),true);
-  assert.equal(h.panel.hidden,true);
+  let prevented=false;
+  h.handlers.keydown({key:"Escape",preventDefault(){prevented=true}});
+  assert.equal(prevented,true);
+  assert.equal(h.panel.dataset.open,"false");
   assert.equal(h.toggle.attrs["aria-expanded"],"false");
-  assert.equal(h.document.activeElement,h.toggle);
-  click(h.toggle);click(h.backdrop);
-  assert.equal(h.panel.hidden,true);
-  click(h.toggle);click(h.close);
-  assert.equal(h.panel.hidden,true);
+  click(h.toggle);click(marked[0]);
+  assert.equal(h.panel.dataset.open,"false");
 }
 {
   const h=harness();
-  click(h.toggle);
-  h.document.activeElement=h.panel;
-  assert.equal(key(h,"Tab",true),true);
-  assert.equal(h.document.activeElement,h.limit);
-  h.document.activeElement=h.limit;
-  assert.equal(key(h,"Tab"),true);
-  assert.equal(h.document.activeElement,h.close);
-  h.document.activeElement=h.close;
-  assert.equal(key(h,"Tab",true),true);
-  assert.equal(h.document.activeElement,h.limit);
+  h.more.open=true;
+  let prevented=false;
+  h.handlers.keydown({key:"Escape",preventDefault(){prevented=true}});
+  assert(prevented);
+  assert.equal(h.more.open,false);
 }
 {
   const h=harness();
-  assert.equal(typeof h.mode.listeners.change,"function");
   h.mode.value="albums";h.mode.listeners.change();
   assert.equal(h.limit.value,"20");assert.equal(h.limit.max,"200");
   h.mode.value="hours";h.mode.listeners.change();
   assert.equal(h.limit.value,"48");assert.equal(h.limit.max,"8760");
-  click(h.toggle);h.form.listeners.submit();
-  assert.equal(h.panel.hidden,true);
 }
-console.log("Shared site navigation: all routes, active state, keyboard, backdrop, focus and exports OK");
+console.log("One workspace navigation: route highlighting, mobile menu, More and exports OK");
