@@ -50,71 +50,80 @@ If both artist/album-artist and album are trustworthy, the server retags staged 
 
 ## Install and update
 
-The repository's normal `compose.yaml` includes the downloader and the
-WireGuard gateway. **No Surfshark environment variables, VPN credentials,
-configuration files, or extra Compose overrides are needed.** The gateway
-generates an internal control token and the downloader reads it privately.
-Port 4545 remains the same. Download history, music and staging remain in
-their existing bind mounts.
+**The downloader and managed WireGuard controller now run in one Docker
+container**, `yt-dlp-server`. A root-owned controller manages wg0 and
+iptables; the web server, yt-dlp and spotDL run as the configured non-root
+UID/GID. The control API binds to loopback port 8787, while the existing
+dashboard remains on port 4545.
 
-To install normally:
+The default connection is direct. WireGuard activates only when the
+existing bot-challenge/403 recovery policy requests it or when a profile
+is explicitly connected in the dashboard.
 
-```sh
-docker compose up -d --build
-```
-
-To upgrade **an existing** downloader that previously exposed port 4545
-itself, stop that downloader before bringing up the new port-owning gateway.
-Do this only between download jobs:
+For a new standalone deployment:
 
 ```sh
-git pull --ff-only
-docker compose stop yt-dlp-server
-docker compose up -d --build
-```
-
-### Your existing shared media-stack deployment
-
-The parent `~/media-stack/docker-compose.yml` deployment uses
-`compose.parent-vpn.yaml` as its Compose override. An already installed
-`~/media-stack/docker-compose.override.yml` symlink remains valid after
-removing the old installer. **Do not delete it.** There is no deployment
-script to maintain.
-
-Before recreating containers, inspect the **Downloads** page and ensure
-no queued or running jobs are present. The following read-only check
-must succeed while the existing downloader is running:
-
-```sh
-docker exec yt-dlp-server python -c 'import json,sys,urllib.request; jobs=json.load(urllib.request.urlopen("http://127.0.0.1:4545/api/jobs",timeout=5)); active=[j for j in jobs if j.get("status") in {"queued","running","finalizing"} or j.get("active_resolution_tracks")]; print(f"Active/queued jobs: {len(active)}"); sys.exit(bool(active))'
-```
-
-For first-time integration, inspect any existing
-`~/media-stack/docker-compose.override.yml`. If it belongs to another
-service, manually merge the VPN override; **never overwrite that file**.
-If the override does not exist, create the symlink once:
-
-```sh
-cd ~/media-stack
-ln -s yt-dlp-server/compose.parent-vpn.yaml docker-compose.override.yml
 docker compose config --quiet
-docker compose stop yt-dlp-server
-docker compose up -d --build --force-recreate wireguard-gateway yt-dlp-server
+docker compose up -d --build yt-dlp-server
 ```
 
-For subsequent updates, pull changes in
-`~/media-stack/yt-dlp-server`, then return to `~/media-stack`.
-When no jobs are active, run `docker compose config --quiet` and
-`docker compose up -d --build --no-deps yt-dlp-server`. Rebuild the gateway
-too when its source changes. Mounted music, WireGuard profiles, staging
-and job history survive image rebuilds.
+### Migrating the existing `~/media-stack`
 
-The playlist manager continues reaching `http://yt-dlp-server:4545` on the
-existing project network. No other media container is routed through the VPN.
+The existing `~/media-stack/docker-compose.override.yml` symlink to
+`yt-dlp-server/compose.parent-vpn.yaml` **must remain**. Its target now
+augments only the downloader service, without defining a separate
+gateway service. The parent's `yt-dlp-server` network name and port
+4545 are preserved for the playlist manager and other clients.
 
-The gateway and downloader must be recreated once because Docker itself
-owns network namespaces and VPN permissions; a webpage cannot change the
-network mode of an already-running container.
+**Run this once, only when no download is running or queued.**
+Confirm this in the Downloads page before stopping containers.
+
+```sh
+cd ~/media-stack/yt-dlp-server
+git pull --ff-only
+cd ..
+docker compose config --quiet
+docker stop yt-dlp-server
+if docker container inspect yt-dlp-wireguard-gateway >/dev/null 2>&1; then
+    docker rm -f yt-dlp-wireguard-gateway
+fi
+docker compose up -d --build --force-recreate yt-dlp-server
+docker compose ps
+```
+
+Removing the former `yt-dlp-wireguard-gateway` container is necessary:
+it previously owned host port 4545. The replacement service publishes
+this port itself. **Do not run `docker compose down -v` or
+`docker volume prune`.** Music, cookies, state, archives, staging and
+root-owned WireGuard profiles retain their existing bind-mount paths.
+The old container is not needed after this migration.
+
+Subsequent updates need only one rebuild:
+
+```sh
+cd ~/media-stack/yt-dlp-server
+git pull --ff-only
+cd ..
+docker compose config --quiet
+docker compose up -d --build --force-recreate yt-dlp-server
+```
+
+Inspect both processes through the single container:
+
+```sh
+docker compose ps yt-dlp-server
+docker compose exec yt-dlp-server ps -eo pid,user,args
+docker compose logs --tail=80 yt-dlp-server
+```
+
+The image includes the existing yt-dlp, spotDL, ffmpeg, Deno and
+PO-token dependencies alongside WireGuard tools and iptables. Its PID 1
+supervisor starts the gateway first, starts Gunicorn through `gosu`
+as `VPN_DOWNLOADER_UID:VPN_DOWNLOADER_GID` (default `1000:1000`),
+and stops both processes if either fails. Docker restarts the whole
+container. The container requires `NET_ADMIN`, `/dev/net/tun` and
+`src_valid_mark` but **Gunicorn and its download workers run without
+root privileges**.
 
 ## Surfshark VPN: upload and test entirely in the web interface
 
@@ -147,17 +156,15 @@ After the normal downloader update above:
 
 ### Dashboard access when the VPN handshake fails
 
-The VPN gateway publishes `4545/tcp` while the downloader shares its
-network namespace. Localhost health checks can succeed even when the
-WireGuard default-route policy misroutes replies to LAN clients. The
-gateway now marks **only TCP replies from source port 4545** with its
-managed WireGuard `FwMark=51820`, so the packets use Docker's normal
-underlay route. Download traffic remains subject to the outbound-DROP
-kill switch.
+The combined container publishes `4545/tcp`. Its gateway marks
+**only TCP replies from source port 4545** with WireGuard's
+`FwMark=51820` so dashboard traffic uses Docker's original underlay
+route while the VPN is active. Download traffic remains subject to
+the outbound-DROP kill switch.
 
 Verify from another machine with
 `curl -4 --connect-timeout 5 http://media-server:4545/health`.
-Rebuild **both** the gateway and downloader to apply VPN-network
+Rebuild the **single** `yt-dlp-server` container to apply VPN-network
 changes. There is no need to re-upload profiles.
 
 ### Client key display
@@ -170,8 +177,8 @@ profile's Client public key section to compare it with Surfshark settings.
 ### Diagnosing a failed connection
 
 If all countries fail with the same result, keep the uploaded profiles;
-do not upload or share your private key again. Update both downloader and
-VPN gateway containers to get specific, non-sensitive error messages:
+do not upload or share your private key again. Rebuild the combined downloader container to get specific,
+non-sensitive error messages:
 `permissions` (NET_ADMIN), `kernel` (WireGuard unavailable),
 `tunnel_setup` (wg-quick/routing), `handshake` (no reply from
 Surfshark; key registration or UDP reachability), `dns` (name resolution
@@ -221,11 +228,11 @@ the parent Compose project's `.env` (or the downloader environment), then
 recreate `yt-dlp-server`. Any existing explicit `0` overrides the
 default-on setting.
 
-**Security:** The control API binds to loopback inside the shared
-downloader network namespace and authenticates with a private
+**Security:** The control API binds to loopback inside the
+combined downloader container's network namespace and authenticates with a private
 automatically generated token stored under the persistent downloader
 state directory. Uploaded WireGuard keys are stored only in the
-gateway's protected private volume. For template files, the browser
+root-owned private `/profiles` mount. For template files, the browser
 **does send your pasted client private key to the downloader backend**
 as part of the local upload request. It is not placed in logs or saved
 in browser storage, but HTTP traffic can be observed on untrusted networks;
@@ -239,10 +246,10 @@ is not yet validated against your own Docker host or independently
 DNS-leak-tested. Docker's resolver may forward DNS queries outside the
 VPN; do not assume this is a privacy-audited network configuration.
 
-The old `compose.surfshark.yaml` and `compose.wireguard.yaml`
-overrides are legacy alternatives. **Do not combine them with the new
-standard deployment.** Neither is needed for uploading and rotating
-profiles in the web UI.
+Obsolete two-container Gluetun and WireGuard Compose overrides and
+the separate gateway Dockerfile have been removed. The managed,
+single-container deployment is now canonical; historical variants
+remain available in Git history.
 
 ## Chrome extension
 
@@ -481,14 +488,14 @@ Versions before the staging pipeline may already have created uploader folders, 
 
 First run a **dry run**:
 
-    docker compose exec yt-dlp-server \
+    docker compose exec -u 1000:1000 yt-dlp-server \
       python -m app repair-library
 
 It probes the original YouTube/YouTube Music URLs again, groups the files by the original collection, prints the intended `Artist/Album` destination, and reports anything it cannot resolve. Album repair deliberately performs a **full per-track metadata probe** rather than yt-dlp's flat-playlist probe: this is slower, but it recovers `album_artist`, `artist`, and stable `Artist - Topic` channel metadata that flat playlist data often omits. Successful full probes are cached under `/data/state/repair-metadata-cache/`, so the later `--apply` reuses the exact metadata reviewed in the dry run instead of querying every track again. Add `--refresh-metadata` if the source has changed and you intentionally want to rebuild that cache. It does not modify music files without `--apply`.
 
 After reviewing the plan:
 
-    docker compose exec yt-dlp-server \
+    docker compose exec -u 1000:1000 yt-dlp-server \
       python -m app repair-library --apply
 
 For each collection, the repair tool first copies and retags all replacement files into a hidden incoming directory. Only after the whole replacement collection is prepared successfully does it publish the corrected album and remove the old scattered copies. Arbitrary uploader names are never used as artists here either.
@@ -751,9 +758,10 @@ Chrome extension ZIP. The existing `app.py` entrypoint also exposes
 `python -m app repair-library` for historical data repair, including the
 original dry-run-first and explicit `--apply`, `--url`,
 `--include-singles`, `--refresh-metadata`, `--music-root`,
-`--import-subdir`, and `--state-dir` options. In maintenance mode
-download workers are not started, queued jobs are not resumed, and no
-server port is opened.
+`--import-subdir`, and `--state-dir` options. Because the container supervisor itself runs as root, execute repair
+commands using `docker compose exec -u 1000:1000` (or your configured
+downloader UID/GID). In maintenance mode download workers are not
+started, queued jobs are not resumed, and no server port is opened.
 
 Original scripts and the historical ZIP remain recoverable in Git history.
 The cleanup does not delete music, WireGuard profiles, job history, archives,

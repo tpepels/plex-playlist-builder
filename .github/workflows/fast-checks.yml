@@ -28,8 +28,8 @@ jobs:
       - name: Install minimal offline test dependencies
         run: python -m pip install -q pytest flask mutagen
       - name: Compile Python sources
-        run: python -m py_compile app.py staging.py album_completeness.py album_failure.py retry_queue.py job_history.py download_resilience.py job_diagnostics.py surfshark_vpn.py vpn_ui.py vpn_gateway.py youtube_cookies.py library_repair.py extension_package.py
+        run: python -m py_compile app.py staging.py album_completeness.py album_failure.py retry_queue.py job_history.py download_resilience.py job_diagnostics.py surfshark_vpn.py vpn_ui.py vpn_gateway.py youtube_cookies.py library_repair.py extension_package.py container_runtime.py
       - name: Focused offline regression tests
-        run: python -m pytest -q tests/test_album_completeness.py tests/test_album_failure.py tests/test_bulk_retry.py tests/test_job_history.py tests/test_job_diagnostics.py tests/test_download_resilience.py tests/test_surfshark_vpn.py tests/test_vpn_gateway.py tests/test_vpn_direct_first.py tests/test_signal_console_ui.py tests/test_youtube_cookies.py tests/test_script_consolidation.py tests/test_cookie_verification.py
+        run: python -m pytest -q tests/test_album_completeness.py tests/test_album_failure.py tests/test_bulk_retry.py tests/test_job_history.py tests/test_job_diagnostics.py tests/test_download_resilience.py tests/test_surfshark_vpn.py tests/test_vpn_gateway.py tests/test_vpn_direct_first.py tests/test_one_container.py tests/test_signal_console_ui.py tests/test_youtube_cookies.py tests/test_script_consolidation.py tests/test_cookie_verification.py
       - name: Browser UI logic (Node)
         run: node --test tests/test_download_ui.mjs tests/test_download_history_ui.mjs tests/test_retry_all_ui.mjs tests/test_vpn_ui.mjs
