@@ -104,6 +104,9 @@ def supervise():
 
         # Never run yt-dlp, spotDL, Flask or Gunicorn with NET_ADMIN.
         downloader = subprocess.Popen([
+            # Drop NET_ADMIN from the bounding set and forbid privilege
+            # escalation by executable file capabilities or setuid binaries.
+            "setpriv", "--bounding-set=-net_admin", "--no-new-privs",
             "gosu", f"{uid}:{gid}",
             "gunicorn", "--workers", "1", "--threads", "4",
             "--bind", f"0.0.0.0:{BIND_PORT}",

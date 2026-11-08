@@ -18,7 +18,7 @@ COPY --from=deno_bin /deno /usr/local/bin/deno
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg ca-certificates git \
-      iptables iproute2 wireguard-tools gosu \
+      iptables iproute2 wireguard-tools gosu util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Docker /proc/sys may be read-only when src_valid_mark is already 1.

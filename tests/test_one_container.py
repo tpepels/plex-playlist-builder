@@ -36,7 +36,7 @@ def test_canonical_compose_exposes_only_the_downloader_service():
 
 def test_single_image_contains_privileged_toolchain_and_nonroot_launcher():
     docker = (ROOT / "Dockerfile").read_text()
-    for name in ("iptables", "iproute2", "wireguard-tools", "gosu"):
+    for name in ("iptables", "iproute2", "wireguard-tools", "gosu", "util-linux"):
         assert name in docker
     assert "COPY app.py" in docker
     assert "vpn_gateway.py" in docker
@@ -104,7 +104,10 @@ def test_gateway_must_be_ready_before_unprivileged_gunicorn(monkeypatch):
     assert runtime.supervise() == 1
     assert [item[0] for item in calls] == ["spawn", "ready", "spawn", "stop"]
     web = calls[2][1]
-    assert web[:2] == ["gosu", "1000:1000"]
+    assert web[:3] == [
+        "setpriv", "--bounding-set=-net_admin", "--no-new-privs"
+    ]
+    assert web[3:5] == ["gosu", "1000:1000"]
     assert "gunicorn" in web
     assert "--bind" in web and "0.0.0.0:4545" in web
     assert all("sudo" not in word for word in web)
