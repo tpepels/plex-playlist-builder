@@ -577,6 +577,12 @@
         next.className = "next-action";
         next.textContent = "Next: " + diagnosis.next_action;
         explanation.append(label, why, next);
+        if (diagnosis.failure_evidence) {
+          const evidence = document.createElement("p");
+          evidence.className = "next-action";
+          evidence.textContent = "Evidence: " + diagnosis.failure_evidence;
+          explanation.appendChild(evidence);
+        }
         card.appendChild(explanation);
 
         if (diagnosis.duplicate_requests > 0) {
