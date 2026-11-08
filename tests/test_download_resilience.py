@@ -241,7 +241,7 @@ def test_bot_challenge_never_retries_unchanged_ip(isolated_job, monkeypatch):
     assert calls == [1]
     assert isolated_job["status"] == "failed"
     assert isolated_job.get("automatic_vpn_rotations", 0) == 0
-    assert "could not be changed" in isolated_job["message"]
+    assert "no usable alternative VPN exit" in isolated_job["message"]
 
 
 def test_initial_download_direct_then_temporary_vpn_then_direct(isolated_job, monkeypatch):
