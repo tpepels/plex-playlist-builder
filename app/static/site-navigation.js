@@ -4,6 +4,7 @@
   const panel = document.getElementById("siteNavigationPanel");
   const toggle = document.getElementById("siteNavigationToggle");
   const more = document.getElementById("workspaceMore");
+  const playlistMenu = document.getElementById("workspacePlaylistMenu");
   if (!panel || !toggle || !more) return;
 
   const links = Array.from(panel.querySelectorAll("a[href]"));
@@ -22,9 +23,11 @@
     currentRoute = "/downloads";
   }
   let moreActive = false;
+  let activeClaimed = false;
   for (const link of links) {
     const href = link.getAttribute("href");
-    if (href === currentRoute) {
+    if (href === currentRoute && !activeClaimed) {
+      activeClaimed = true;
       link.setAttribute("aria-current", "page");
       if (link.closest(".workspace-more")) moreActive = true;
     } else {
@@ -49,10 +52,15 @@
   for (const link of links) link.addEventListener("click", () => {
     closeMobile();
     more.open = false;
+    if (playlistMenu) playlistMenu.open = false;
   });
   document.addEventListener("keydown", event => {
     if (event.key !== "Escape") return;
-    if (more.open) {
+    if (playlistMenu?.open) {
+      playlistMenu.open = false;
+      playlistMenu.querySelector("summary")?.focus();
+      event.preventDefault();
+    } else if (more.open) {
       more.open = false;
       more.querySelector("summary")?.focus();
       event.preventDefault();
@@ -63,10 +71,18 @@
   });
   document.addEventListener("click", event => {
     if (more.open && !more.contains(event.target)) more.open = false;
+    if (playlistMenu?.open && !playlistMenu.contains(event.target))
+      playlistMenu.open = false;
     if (panel.dataset.open === "true" && !panel.contains(event.target)
         && !toggle.contains(event.target)) closeMobile();
   });
 
+  playlistMenu?.addEventListener("toggle", () => {
+    if (playlistMenu.open) more.open = false;
+  });
+  more.addEventListener("toggle", () => {
+    if (more.open && playlistMenu) playlistMenu.open = false;
+  });
   const mode = document.getElementById("siteNavRecentMode");
   const limit = document.getElementById("siteNavRecentLimit");
   if (mode && limit) mode.addEventListener("change", () => {
