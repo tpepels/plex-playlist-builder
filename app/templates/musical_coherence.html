@@ -71,24 +71,33 @@ details.method{font-size:12px;color:var(--muted);margin-top:18px}
 <main>
 {% include "_site_navigation.html" %}
 
-<h1>Musical coherence</h1>
-<section class="panel" aria-label="AudioMuse tools">
-  <div class="controls">
-    <select id="analysisScope" aria-label="Analysis scope">
-      <option value="25">25 albums</option><option value="100">100 albums</option>
-      <option value="0">Full library</option>
-    </select>
-    <button id="startAnalysis" type="button">Analyze</button>
-    <button id="refreshAnalysis" type="button">Status</button>
-    <button id="sync">Sync</button>
-    <button id="refresh">Refresh</button>
-    <button id="stopSync" type="button" hidden>Stop after batch</button>
-  </div>
+<h1>Audio analysis &amp; playlist coherence</h1>
+<p>Review audio-feature coverage and unusual transitions in existing playlists. Reports and task status update while this page is open.</p>
+<section class="panel" aria-label="AudioMuse status">
+  <div id="autoMaintenance" class="desc" role="status">Checking automatic cache updates…</div>
   <div id="analysisStatus" role="status" aria-live="polite"></div>
   <progress id="analysisProgress" max="100" value="0" hidden></progress>
   <div id="status" role="status" aria-live="polite" hidden></div>
   <div id="metrics" class="metrics"></div>
 </section>
+<details aria-label="Audio analysis maintenance">
+  <summary>Manual analysis and cache controls</summary>
+  <div class="detail-body">
+    <p>Audio analysis starts CPU-intensive processing in AudioMuse. Copying completed results updates only Playlist Manager's SQLite cache. Neither changes Plex playlists.</p>
+    <div class="controls">
+      <label for="analysisScope">Scope</label>
+      <select id="analysisScope" aria-label="Analysis scope">
+        <option value="25">25 recent albums</option><option value="100">100 recent albums</option>
+        <option value="0">Entire library</option>
+      </select>
+      <button id="startAnalysis" type="button">Start AudioMuse audio analysis</button>
+      <button id="refreshAnalysis" type="button">Check analysis progress now</button>
+      <button id="sync" type="button">Copy completed audio results now</button>
+      <button id="refresh" type="button">Recalculate coherence report</button>
+      <button id="stopSync" type="button" hidden>Stop after cache batch</button>
+    </div>
+  </div>
+</details>
 <div class="list-head">
   <h2>Playlists</h2><span id="listCount"></span>
   <input id="filter" type="search" placeholder="Search playlists" aria-label="Search playlists">
@@ -259,6 +268,23 @@ $('startAnalysis').addEventListener('click', async () => {
 });
 $('refreshAnalysis').addEventListener('click', refreshAnalysisStatus);
 setInterval(() => { if (document.visibilityState === 'visible') refreshAnalysisStatus(); }, 15000);
+async function updateAutomaticStatus() {
+  try {
+    const data = await request('/api/workspace/maintenance');
+    const audio = data.jobs?.audio || {};
+    $('autoMaintenance').textContent = !data.enabled
+      ? 'Automatic cache updates are disabled in server configuration.'
+      : audio.error ? 'Automatic cache update failed: ' + audio.error
+      : 'Automatic cache updates enabled · ' + (audio.running ? 'Updating now' :
+           audio.last_success ? 'Last updated ' + new Date(audio.last_success).toLocaleString()
+                              : 'Initial update scheduled');
+  } catch (error) {
+    $('autoMaintenance').textContent = 'Automatic update status unavailable: ' + error.message;
+  }
+}
+void updateAutomaticStatus();
+setInterval(() => { if (document.visibilityState === 'visible') void updateAutomaticStatus(); }, 60000);
+setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 90000);
 refreshAnalysisStatus();
 
 $('refresh').addEventListener('click', load);
