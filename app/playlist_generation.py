@@ -135,6 +135,16 @@ def _audio_affinity(candidate, references):
     return result
 
 
+def _reference_sample(all_ids, manual_ids, maximum=28):
+    """Bound comparisons while retaining explicitly chosen reference tracks."""
+    manual = sorted(set(manual_ids))
+    automatic = sorted(set(all_ids) - set(manual))
+    if len(automatic)>maximum:
+        automatic = [automatic[round(i*(len(automatic)-1)/(maximum-1))]
+                     for i in range(maximum)]
+    return sorted(set(manual) | set(automatic))
+
+
 def genre_profiles(library: dict, decoded: dict, *, genre: str,
                    subgenre: str = "", reference_track_ids=None,
                    negative_reference_track_ids=None):
@@ -182,8 +192,8 @@ def genre_profiles(library: dict, decoded: dict, *, genre: str,
         )
     return {
         "genre": genre, "subgenre": subgenre,
-        "positive_ids": sorted(positive_set),
-        "negative_ids": sorted(negative_set),
+        "positive_ids": _reference_sample(positive_set, positives),
+        "negative_ids": _reference_sample(negative_set, negatives),
         "verified_metadata_count": len(verified),
         "manual_positive_count": len(positives),
         "manual_negative_count": len(negatives),
