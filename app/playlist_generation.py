@@ -147,7 +147,7 @@ def _reference_sample(all_ids, manual_ids, maximum=28):
 
 def genre_profiles(library: dict, decoded: dict, *, genre: str,
                    subgenre: str = "", reference_track_ids=None,
-                   negative_reference_track_ids=None):
+                   negative_reference_track_ids=None, evidence_threshold="balanced"):
     """Only explicit genre labels and user-confirmed references seed profiles.
 
     No artist/title guessing and no self-training from the proposed playlist.
@@ -198,6 +198,7 @@ def genre_profiles(library: dict, decoded: dict, *, genre: str,
         "manual_positive_count": len(positives),
         "manual_negative_count": len(negatives),
         "available": len(positive_set) >= MIN_GENRE_REFERENCES,
+        "evidence_threshold": evidence_threshold,
         "method": "explicit_subgenre_or_user_confirmed_audio_references",
     }
 
@@ -226,9 +227,11 @@ def genre_evidence(key, info, decoded, profile, *, reviews=None):
         basis = "verified_metadata_or_reference"
     else:
         # When unrelated metadata conflicts, require positive contrast too.
-        compatible = positive is not None and positive >= .72 and (
-            margin is None or margin >= .025
-        ) and (support != "unrelated_metadata" or margin is not None and margin >= .055)
+        threshold={"strict":(.78,.055,.08),"balanced":(.72,.025,.055),
+                   "exploratory":(.67,.0,.03)}[profile.get("evidence_threshold","balanced")]
+        compatible = positive is not None and positive >= threshold[0] and (
+            margin is None or margin >= threshold[1]
+        ) and (support != "unrelated_metadata" or margin is not None and margin >= threshold[2])
         basis = "acoustic_reference_comparison" if compatible else "insufficient_genre_evidence"
     # Missing a measured modality is NOT secretly restored to full confidence.
     coverage = sum(1 for name in ("musicnn", "clap") if scores[name] is not None)/2
@@ -302,10 +305,14 @@ def _style_evidence(info,style):
 def parse_prompt(prompt: str, *, count: int | None=None, minutes: int | None=None,
                  overrides: dict | None=None, genre: str | None=None,
                  subgenre: str | None=None, reference_track_ids=None,
-                 negative_reference_track_ids=None, excluded_track_ids=None):
+                 negative_reference_track_ids=None, excluded_track_ids=None,
+                 excluded_artists=None, excluded_albums=None, year_from=None,
+                 year_to=None, evidence_threshold="balanced"):
     if not isinstance(prompt,str) or not 8<=len(prompt.strip())<=400:
         raise GenerationError("Describe the music in 8–400 characters.")
     prompt=prompt.strip()
+    if evidence_threshold not in ("strict","balanced","exploratory"):
+        raise GenerationError("Unknown genre evidence threshold.")
     inferred,evidence=infer(prompt,prompt,[],{}, {})
     structured_genre=_style_token(genre) if genre else ""
     structured_subgenre=_style_token(subgenre) if subgenre else ""
@@ -339,6 +346,12 @@ def parse_prompt(prompt: str, *, count: int | None=None, minutes: int | None=Non
         year_range=[start,start+9]
     else:
         year_range=None
+    if year_from is not None or year_to is not None:
+        if not isinstance(year_from,int) or isinstance(year_from,bool) or not isinstance(year_to,int) or isinstance(year_to,bool):
+            raise GenerationError("Both explicit year bounds must be integers.")
+        if not 1800<=year_from<=year_to<=2100 or year_to-year_from>75:
+            raise GenerationError("Invalid explicit release-year range.")
+        year_range=[year_from,year_to]
     match=TRACK_COUNT.search(prompt)
     n=count if count is not None else (int(match.group(1)) if match else 24)
     if not isinstance(n,int) or isinstance(n,bool) or not MIN_TRACKS<=n<=MAX_TRACKS:
@@ -373,6 +386,9 @@ def parse_prompt(prompt: str, *, count: int | None=None, minutes: int | None=Non
         "negative_reference_track_ids":_bounded_ids(negative_reference_track_ids,"negative_reference_track_ids"),
         "excluded_track_ids":_bounded_ids(excluded_track_ids,"excluded_track_ids"),
         "require_exact_count":bool(structured_genre),
+        "excluded_artists":[normalize(a) for a in (excluded_artists or [])],
+        "excluded_albums":[normalize(a) for a in (excluded_albums or [])],
+        "evidence_threshold":evidence_threshold,
         "selection_policy_version":SELECTION_POLICY_VERSION,
     }
     uncertain=[]
@@ -395,6 +411,10 @@ def _constraints(info,request):
     criteria=request["criteria"]
     if str(info.get("key") or "") in criteria.get("excluded_track_ids", []):
         return "user_excluded"
+    if normalize(info.get("artist","")) in criteria.get("excluded_artists",[]):
+        return "excluded_artist"
+    if normalize(info.get("album","")) in criteria.get("excluded_albums",[]):
+        return "excluded_album"
     if not automatically_rankable(info):return "spoken_or_applause"
     if criteria["years"]:
         year=_year(info)
@@ -559,7 +579,8 @@ def generate(request,library,feature_cache):
     subgenre=criteria.get("subgenre") or ""
     profile=(genre_profiles(library,ff,genre=genre,subgenre=subgenre,
                            reference_track_ids=criteria.get("reference_track_ids",[]),
-                           negative_reference_track_ids=criteria.get("negative_reference_track_ids",[]))
+                           negative_reference_track_ids=criteria.get("negative_reference_track_ids",[]),
+                           evidence_threshold=criteria.get("evidence_threshold","balanced"))
              if genre else None)
     base={}
     evidence={}
