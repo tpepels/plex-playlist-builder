@@ -9,6 +9,7 @@ import os
 import hashlib
 from datetime import datetime, timezone
 import sqlite3
+import threading
 from contextlib import closing
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -20,7 +21,8 @@ TOKEN_FILE = Path(os.getenv("AUDIOMUSE_API_TOKEN_FILE", "/run/secrets/audiomuse_
 MAX_INDEX_PAGES = 100
 MAX_CHANGED_TRACKS = 50000
 BATCH_SIZE = 100
-MAX_PER_REQUEST = 500  # Keep a manual UI sync bounded as the library grows.
+MAX_PER_REQUEST = 500  # Keep each synchronization bounded as the library grows.
+_SYNC_LOCK = threading.Lock()
 
 
 def _settings() -> tuple[str, str]:
@@ -102,6 +104,12 @@ def _chunks(values: list[str], size: int = BATCH_SIZE):
 
 
 def synchronize() -> dict:
+    """Serialize background and explicit sync requests against the SQLite cache."""
+    with _SYNC_LOCK:
+        return _synchronize_locked()
+
+
+def _synchronize_locked() -> dict:
     """Retrieve changed analysis records atomically; never touch Plex or YAML."""
     url, token = _settings()
     index = _get_index(url, token)
