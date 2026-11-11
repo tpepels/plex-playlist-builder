@@ -54,24 +54,36 @@ def _write(tracks):
     return envelope
 
 
+def cached_library():
+    """Return the last complete local Plex catalogue without a network request.
+
+    Explicitly separate read-only UI lookups from scheduled/network refreshes.
+    No snapshot exists until the first complete scan succeeds.
+    """
+    with _LOCK:
+        cached = _CACHED.get("snapshot")
+        if cached is None or _CACHED.get("path") != str(FILE):
+            cached = _read()
+            _CACHED.clear()
+            if cached:
+                _CACHED.update(snapshot=cached, path=str(FILE))
+        return cached["tracks"] if cached else None
+
+
 def get_library(music, refresh=False):
     # Normal UI reads use the most recent complete snapshot immediately. A
     # scheduled background refresh is responsible for freshness and must never
     # block a browser request behind a long network-wide Plex scan.
-    with _LOCK:
-        cached = _CACHED.get("snapshot")
-        if cached is None:
-            cached = _read()
-            if cached:
-                _CACHED["snapshot"] = cached
-        if cached and not refresh:
-            return cached["tracks"]
+    if not refresh:
+        cached = cached_library()
+        if cached is not None:
+            return cached
     with _REFRESH_LOCK:
         # A second ordinary reader may have scanned while we waited.
-        with _LOCK:
-            cached = _CACHED.get("snapshot")
-            if cached and not refresh:
-                return cached["tracks"]
+        if not refresh:
+            cached = cached_library()
+            if cached is not None:
+                return cached
         # PlexAPI pagination is explicit; the returned value is complete only
         # when all search pages succeeded, otherwise retain the prior snapshot.
         all_tracks=music.searchTracks(container_size=200)
@@ -105,7 +117,7 @@ def get_library(music, refresh=False):
             raise RuntimeError("Plex returned an empty or invalid track catalogue.")
         new=_write(tracks)
         with _LOCK:
-            _CACHED["snapshot"]=new
+            _CACHED.update(snapshot=new, path=str(FILE))
         return new["tracks"]
 
 def metadata():
