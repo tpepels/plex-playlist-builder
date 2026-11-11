@@ -72,6 +72,73 @@ The YAML configuration API does not require Plex connectivity. If Plex or
 the downloader is unavailable, their status is shown independently; the
 other tools and saved playlist definitions remain accessible.
 
+## Genre-aware playlist creation (AudioMuse)
+
+Open **Create** at `http://media-server:5051/playlist-generator` to create a
+new playlist from the existing Plex Music catalogue. The installed preset is:
+
+- **Genre:** Jazz
+- **Subgenre:** Hard bop
+- **Track count:** exactly 30, no duplicates
+- **Variation:** Balanced
+- **Flow:** Smooth transitions
+
+The generator is an extension of the original `playlist_generation.py` engine.
+It does not create a second draft store or publishing pipeline.
+
+**Data preparation:** The AudioMuse analysis task must finish, and Playlist
+Manager must separately sync its analysis cache. The generator displays matched
+Plex IDs, valid MusiCNN/CLAP embeddings, pending records, and other coverage.
+The readiness status is based on the **last synchronized** manifest, not proof
+that an upstream analysis task is current. Use **Sync analyzed music** until
+pending is zero, then check that full embedding coverage is reported.
+
+**Selecting a subgenre:** The program identifies verified examples from
+explicit Plex subgenre tags and optionally from user-selected positive
+examples. Use **Search references** to add individual tracks or all tracks
+from an album; negative examples help distinguish related Jazz styles. The
+user needs at least two analyzed, labeled or confirmed positive examples to
+establish a defensible genre reference profile. General `Jazz` metadata is
+not considered proof of `Hard bop`. Without reference evidence, generation
+stops with an explanatory error.
+
+The engine compares all eligible Plex tracks using bounded prototypes derived
+from MusiCNN and CLAP embeddings. Missing genre metadata does not automatically
+exclude a recording whose audio matches the verified reference set. Rejection
+of unsuitable musical evidence is recorded separately from the raw embeddings.
+The displayed numbers are **relative acoustic similarities**, not calibrated
+genre probabilities.
+
+**Review:** Generation creates an unpublished, versioned draft. Inspect
+track-level genre evidence, playback, adjacent-track transitions, artist and
+album diversity, and coverage. Add, replace, remove or reorder recordings.
+Compare the original and proposed audio before accepting or rejecting a
+candidate. Rejections persist within the draft and are withheld from automatic
+suggestions. If Plex or AudioMuse changes, use **Regenerate with current
+analysis** to explicitly replace the draft's proposed track set; no automatic
+regeneration runs in the background.
+
+**Publish:** The existing publication screen requires a final review and
+checkbox approval, confirms exactly 30 tracks for this structured preset, and
+creates a new Plex playlist plus matching YAML. Existing playlists are not
+overwritten. The service protects draft and source revisions and reports
+rollback/reconciliation failures rather than pretending a partial operation
+succeeded.
+
+**Supported structured API:** `POST /api/generation/drafts` accepts
+`genre`, `subgenre`, positive and negative reference Plex IDs, exclusions,
+year limits, and `evidence_threshold` in addition to the legacy prompt and
+identity. Supporting routes provide readiness, genre-profile availability,
+Plex reference search, versioned listening reviews and explicit regeneration.
+Existing legacy prompt requests remain supported.
+
+**Verification:** CI includes synthetic Hard bop and neighboring Jazz fixtures,
+complete-catalogue retrieval beyond the former 500-track shortlist, strict
+30-track acceptance, AudioMuse synchronization, draft review, source revisions,
+publication and rollback, plus interactive browser tests. A successful CI run
+does not establish that your actual Plex/AudioMuse deployment meets the
+live-server acceptance gate.
+
 ## Unified downloads and Plex playlist workflow
 
 **Playlist Manager is the single browser entry point** on port **5051**.
