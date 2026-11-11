@@ -542,6 +542,29 @@ def _sequence(keys,lib,ff,intent):
     return out
 
 
+def transition_diagnostics(keys, decoded):
+    """Same sequence diagnostic used during generation and after every edit."""
+    transitions=[]
+    for index,key in enumerate(keys):
+        if index==0:continue
+        prev=keys[index-1]
+        prior=decoded.get(prev,{})
+        current=decoded.get(key,{})
+        similarity=_neighbor_score(prior,current)
+        e1,e2=prior.get("energy"),current.get("energy")
+        jump=abs(e1-e2) if e1 is not None and e2 is not None else None
+        tempo1,tempo2=prior.get("tempo"),current.get("tempo")
+        tempo_delta=(min(abs(math.log2((tempo1*m)/tempo2)) for m in (.5,1,2))
+                     if tempo1 and tempo2 and tempo1>0 and tempo2>0 else None)
+        transitions.append({"from_id":prev,"to_id":key,
+            "audio_similarity":round(similarity,4) if similarity is not None else None,
+            "energy_jump":round(jump,4) if jump is not None else None,
+            "tempo_octave_gap":round(tempo_delta,4) if tempo_delta is not None else None,
+            "warning":bool((similarity is not None and similarity<.57)
+                        or (jump is not None and jump>.35))})
+    return transitions
+
+
 def diagnose(keys,library,feature_cache,intent,request=None):
     from .curation_impact import measure
     features=features_for({k:feature_cache[k] for k in keys if k in feature_cache})
@@ -562,6 +585,7 @@ def diagnose(keys,library,feature_cache,intent,request=None):
         flags.append("Live checks rely on album/track title metadata")
     total_minutes=round(sum(_duration(library[k]) for k in keys)/60000,1)
     return {"metrics":metrics,"flags":flags,
+            "transitions":transition_diagnostics(keys,features),
             "tracks":len(keys),"duration_minutes":total_minutes,
             "unique_artists":len(artist_counts),
             "unique_albums":len(album_counts),
@@ -636,19 +660,6 @@ def generate(request,library,feature_cache):
         )
     ordered=_sequence(selected,library,ff,identity)
     diagnostics=diagnose(ordered,library,feature_cache,identity,request)
-    transitions=[]
-    for i,k in enumerate(ordered):
-        if not i:continue
-        prev=ordered[i-1]
-        transition=_neighbor_score(ff.get(prev,{}),ff.get(k,{}))
-        e1,e2=ff.get(prev,{}).get("energy"),ff.get(k,{}).get("energy")
-        jump=abs(e2-e1) if e1 is not None and e2 is not None else None
-        transitions.append({"from_id":prev,"to_id":k,
-            "audio_similarity":round(transition,4) if transition is not None else None,
-            "energy_jump":round(jump,4) if jump is not None else None,
-            "warning": bool((transition is not None and transition<.57)
-                            or (jump is not None and jump>.35))})
-    diagnostics["transitions"]=transitions
     warnings=list(request["interpretation"]["warnings"])
     if len(ordered)<wanted and not minutes_target:
         warnings.append(f"Only {len(ordered)} of {wanted} tracks meet the verified criteria.")
