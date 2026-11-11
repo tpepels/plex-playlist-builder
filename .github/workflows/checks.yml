@@ -60,7 +60,9 @@ jobs:
         run: node --test tests/test_home_intake.mjs
       - name: Playlist Intelligence browser integration
         if: ${{ always() }}
-        run: node tests/test_playlist_intelligence_ui.mjs
+        run: |
+          node tests/test_playlist_intelligence_ui.mjs
+          node --test tests/test_playlist_intelligence_autoload.mjs
       - name: Intelligent generation UI and APIs
         if: ${{ always() }}
         run: node tests/test_playlist_generator_ui.mjs
