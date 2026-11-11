@@ -60,13 +60,18 @@ def cached_library():
     Explicitly separate read-only UI lookups from scheduled/network refreshes.
     No snapshot exists until the first complete scan succeeds.
     """
+    try:
+        stat = FILE.stat()
+        signature = (str(FILE), stat.st_mtime_ns, stat.st_size)
+    except FileNotFoundError:
+        signature = (str(FILE), None, None)
     with _LOCK:
         cached = _CACHED.get("snapshot")
-        if cached is None or _CACHED.get("path") != str(FILE):
+        if cached is None or _CACHED.get("signature") != signature:
             cached = _read()
             _CACHED.clear()
             if cached:
-                _CACHED.update(snapshot=cached, path=str(FILE))
+                _CACHED.update(snapshot=cached, signature=signature)
         return cached["tracks"] if cached else None
 
 
@@ -116,8 +121,10 @@ def get_library(music, refresh=False):
         if not _valid(tracks):
             raise RuntimeError("Plex returned an empty or invalid track catalogue.")
         new=_write(tracks)
+        stat = FILE.stat()
         with _LOCK:
-            _CACHED.update(snapshot=new, path=str(FILE))
+            _CACHED.update(snapshot=new,
+                           signature=(str(FILE), stat.st_mtime_ns, stat.st_size))
         return new["tracks"]
 
 def metadata():
