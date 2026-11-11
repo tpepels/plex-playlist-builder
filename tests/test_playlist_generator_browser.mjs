@@ -140,7 +140,8 @@ test("Hard bop generator submits authoritative structured controls and reference
   assert.match(h.get("generationReadinessText").textContent,/Ready/);
   h.get("hardBopPreset").onclick();
   h.get("referenceQuery").value="Blue Note";
-  await h.get("searchReferences").onclick();
+  h.get("referenceQuery").onkeydown({key:"Enter",preventDefault(){}});
+  await settle();
   const row=h.get("referenceSearchResults").children[0];
   assert(row?.children?.length>=5);
   row.children[1].onclick(); // positive track
