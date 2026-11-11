@@ -40,7 +40,7 @@
             <div id="home-import-summary" class="home-preview-metrics"></div>
             <p id="home-import-description"></p>
             <div class="home-form-actions">
-              <button id="home-import-confirm" class="home-primary-button" type="button" disabled>Import &amp; sync changes</button>
+              <button id="home-import-confirm" class="home-primary-button" type="button" disabled>Import definitions and update Plex</button>
               <button id="home-import-cancel" class="home-secondary-button" type="button">Cancel</button>
             </div>
           </div>
@@ -82,6 +82,18 @@
       </section>
     </div>
 
+    <section class="home-attention" aria-labelledby="home-playlist-workflows" style="margin-top:18px">
+      <div class="home-section-header">
+        <div><span class="home-eyebrow">PLAYLIST WORKFLOWS</span><h2 id="home-playlist-workflows">Already have music in Plex?</h2></div>
+      </div>
+      <div class="home-form-actions" style="display:flex;gap:12px;flex-wrap:wrap">
+        <a class="home-task-link" href="/playlist-generator">Create a genre-based playlist</a>
+        <a class="home-task-link" href="/playlist-intelligence">Review and improve an existing playlist</a>
+        <a class="home-task-link" href="/playlists?view=isc">Discover music for the library</a>
+      </div>
+      <p class="home-form-hint">Audio feature synchronization and library indexing run automatically. Plex playlist changes always require approval.</p>
+    </section>
+
     <section class="home-overview" aria-labelledby="overview-title">
       <div class="home-section-header">
         <div><span class="home-eyebrow">CURRENT STATE</span><h2 id="overview-title">Your workspace</h2></div>
@@ -114,7 +126,7 @@
     <section class="home-attention" aria-labelledby="attention-title">
       <div class="home-section-header">
         <div><span class="home-eyebrow">NEXT ACTIONS</span><h2 id="attention-title">Needs attention</h2></div>
-        <button id="refresh-home" class="home-secondary-button" type="button">Refresh status</button>
+        <button id="refresh-home" class="home-secondary-button" type="button">Check status now</button>
       </div>
       <div id="attention-list" class="attention-list" aria-live="polite">
         <div class="attention-row" id="attention-loading"><span class="attention-mark neutral"></span>
