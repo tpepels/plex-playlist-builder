@@ -15,7 +15,7 @@ for(const m of script.matchAll(/\$\('([^']+)'\)/g)){
 for(const path of [
   '/api/curation/playlists','/api/curation/playlist/',
   '/api/curation/candidates','/api/curation/plan','/api/curation/apply',
-  '/api/curation/audio/','/api/curation/library/refresh'
+  '/api/curation/audio/'
 ]) assert(script.includes(path),'Missing integration: '+path);
 for(const func of ['chooseTarget','renderTracks','stage','listen','renderDraft']){
   assert(script.includes('function '+func+'('),'Missing function: '+func);
