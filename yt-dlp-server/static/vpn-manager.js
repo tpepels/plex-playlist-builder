@@ -410,7 +410,6 @@
   }
 
   $("vpn-upload-input").addEventListener("change", checkTemplates);
-  $("vpn-refresh").addEventListener("click", refresh);
   $("vpn-next-button").addEventListener("click", () =>
     act("/rotate", "Temporarily connecting to an alternate VPN exit…"));
   $("vpn-direct-button").addEventListener("click", () =>
