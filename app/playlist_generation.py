@@ -335,9 +335,15 @@ def parse_prompt(prompt: str, *, count: int | None=None, minutes: int | None=Non
                  negative_reference_track_ids=None, excluded_track_ids=None,
                  excluded_artists=None, excluded_albums=None, year_from=None,
                  year_to=None, evidence_threshold="balanced"):
-    if not isinstance(prompt,str) or not 8<=len(prompt.strip())<=400:
-        raise GenerationError("Describe the music in 8–400 characters.")
-    prompt=prompt.strip()
+    if not isinstance(prompt, str):
+        raise GenerationError("Musical description must be text.")
+    prompt = prompt.strip()
+    # Structured selections are sufficient; don't force a redundant text brief.
+    # Preserve the interpreted description in the draft for reproducibility.
+    if not prompt and genre:
+        prompt = " ".join(part for part in (subgenre, genre, "music") if part)
+    if not 8 <= len(prompt) <= 400:
+        raise GenerationError("Select a genre or describe the music in 8–400 characters.")
     if evidence_threshold not in ("strict","balanced","exploratory"):
         raise GenerationError("Unknown genre evidence threshold.")
     inferred,evidence=infer(prompt,prompt,[],{}, {})
