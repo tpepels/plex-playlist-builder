@@ -56,6 +56,12 @@ def prepare(plex,draft,title,library):
     if draft["status"]!="draft":
         raise DraftConflict("This draft has already been published.")
     keys=_validate(draft["data"],library)
+    criteria=draft["data"]["request"]["criteria"]
+    if criteria.get("genre") and len(keys)!=criteria["count"]:
+        raise DraftConflict(
+            f"Genre draft requires exactly {criteria['count']} tracks; "
+            f"currently has {len(keys)}. Complete the selection before publishing."
+        )
     original_sources=draft["data"].get("source_revisions") or {}
     if original_sources.get("library") and original_sources["library"]!=catalogue_revision(library):
         raise DraftConflict("Plex catalogue changed since generation. Regenerate and review the draft.")
