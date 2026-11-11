@@ -1054,6 +1054,11 @@ class GenerationCreateBody(BaseModel):
     reference_track_ids: list[str] = []
     negative_reference_track_ids: list[str] = []
     excluded_track_ids: list[str] = []
+    excluded_artists: list[str] = []
+    excluded_albums: list[str] = []
+    year_from: int | None = None
+    year_to: int | None = None
+    evidence_threshold: Literal["strict","balanced","exploratory"] = "balanced"
 
 
 class GenerationEditBody(BaseModel):
@@ -1197,7 +1202,11 @@ def create_generation(body: GenerationCreateBody,request: Request):
                             subgenre=body.subgenre,
                             reference_track_ids=body.reference_track_ids,
                             negative_reference_track_ids=body.negative_reference_track_ids,
-                            excluded_track_ids=body.excluded_track_ids)
+                            excluded_track_ids=body.excluded_track_ids,
+                            excluded_artists=body.excluded_artists,
+                            excluded_albums=body.excluded_albums,
+                            year_from=body.year_from,year_to=body.year_to,
+                            evidence_threshold=body.evidence_threshold)
         _,library=_generation_context()
         cached,_=cached_features()
         built=generate_playlist(intent,library,cached)
@@ -1253,7 +1262,8 @@ def edit_generation(draft_id: str,body: GenerationEditBody,request: Request):
             profile=genre_profiles(library,decoded,genre=criteria["genre"],
                 subgenre=criteria.get("subgenre") or "",
                 reference_track_ids=criteria.get("reference_track_ids",[]),
-                negative_reference_track_ids=criteria.get("negative_reference_track_ids",[]))
+                negative_reference_track_ids=criteria.get("negative_reference_track_ids",[]),
+                evidence_threshold=criteria.get("evidence_threshold","balanced"))
             data["genre_profile"]=profile
             data["genre_evidence"]={
                 key: genre_evidence(key,library[key],decoded,profile,
@@ -1294,7 +1304,8 @@ def generation_candidates(draft_id: str,target: str="",q: str="",
             profile=genre_profiles(library,ff,genre=criteria["genre"],
                 subgenre=criteria.get("subgenre") or "",
                 reference_track_ids=criteria.get("reference_track_ids",[]),
-                negative_reference_track_ids=criteria.get("negative_reference_track_ids",[]))
+                negative_reference_track_ids=criteria.get("negative_reference_track_ids",[]),
+                evidence_threshold=criteria.get("evidence_threshold","balanced"))
             signals={
                 key:genre_evidence(key,info,ff,profile,
                                     reviews=draft["data"].get("reviews"))
