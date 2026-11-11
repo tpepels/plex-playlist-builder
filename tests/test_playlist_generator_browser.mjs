@@ -100,7 +100,7 @@ function harness({readinessError=false}={}){
       value={tracks:[{id:"200",artist:"Reference Band",album:"Reference LP",
         title:"Reference Track",album_track_ids:["200","201"]}]};
     else if(path==="/api/generation/drafts"&&method==="POST")value=draft;
-    else if(path.startsWith("/api/generation/drafts/")&&path.endsWith("/candidates")){
+    else if(path.startsWith("/api/generation/drafts/")&&path.includes("/candidates?")){
       value={revision:draft.revision,candidates:draft.data.reviews[candidate.id]?.verdict==="reject"?[]:[candidate]};
     } else if(path.endsWith("/reviews")&&method==="POST"){
       draft=structuredClone(draft);draft.revision++;
