@@ -86,7 +86,7 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
 </div>
 <details class="panel">
   <summary>Data maintenance (usually automatic)</summary>
-  <p class="muted">The server periodically copies new AudioMuse analysis results into its local cache and updates the Plex music index. Neither operation changes playlists. Use the controls below only when you need an immediate update.</p>
+  <p class="muted">The server automatically analyzes newly indexed recordings, copies completed AudioMuse results into its local cache and refreshes the Plex music index. Neither operation changes playlists. Use the controls below only when you need an immediate update.</p>
   <div class="controls">
     <button type="button" id="syncAudioMuse" title="Copies completed AudioMuse features into Playlist Manager; does not start audio analysis or change Plex playlists">Copy new AudioMuse results now</button>
     <button type="button" id="stopAudioMuseSync" hidden>Stop after this batch</button>
