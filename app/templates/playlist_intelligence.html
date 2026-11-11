@@ -79,13 +79,9 @@ audio{width:100%;height:35px;margin-top:8px}
 <p class="smalltext">Review tracks, listen to alternatives, and approve changes before they are written to Plex. AudioMuse and Plex metadata are updated automatically.</p>
 <section class="panel">
   <div class="controls">
-    <select id="playlist" aria-label="Playlist"><option value="">Select playlist…</option></select>
-    <button id="reload" type="button" title="Discard this view and load the current playlist from Plex; unsaved review operations will be lost">Reload playlist from Plex</button>
+    <select id="playlist" aria-label="Playlist"><option value="">Loading playlists…</option></select>
   </div>
-  <details><summary>Data maintenance (normally automatic)</summary>
-    <p class="smalltext">The local search index refreshes every 15 minutes. Rescan only when you need newly added Plex tracks immediately. This does not modify playlists.</p>
-    <button id="refreshLibrary" type="button" title="Read the latest track and album metadata from Plex into the local index">Rescan Plex music metadata now</button>
-  </details>
+  <p class="smalltext">Playlists, metadata and AudioMuse coverage update automatically. Any staged edits are preserved until you approve or discard them.</p>
   <p id="message" role="status" aria-live="polite"></p>
   <div id="profile" hidden>
     <div id="metrics" class="metrics"></div>
@@ -140,7 +136,7 @@ audio{width:100%;height:35px;margin-top:8px}
       <div class="row"><h2 id="candidateHeading">Alternatives</h2><button id="clearTarget" class="small">All library</button></div>
       <div class="controls">
         <input id="candidateSearch" type="search" placeholder="Search Plex library…">
-        <button id="searchCandidates">Search</button>
+        <span class="smalltext">Results update while typing</span>
       </div>
       <p class="smalltext" id="candidateHint"></p>
       <div id="candidateList" class="scroll"></div>
@@ -149,7 +145,7 @@ audio{width:100%;height:35px;margin-top:8px}
   </div>
   <section class="panel">
     <div class="row"><h2>Validation across existing playlists</h2>
-      <button id="runAudit" type="button" class="small">Review playlist quality across genres</button></div>
+      <span id="auditStatus" class="smalltext" role="status">Loading quality overview…</span></div>
     <div id="validationResults" aria-live="polite"></div>
   </section>
   <section class="panel">
@@ -443,7 +439,7 @@ $('acceptCandidate').onclick=()=>submitListeningReview('accept');
 $('rejectCandidate').onclick=()=>submitListeningReview('reject');
 
 async function auditExistingPlaylists(){
-  $('runAudit').disabled=true;
+  $('auditStatus').textContent='Checking existing playlists…';
   const root=$('validationResults');root.replaceChildren(el('p','Checking existing playlists…','smalltext'));
   try{
     const results=await api('/api/curation/validation');
@@ -467,9 +463,9 @@ async function auditExistingPlaylists(){
     if(!results.human_validation_complete)
       root.append(el('p','Auditioning incomplete: 2 playlists per genre, 8 judgments across 4 distinct targets per playlist, with 60% audio coverage. No changes are automatically approved.','smalltext'));
   }catch(error){root.replaceChildren(el('p',error.message,'smalltext'))}
-  finally{$('runAudit').disabled=false}
+  finally{$('auditStatus').textContent='Updates automatically'}
 }
-$('runAudit').onclick=auditExistingPlaylists;
+void auditExistingPlaylists();
 function chooseTarget(id){
   if(id&&!source.keys.includes(id)){
     message('Undo the staged replacement before choosing alternatives for it.',true);
@@ -484,11 +480,15 @@ function chooseTarget(id){
 }
 async function searchCandidates(){
   if(!source)return;
+  const searchSerial=++candidateRequestSerial;
+  const requestedSource=source;
+  const requestedTarget=target;
   const name=encodeURIComponent(source.name),q=encodeURIComponent($('candidateSearch').value.trim());
   const url='/api/curation/candidates?name='+name+'&target='+encodeURIComponent(target||'')+'&q='+q+'&limit=30';
   $('candidateHint').textContent='Searching…';
   try{
     const data=await api(url);
+    if(searchSerial!==candidateRequestSerial||source!==requestedSource||target!==requestedTarget)return;
     $('candidateHint').textContent=data.candidates.length+' results · ranked by musical fit when analyzed';
     const list=$('candidateList');list.replaceChildren();
     for(const t of data.candidates){
@@ -513,18 +513,60 @@ async function searchCandidates(){
       list.append(row);
     }
     if(!data.candidates.length)list.append(el('p','No candidates found.','smalltext'));
-  }catch(e){$('candidateHint').textContent=e.message;message(e.message,true)}
+  }catch(e){if(searchSerial===candidateRequestSerial){$('candidateHint').textContent=e.message;message(e.message,true)}}
 }
+let namesRequestSerial=0;
+let playlistRequestSerial=0;
+let candidateRequestSerial=0;
+let candidateTimer=null;
+let latestPlaylistNames=[];
+let recentPlaylist = null;
+let initialPlaylistLoaded = false;
 async function loadNames(){
+  // Keep the list populated without a manual reload. Never disturb staged
+  // changes or an open approval dialog.
+  const serial=++namesRequestSerial;
   try{
     const result=await api('/api/curation/playlists');
-    const sel=$('playlist'),was=sel.value;
-    sel.replaceChildren(el('option','Select playlist…'));
-    for(const name of result.playlists){
-      const opt=el('option',name);opt.value=name;sel.append(opt);
+    if(serial!==namesRequestSerial)return;
+    const names=result.playlists||[];
+    const sel=$('playlist');
+    const current=sel.value || source?.name || '';
+    const requested=typeof window!=='undefined' ?
+      new URLSearchParams(window.location.search).get('name') : null;
+    const preferred=initialPlaylistLoaded ? current :
+      (requested&&names.includes(requested)?requested :
+       recentPlaylist&&names.includes(recentPlaylist)?recentPlaylist :
+       names.includes(current)?current : names[0]||'');
+    const changed=names.length!==latestPlaylistNames.length ||
+      names.some((name,i)=>name!==latestPlaylistNames[i]);
+    if(changed){
+      latestPlaylistNames=[...names];
+      sel.replaceChildren();
+      if(!names.length)sel.append(el('option','No saved playlists yet'));
+      for(const name of names){
+        const opt=el('option',name);opt.value=name;sel.append(opt);
+      }
     }
-    if(result.playlists.includes(was)){sel.value=was;await loadPlaylist()}
-  }catch(e){message(e.message,true)}
+    if(!names.length){
+      if(!source){sel.value='';$('workspace').hidden=true;$('profile').hidden=true;}
+      message('No saved playlists. Create or import a playlist to begin.');
+      return;
+    }
+    if(source && actions.length && source.name!==preferred){
+      // Deletion/reorder from another client must not destroy an active draft.
+      return;
+    }
+    if(preferred && names.includes(preferred)){
+      sel.value=preferred;
+      if(!initialPlaylistLoaded || (!source && !busy)){
+        initialPlaylistLoaded=true;
+        await loadPlaylist({preserveSelection:true});
+      }
+    }
+  }catch(e){
+    if(serial===namesRequestSerial)message('Could not load playlists; retrying automatically: '+e.message,true);
+  }
 }
 function renderSummary(){
   if(!source)return;
@@ -561,19 +603,23 @@ async function refreshDiagnostics(){
 async function loadPlaylist(){
   const name=$('playlist').value;
   if(!name){source=null;$('workspace').hidden=true;$('profile').hidden=true;return}
+  const serial=++playlistRequestSerial;
   busy=true;message('Loading Plex playlist…');
   try{
-    source=await api('/api/curation/playlist/'+encodeURIComponent(name));
+    const incoming=await api('/api/curation/playlist/'+encodeURIComponent(name));
+    if(serial!==playlistRequestSerial||$('playlist').value!==name)return;
+    source=incoming;
     actions=[];chosen={};target=null;filteredPage=0;plan=null;
     $('workspace').hidden=false;$('profile').hidden=false;
     renderSummary();
     $('trackSearch').value='';$('trackFilter').value='all';
     $('candidateSearch').value='';$('candidateList').replaceChildren();
     renderTracks();renderDraft();
-    await loadReviewQueue();
+    void loadReviewQueue();
+    void searchCandidates();
     message('Loaded · Plex playlist #'+source.playlist_id);
-  }catch(e){source=null;$('workspace').hidden=true;$('profile').hidden=true;message(e.message,true)}
-  finally{busy=false}
+  }catch(e){if(serial===playlistRequestSerial){source=null;$('workspace').hidden=true;$('profile').hidden=true;message('Playlist unavailable; retrying automatically: '+e.message,true)}}
+  finally{if(serial===playlistRequestSerial)busy=false}
 }
 async function loadReviewQueue(){
   if(!source)return;
@@ -653,18 +699,13 @@ $('resetIdentity').onclick=async()=>{
   }catch(e){message(e.message,true)}
   finally{$('resetIdentity').disabled=source?.identity?.source!=='manual'}
 };
-$('playlist').onchange=()=>{if(actions.length&&!confirm('Discard staged changes?')){$('playlist').value=source?.name||'';return;}loadPlaylist()};
-$('reload').onclick=()=>{if(actions.length&&!confirm('Discard staged changes?'))return;loadPlaylist()};
-$('refreshLibrary').onclick=async()=>{
-  if(actions.length&&!confirm('Discard staged changes and refresh the library?'))return;
-  $('refreshLibrary').disabled=true;
-  message('Indexing complete Plex library…');
-  try{
-    const result=await post('/api/curation/library/refresh',{});
-    message('Plex library indexed · '+result.tracks+' tracks');
-    if(source)await loadPlaylist();
-  }catch(e){message(e.message,true)}
-  finally{$('refreshLibrary').disabled=false}
+$('playlist').onchange=()=>{
+  if(actions.length&&!confirm('Discard staged changes?')){
+    $('playlist').value=source?.name||'';return;
+  }
+  recentPlaylist=$('playlist').value;
+  if(typeof localStorage!=='undefined')localStorage.setItem('curationRecentPlaylist',recentPlaylist);
+  void loadPlaylist();
 };
 $('trackSearch').oninput=()=>{filteredPage=0;renderTracks()};
 $('trackFilter').onchange=()=>{filteredPage=0;renderTracks()};
@@ -672,8 +713,13 @@ $('prevTracks').onclick=()=>{filteredPage--;renderTracks()};
 $('nextTracks').onclick=()=>{filteredPage++;renderTracks()};
 $('addTrack').onclick=()=>chooseTarget(null);
 $('clearTarget').onclick=()=>chooseTarget(null);
-$('searchCandidates').onclick=searchCandidates;
-$('candidateSearch').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();searchCandidates()}};
+$('candidateSearch').oninput=()=>{
+  clearTimeout(candidateTimer);
+  candidateTimer=setTimeout(()=>{void searchCandidates()},250);
+};
+$('candidateSearch').onkeydown=e=>{
+  if(e.key==='Enter'){e.preventDefault();clearTimeout(candidateTimer);void searchCandidates()}
+};
 $('undo').onclick=()=>{actions.pop();renderTracks();renderDraft()};
 $('clear').onclick=()=>{actions=[];renderTracks();renderDraft()};
 $('review').onclick=async()=>{
@@ -706,7 +752,35 @@ $('approve').onclick=async()=>{
   }catch(e){message(e.message,true);$('approval').close()}
   finally{busy=false;$('approve').disabled=false;renderDraft()}
 };
-loadNames();
+recentPlaylist=typeof localStorage!=='undefined'
+  ? localStorage.getItem('curationRecentPlaylist') : null;
+void loadNames();
+if(typeof window!=='undefined'&&typeof window.setInterval==='function'){
+  window.setInterval(()=>{
+    if(document.hidden||busy)return;
+    void loadNames();
+  },60000);
+  window.setInterval(async()=>{
+    if(document.hidden||busy||actions.length||!source)return;
+    // Refresh only when the underlying Plex playlist changed. An unchanged
+    // revision never resets target, scroll or staged UI choices.
+    const current=source,serial=++playlistRequestSerial;
+    try{
+      const incoming=await api('/api/curation/playlist/'+encodeURIComponent(current.name));
+      if(serial!==playlistRequestSerial||source!==current||actions.length||busy)return;
+      if(incoming.snapshot===current.snapshot&&incoming.version===current.version){
+        return;
+      }
+      source=incoming;target=null;chosen={};filteredPage=0;plan=null;
+      renderSummary();renderTracks();renderDraft();
+      void loadReviewQueue();void searchCandidates();
+      message('Plex playlist updated automatically.');
+    }catch(e){
+      if(serial===playlistRequestSerial&&source===current)
+        message('Cannot check Plex changes; retrying automatically: '+e.message,true);
+    }
+  },90000);
+}
 </script>
 <script src="/static/signal-console.js" defer></script>
 <script src="/static/site-navigation.js" defer></script>
