@@ -471,7 +471,18 @@ def _initial_value(info,ff,intent):
     return .68*style+.32*(intrinsic if intrinsic is not None else .5)
 
 
-def _intrinsic(candidate, selected, library, features, intent, previous, base):
+def _selection_center(selected, features):
+    """Compute once for each selection step, not once per catalogue candidate."""
+    recent=[features[key] for key in selected[-12:] if key in features]
+    return {
+        "musicnn":_centroid([f["musicnn"] for f in recent if f.get("musicnn") is not None]),
+        "clap":_centroid([f["clap"] for f in recent if f.get("clap") is not None]),
+        "energy":_mean([f["energy"] for f in recent if f.get("energy") is not None]),
+    }
+
+
+def _intrinsic(candidate, selected, library, features, intent, previous, base, center=None):
+    """Fast, complete-catalogue scoring with one cached contextual centroid."""
     ff=features.get(candidate,{})
     info=library[candidate]
     static=base[candidate]
@@ -480,23 +491,18 @@ def _intrinsic(candidate, selected, library, features, intent, previous, base):
     a_count=sum(library[k]["artist"]==artist for k in selected)
     b_count=sum(library[k]["album_key"]==album for k in selected)
     mode=intent["variation"]
-    # Intentional focused playlists may repeat a performer. Repetition of
-    # an album, however, still receives a moderate penalty.
     concentration=(.025 if mode=="focused" else .11 if mode=="balanced" else .16)*a_count
     concentration+=.055*b_count
     value=static-concentration
-    if selected:
-        anchor=selected[-min(len(selected),12):]
-        ctx=_profile_context(anchor,library,features,intent,None)
-        evaluated=_score_candidate(candidate,info,ff,anchor,library,features,intent,
-                                   None,ctx,detailed=False)
-        if evaluated["match"] is not None:
-            value=.50*value+.50*evaluated["match"]
+    if selected and center:
+        match=_neighbor_score(ff,center)
+        if match is not None:
+            value=.70*value+.30*match
     if previous in features:
         neighbor=_neighbor_score(ff,features[previous])
         if neighbor is not None:
-            if intent["flow"]=="smooth": value+=.12*(neighbor-.5)
-            elif intent["flow"]=="varied": value+=.09*(1-abs(neighbor-.70)/.7-.5)
+            if intent["flow"]=="smooth":value+=.12*(neighbor-.5)
+            elif intent["flow"]=="varied":value+=.09*(1-abs(neighbor-.70)/.7-.5)
     return value
 
 
@@ -681,8 +687,10 @@ def generate(request,library,feature_cache):
     rank_index={key:i for i,key in enumerate(ranked)}
     while remaining and len(selected)<wanted:
         last=selected[-1] if selected else None
+        center=_selection_center(selected,ff) if selected else None
+        # Evaluate every remaining candidate; no arbitrary shortlist cutoff.
         best=max(sorted(remaining),key=lambda k:(
-            _intrinsic(k,selected,library,ff,identity,last,base),-rank_index[k]))
+            _intrinsic(k,selected,library,ff,identity,last,base,center),-rank_index[k]))
         duration=_duration(library[best])
         if minutes_target and elapsed>=minutes_target*60000 and selected:
             break
