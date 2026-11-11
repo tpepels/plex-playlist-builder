@@ -239,8 +239,19 @@ def index(request: Request):
 
 @app.get("/playlists", response_class=HTMLResponse)
 def playlist_workspace(request: Request):
-    """The full playlist management workspace, unchanged for saved data."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    """One playlist workspace with the original generator, curator, reports and analysis."""
+    views = {
+        "library": "index.html",
+        "create": "playlist_generator.html",
+        "improve": "playlist_intelligence.html",
+        "analysis": "musical_coherence.html",
+    }
+    selected = request.query_params.get("work", "library")
+    if selected not in views:
+        raise HTTPException(status_code=404, detail="Unknown playlist workspace section")
+    return templates.TemplateResponse(
+        views[selected], {"request": request, "workspace_work": selected}
+    )
 
 
 @app.get("/api/workspace/maintenance")
@@ -405,7 +416,7 @@ def start_audiomuse_analysis(body: StartAudioMuseAnalysisBody, request: Request)
 @app.get("/musical-coherence", response_class=HTMLResponse)
 def musical_coherence_page(request: Request):
     """AudioMuse review page; no playlist or Plex mutations."""
-    return templates.TemplateResponse("musical_coherence.html", {"request": request})
+    return templates.TemplateResponse("musical_coherence.html", {"request": request, "workspace_work": "analysis"})
 
 
 @app.get("/api/audiomuse/coherence")
@@ -1055,7 +1066,7 @@ def _curation_context(name: str, *, require_live: bool = True):
 
 @app.get("/playlist-intelligence", response_class=HTMLResponse)
 def playlist_intelligence_page(request: Request):
-    return templates.TemplateResponse("playlist_intelligence.html", {"request": request})
+    return templates.TemplateResponse("playlist_intelligence.html", {"request": request, "workspace_work": "improve"})
 
 
 @app.post("/api/curation/library/refresh")
@@ -1235,7 +1246,7 @@ def generation_reference_search(q: str = Query(min_length=2, max_length=120),
 
 @app.get("/playlist-generator",response_class=HTMLResponse)
 def playlist_generator_page(request: Request):
-    return templates.TemplateResponse("playlist_generator.html",{"request":request})
+    return templates.TemplateResponse("playlist_generator.html",{"request":request,"workspace_work":"create"})
 
 
 @app.post("/api/generation/drafts")
