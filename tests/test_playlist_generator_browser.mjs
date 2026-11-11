@@ -233,3 +233,29 @@ test("An existing unpublished draft can be reopened by ID without generating or 
   assert.equal(h.get("trackList").children.length,30);
   assert(!h.calls.some(c=>c.path==="/api/generation/publish"));
 });
+
+
+test("structured music selection works without outdated description text",async()=>{
+  const h=harness();
+  h.get("hardBopPreset").onclick();
+  assert.equal(h.get("prompt").value,"");
+  h.get("genre").value="soul";
+  h.get("genre").onchange();
+  assert.equal(h.get("subgenre").value,"");
+  await h.get("createForm").onsubmit({preventDefault(){}});
+  const created=h.calls.find(c=>c.path==="/api/generation/drafts");
+  assert(created);
+  assert.equal(created.body.genre,"soul");
+  assert.equal(created.body.subgenre,null);
+  assert.equal(created.body.prompt,"");
+  assert.equal(created.body.identity.variation,"balanced");
+  assert.equal(created.body.identity.flow,"smooth");
+  assert(!h.calls.some(c=>c.path==="/api/generation/publish"));
+});
+
+test("generator puts optional descriptions in advanced controls",()=>{
+  assert.match(template, /Optional description and advanced preferences/);
+  assert.doesNotMatch(template, /<textarea[^>]*id="prompt"[^>]*required/);
+  assert.match(template, /<select id="variation"/);
+  assert.match(template, /<select id="flow"/);
+});
