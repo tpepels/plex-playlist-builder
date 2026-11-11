@@ -118,8 +118,12 @@ each independent status as soon as its response arrives. A slow Plex or
 downloader request cannot hold up local playlist counts. Full Plex scans
 are handled by the background indexer and never block an ordinary cached
 library read. Repeated requests share a decoded AudioMuse SQLite snapshot
-until its file changes or a sync commits. These improvements preserve the
-last successfully fetched catalogue on transient outages.
+until its file changes or a sync commits. The playlist-creation readiness
+and genre evidence endpoints now read that local catalogue and reuse normalized
+audio embeddings without opening a new Plex connection or waiting for a live
+AudioMuse task-status response. AudioMuse task progress has a separate endpoint.
+These improvements preserve the last successfully fetched catalogue on
+transient outages.
 
 The playlist editor also checks `GET /api/config/status` every 90 seconds
 when visible and idle, updating external changes without losing unsaved YAML
