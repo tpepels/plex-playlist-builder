@@ -565,7 +565,8 @@ test("background revision check reloads an idle playlist page without publishing
   h.externalUpdate();
   const tick=h.timers.find(t=>t.milliseconds===90000);
   assert.ok(tick,"Passive revision polling should be active");
-  await tick.callback();
+  tick.callback();
+  await new Promise(resolve=>setImmediate(resolve));
   assert.equal(h.$("cards").querySelectorAll(".playlist").length,2);
   assert.equal(h.$("searchPlaylists").value,"Alpha");
   assert.equal(h.$("cards").querySelectorAll(".playlist")[0].open,true);
@@ -584,5 +585,5 @@ test("passive revision updates never overwrite an unsaved YAML edit",async()=>{
   await h.timers.find(t=>t.milliseconds===90000).callback();
   assert.equal(h.calls.length,before,"Editing must suppress background network refresh");
   assert.equal(h.$("yaml").value,"playlists:\n  My changes: []");
-  assert.equal(h.$("cards").children.length,1);
+  assert.equal(h.$("cards").querySelectorAll(".playlist").length,1);
 });
