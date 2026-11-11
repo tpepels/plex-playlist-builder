@@ -197,7 +197,8 @@
       selection = null;
       fileInput.value = "";
       label.textContent = "Choose a YAML file";
-      $("refresh-home")?.click?.();
+      if (typeof window !== "undefined" && typeof window.dispatchEvent === "function")
+        window.dispatchEvent(new Event("workspace:changed"));
     } catch (error) {
       message((imported
         ? "YAML was imported, but syncing did not finish: "
