@@ -114,3 +114,26 @@ def test_decoded_feature_cache_reuses_sqlite_until_file_changes(tmp_path, monkey
     changed, _ = ac.cached_features()
     assert changed["7"]["artist"] == "Eight"
     assert len(seen) == 2
+
+
+def test_audio_embedding_normalization_reuses_canonical_cache(tmp_path,monkeypatch):
+    from app import audiomuse_client as ac, playlist_curator as curator
+    from contextlib import closing
+    monkeypatch.setattr(ac, "CACHE_FILE", tmp_path / "features.sqlite")
+    monkeypatch.setattr(ac, "_FEATURES_HOT", {})
+    with closing(ac._open_cache()) as conn:
+        with conn:
+            conn.execute("INSERT INTO audio_features(track_id,fp,data) VALUES(?,?,?)",
+                         ("1", "fp", '{"title":"Song","energy":0.5}'))
+    cache,_=ac.cached_features()
+    calls=[]
+    real=curator.features_for
+    def counted(data):
+        calls.append(len(data))
+        return real(data)
+    monkeypatch.setattr(curator, "features_for", counted)
+    assert ac.decoded_features(cache) is ac.decoded_features(cache)
+    assert calls==[1]
+    other={"2":{"energy":0.3}}
+    assert ac.decoded_features(other)["2"]["energy"]==0.3
+    assert len(calls)==2
