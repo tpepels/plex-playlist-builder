@@ -107,10 +107,10 @@ def _evidence_tags(info, genre, subgenre):
     other = bool(subgenre and genres & (JAZZ_RELATIVES - {subgenre}))
     if exact:
         return "verified_subgenre"
-    if broad:
-        return "broad_genre"
     if other:
         return "related_subgenre"
+    if broad:
+        return "broad_genre"
     if genres:
         return "unrelated_metadata"
     return "missing_metadata"
