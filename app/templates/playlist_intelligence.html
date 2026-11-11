@@ -439,9 +439,14 @@ $('closeReview').onclick=()=>{
 $('acceptCandidate').onclick=()=>submitListeningReview('accept');
 $('rejectCandidate').onclick=()=>submitListeningReview('reject');
 
+let auditRunning=false;
 async function auditExistingPlaylists(){
+  if(auditRunning)return;
+  auditRunning=true;
   $('auditStatus').textContent='Checking existing playlists…';
-  const root=$('validationResults');root.replaceChildren(el('p','Checking existing playlists…','smalltext'));
+  const root=$('validationResults');
+  if(!root.children.length)
+    root.replaceChildren(el('p','Checking existing playlists…','smalltext'));
   try{
     const results=await api('/api/curation/validation');
     root.replaceChildren();
@@ -464,7 +469,7 @@ async function auditExistingPlaylists(){
     if(!results.human_validation_complete)
       root.append(el('p','Auditioning incomplete: 2 playlists per genre, 8 judgments across 4 distinct targets per playlist, with 60% audio coverage. No changes are automatically approved.','smalltext'));
   }catch(error){root.replaceChildren(el('p',error.message,'smalltext'))}
-  finally{$('auditStatus').textContent='Updates automatically'}
+  finally{auditRunning=false;$('auditStatus').textContent='Updates automatically'}
 }
 void auditExistingPlaylists();
 function chooseTarget(id){
@@ -721,6 +726,7 @@ $('nextTracks').onclick=()=>{filteredPage++;renderTracks()};
 $('addTrack').onclick=()=>chooseTarget(null);
 $('clearTarget').onclick=()=>chooseTarget(null);
 $('candidateSearch').oninput=()=>{
+  ++candidateRequestSerial;
   clearTimeout(candidateTimer);
   candidateTimer=setTimeout(()=>{void searchCandidates()},250);
 };
@@ -767,6 +773,9 @@ if(typeof window!=='undefined'&&typeof window.setInterval==='function'){
     if(document.hidden||busy)return;
     void loadNames();
   },60000);
+  window.setInterval(()=>{
+    if(!document.hidden&&!busy)void auditExistingPlaylists();
+  },180000);
   window.setInterval(async()=>{
     if(document.hidden||busy||actions.length||identityDirty||!source)return;
     // Refresh only when the underlying Plex playlist changed. An unchanged
