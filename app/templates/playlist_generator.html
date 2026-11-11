@@ -183,7 +183,8 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
   <p id="publicationSummary"></p>
   <div id="publishWarnings"></div>
   <table id="publicationQuality" class="quality"></table>
-  <p class="muted">Approved track order</p><div id="publishTracks"></div>
+  <p id="publishEvidence" class="muted" aria-live="polite"></p>
+  <p class="muted">Approved track order and genre evidence</p><div id="publishTracks"></div>
   <fieldset><label><input type="checkbox" id="publishApproval"> I approve creating this new playlist in Plex and saving it in the YAML collection.</label></fieldset>
   <footer><button id="cancelPublish" type="button">Cancel</button><button id="confirmPublish" class="primary" type="button" disabled>Create playlist</button></footer>
 </dialog>
@@ -324,6 +325,8 @@ function describeEvidence(t){
     'CLAP: '+(ev.clap_similarity===null?'unknown':Number(ev.clap_similarity).toFixed(2)),
     'Contrast: '+(ev.subgenre_contrast===null?'unknown':Number(ev.subgenre_contrast).toFixed(3)),
     'Review: '+(ev.review_status||'unreviewed').replaceAll('_',' '),
+    'Genre fit: '+(signal.ranking_components?.weighted_fit===undefined
+      ? 'not measured' : signal.ranking_components.weighted_fit),
   ];
   return node('div',sources.join(' · '),'genre-evidence'+(signal.compatible?'':' warning'));
 }
@@ -692,9 +695,20 @@ $('review').onclick=async()=>{
     for(const warning of plan.warnings)
       $('publishWarnings').append(node('div',warning,'flag'));
     metricTable($('publicationQuality'),plan.quality.metrics);
+    const evidence=plan.genre_evidence||{};
+    const withEvidence=plan.track_order.filter(t=>Boolean(evidence[t.id]));
+    const unreviewed=withEvidence.filter(t=>(evidence[t.id].evidence?.review_status||'unreviewed')==='unreviewed');
+    $('publishEvidence').textContent=withEvidence.length+'/'+plan.tracks+
+      ' recordings have traceable genre evidence · '+unreviewed.length+
+      ' not individually reviewed · policy '+(plan.selection_policy_version||'legacy')+
+      '. Audio similarities are not calibrated genre probabilities.';
     $('publishTracks').replaceChildren();
-    plan.track_order.forEach((t,i)=>$('publishTracks').append(
-       node('div',(i+1)+'. '+t.artist+' — '+t.title)));
+    plan.track_order.forEach((t,i)=>{
+      const signal=evidence[t.id],status=signal?.evidence?.metadata_support;
+      const basis=signal?.evidence?.reference_support||'unmeasured';
+      $('publishTracks').append(node('div',(i+1)+'. '+t.artist+' — '+t.title+
+        (signal?' · '+(status||'metadata unknown').replaceAll('_',' ')+' / '+basis.replaceAll('_',' '):' · genre unverified')));
+    });
     $('publishApproval').checked=false;
     $('confirmPublish').disabled=true;
     $('publishDialog').showModal();
