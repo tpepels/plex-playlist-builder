@@ -237,3 +237,20 @@ def test_contextual_energy_rejection_does_not_poison_future_genre_drafts(state):
         update={"name":"Fresh Energy"}),request())
     assert target in second["data"]["keys"]
     assert not plex.created
+
+
+def test_generator_opening_uses_local_catalogue_without_connecting_to_plex_or_audiomuse(
+    state, monkeypatch
+):
+    _, library, _, _ = state
+    monkeypatch.setattr(main, "cached_library", lambda: library)
+    def offline():
+        raise AssertionError("Opening generator must not contact live Plex/AudioMuse")
+    monkeypatch.setattr(main, "connect", offline)
+    monkeypatch.setattr(main, "analysis_status", offline)
+    readiness=main.generation_readiness()
+    assert readiness["plex_tracks"]==len(library)
+    assert readiness["ready"] is True
+    assert readiness["analysis"]["status_endpoint"]=="/api/audiomuse/analysis/status"
+    profiles=main.generation_genre_profiles(genre="jazz",subgenre="hard bop")
+    assert profiles["profiles"][0]["verified_metadata_count"]==4
