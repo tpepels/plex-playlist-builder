@@ -75,13 +75,17 @@ audio{width:100%;height:35px;margin-top:8px}
 <body><main>
 {% include "_site_navigation.html" %}
 
-<h1>Playlist Intelligence</h1>
+<h1>Improve an existing playlist</h1>
+<p class="smalltext">Review tracks, listen to alternatives, and approve changes before they are written to Plex. AudioMuse and Plex metadata are updated automatically.</p>
 <section class="panel">
   <div class="controls">
     <select id="playlist" aria-label="Playlist"><option value="">Select playlist…</option></select>
-    <button id="reload" type="button">Refresh</button>
-    <button id="refreshLibrary" type="button" title="Re-index the complete Plex music library">Re-index library</button>
+    <button id="reload" type="button" title="Discard this view and load the current playlist from Plex; unsaved review operations will be lost">Reload playlist from Plex</button>
   </div>
+  <details><summary>Data maintenance (normally automatic)</summary>
+    <p class="smalltext">The local search index refreshes hourly. Rescan only when you need newly added Plex tracks immediately. This does not modify playlists.</p>
+    <button id="refreshLibrary" type="button" title="Read the latest track and album metadata from Plex into the local index">Rescan Plex music metadata now</button>
+  </details>
   <p id="message" role="status" aria-live="polite"></p>
   <div id="profile" hidden>
     <div id="metrics" class="metrics"></div>
@@ -145,7 +149,7 @@ audio{width:100%;height:35px;margin-top:8px}
   </div>
   <section class="panel">
     <div class="row"><h2>Validation across existing playlists</h2>
-      <button id="runAudit" type="button" class="small">Audit jazz / ambient / soul / mixed</button></div>
+      <button id="runAudit" type="button" class="small">Review playlist quality across genres</button></div>
     <div id="validationResults" aria-live="polite"></div>
   </section>
   <section class="panel">
@@ -161,7 +165,7 @@ audio{width:100%;height:35px;margin-top:8px}
   <div id="planChanges"></div>
   <table id="impactMetrics" aria-label="Before and after musical metrics"></table>
   <p class="smalltext">Heuristic metrics; missing analysis and uncertainty are shown separately.</p>
-  <footer><button id="cancelApproval">Cancel</button><button id="approve" class="primary">Apply to Plex</button></footer>
+  <footer><button id="cancelApproval">Cancel</button><button id="approve" class="primary">Approve and update this Plex playlist</button></footer>
 </dialog>
 <dialog id="listeningReview">
   <h2>Listening validation</h2>
