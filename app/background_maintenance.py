@@ -1,8 +1,4 @@
-"""Automatic, read-only maintenance for the music workspace.
-
-Updates local AudioMuse SQLite and the Plex catalogue snapshot. Never publishes
-or changes a Plex playlist, YAML definition, or AudioMuse analysis task.
-"""
+"""Background cache updates and new-music analysis. Never writes Plex playlists."""
 from __future__ import annotations
 
 import asyncio
@@ -12,16 +8,19 @@ from typing import Any
 
 from starlette.concurrency import run_in_threadpool
 
-from . import audiomuse_client, curation_library, plex_client
+from . import audiomuse_client, automatic_analysis, curation_library, plex_client
 
 _AUDIO_INTERVAL = 15 * 60
-_LIBRARY_INTERVAL = 60 * 60
+_LIBRARY_INTERVAL = 15 * 60
+_ANALYSIS_INTERVAL = 2 * 60
 _START_DELAY = 20
 _state: dict[str, dict[str, Any]] = {
     "audio": {"running": False, "last_attempt": None, "last_success": None,
               "error": None, "pending": None},
     "library": {"running": False, "last_attempt": None, "last_success": None,
                 "error": None, "pending": None},
+    "analysis": {"running": False, "last_attempt": None, "last_success": None,
+                 "error": None, "pending": None},
 }
 
 
@@ -35,8 +34,10 @@ def enabled() -> bool:
 
 def snapshot() -> dict[str, Any]:
     return {"enabled": enabled(), "jobs": {name: dict(value) for name, value in _state.items()},
+            "automatic_analysis": automatic_analysis.snapshot(),
             "policy": {"audio_seconds": _AUDIO_INTERVAL,
                        "library_seconds": _LIBRARY_INTERVAL,
+                       "analysis_seconds": _ANALYSIS_INTERVAL,
                        "plex_playlist_writes": False}}
 
 
@@ -44,7 +45,9 @@ def _refresh_library() -> dict[str, Any]:
     _, music = plex_client.connect()
     # A successful scheduled run must mean Plex was actually rescanned.
     tracks = curation_library.get_library(music, refresh=True)
-    return {"tracks": len(tracks), "pending": 0}
+    observed = automatic_analysis.observe(tracks)
+    return {"tracks": len(tracks), "new_tracks": observed.get("new_tracks", 0),
+            "new_albums": observed.get("new_albums", 0), "pending": 0}
 
 
 async def _run_once(name: str, task) -> dict[str, Any] | None:
@@ -84,6 +87,8 @@ def start_tasks(app) -> None:
                                   _AUDIO_INTERVAL), name="workspace-audio-sync"),
         asyncio.create_task(_loop("library", _refresh_library,
                                   _LIBRARY_INTERVAL), name="workspace-library-refresh"),
+        asyncio.create_task(_loop("analysis", automatic_analysis.run_once,
+                                  _ANALYSIS_INTERVAL), name="workspace-auto-analysis"),
     ]
 
 
