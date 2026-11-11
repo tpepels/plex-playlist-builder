@@ -151,7 +151,7 @@ test("slow Plex response cannot block local playlist counts or maintenance state
     "/api/workspace/maintenance":{enabled:true,jobs:{audio:{},library:{}},
       automatic_analysis:{enabled:true,baseline:true,pending:2}}
   });
-  assert.equal(h.elements["plex-value"].textContent,"—");
+  assert.equal(h.elements["plex-value"].textContent,"");
   assert.equal(h.elements["playlist-count"].textContent,"18");
   assert.equal(h.elements["sync-count"].textContent,"3");
   assert.equal(h.elements["download-count"].textContent,"2");
