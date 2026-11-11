@@ -1066,6 +1066,10 @@ class GenerationEditBody(BaseModel):
     operations: list[dict]
 
 
+class GenerationRegenerateBody(BaseModel):
+    revision: int
+
+
 class GenerationReviewBody(BaseModel):
     revision: int
     candidate_id: str
@@ -1106,7 +1110,11 @@ def _generation_payload(draft,library):
            "audio_analyzed": bool(evidence.get(k,{}).get("evidence",{}).get("audio_coverage")),
            "genre_evidence": evidence.get(k),
            "review":reviews.get(k)} for k in keys]
-    return {**draft, "data":{**data,"tracks":rows}}
+    original_sources=data.get("source_revisions") or {}
+    stale_library=bool(original_sources.get("library") and
+                       original_sources["library"]!=catalogue_revision(library))
+    return {**draft,"source_stale":{"library":stale_library},
+            "data":{**data,"tracks":rows}}
 
 
 def _generation_origin(request):
@@ -1252,6 +1260,11 @@ def edit_generation(draft_id: str,body: GenerationEditBody,request: Request):
             if key not in library:raise DraftConflict("Track no longer exists in Plex.")
         data=dict(draft["data"])
         cached,_=cached_features()
+        original_sources=data.get("source_revisions") or {}
+        if original_sources and (
+            original_sources.get("library")!=catalogue_revision(library) or
+            original_sources.get("audio")!=feature_revision(cached)):
+            raise DraftConflict("Draft evidence is stale. Regenerate it explicitly before editing.")
         data["keys"]=after
         data["diagnostics"]=generation_diagnose(after,library,cached,data["request"]["identity"],
                                                  data["request"])
@@ -1283,6 +1296,42 @@ def edit_generation(draft_id: str,body: GenerationEditBody,request: Request):
         data["manual_violations"]=violations
         return _generation_payload(revise_generation_draft(draft_id,body.revision,data),
                                    library)
+    except (DraftConflict,GenerationError,ValueError) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/api/generation/drafts/{draft_id}/regenerate")
+def regenerate_generation(draft_id: str, body: GenerationRegenerateBody, request: Request):
+    """Explicit replacement of candidate set, retaining the same draft identity."""
+    _generation_origin(request)
+    try:
+        draft=get_generation_draft(draft_id)
+        if draft["status"]!="draft" or draft["revision"]!=body.revision:
+            raise DraftConflict("Draft changed. Reload before regenerating.")
+        _,library=_generation_context()
+        cached,_=cached_features()
+        data=dict(draft["data"])
+        request_spec=dict(data["request"])
+        criteria=dict(request_spec["criteria"])
+        rejected={key for key,row in data.get("reviews",{}).items()
+                  if row.get("verdict")=="reject"}
+        criteria["excluded_track_ids"]=list(dict.fromkeys(
+            list(criteria.get("excluded_track_ids",[]))+sorted(rejected)))
+        request_spec["criteria"]=criteria
+        generated=generate_playlist(request_spec,library,cached)
+        data.update({
+            "request":request_spec,"keys":generated["keys"],
+            "diagnostics":generated["diagnostics"],
+            "warnings":generated["warnings"],
+            "selection":generated["selection"],
+            "genre_profile":generated["genre_profile"],
+            "genre_evidence":generated["genre_evidence"],
+            "source_revisions":{"library":catalogue_revision(library),
+                                "audio":feature_revision(cached)},
+            "selection_policy_version":SELECTION_POLICY_VERSION,
+        })
+        return _generation_payload(
+            revise_generation_draft(draft_id,body.revision,data),library)
     except (DraftConflict,GenerationError,ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
@@ -1375,6 +1424,9 @@ def generation_plan(body: GenerationPlanBody):
         draft=get_generation_draft(body.draft_id)
         if draft["revision"]!=body.revision:
             raise DraftConflict("Draft changed. Reload before reviewing.")
+        source=draft["data"].get("source_revisions") or {}
+        if source.get("audio") and source["audio"]!=feature_revision(cached_features()[0]):
+            raise DraftConflict("AudioMuse evidence changed. Regenerate the draft before publishing.")
         return prepare_generation_publish(plex,draft,body.name,library)
     except (DraftConflict,GenerationError,ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
@@ -1385,6 +1437,10 @@ def generation_publish(body: GenerationPublishBody,request: Request):
     _generation_origin(request)
     try:
         plex,library=_generation_context()
+        draft=get_generation_draft(body.draft_id)
+        source=draft["data"].get("source_revisions") or {}
+        if source.get("audio") and source["audio"]!=feature_revision(cached_features()[0]):
+            raise DraftConflict("AudioMuse evidence changed. Review a regenerated draft.")
         return publish_generation_draft(plex,body.draft_id,body.revision,body.name,
                             body.plan_id,body.approved,library)
     except (DraftConflict,GenerationError,ValueError) as exc:
