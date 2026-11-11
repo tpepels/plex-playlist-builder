@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
+from datetime import datetime, timezone
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -139,9 +141,18 @@ def synchronize() -> dict:
             )
             conn.executemany("DELETE FROM audio_features WHERE track_id=?",
                              [(key,) for key in removed])
-            conn.execute(
-                "INSERT INTO metadata(key,value) VALUES('last_sync', datetime('now')) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+            meta = {
+                "last_sync": datetime.now(timezone.utc).isoformat(),
+                "available": str(len(index)),
+                "pending": str(pending),
+                "manifest_version": hashlib.sha256(
+                    json.dumps(index, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest(),
+            }
+            conn.executemany(
+                "INSERT INTO metadata(key,value) VALUES(?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                list(meta.items()),
             )
         count = conn.execute("SELECT COUNT(*) FROM audio_features").fetchone()[0]
         return {"available": len(index), "new_or_updated": len(changed),
@@ -155,5 +166,76 @@ def cached_features() -> tuple[dict[str, dict], dict]:
     with closing(_open_cache()) as conn:
         tracks = {track_id: json.loads(payload)
                   for track_id, payload in conn.execute("SELECT track_id,data FROM audio_features")}
-        row = conn.execute("SELECT value FROM metadata WHERE key='last_sync'").fetchone()
-        return tracks, {"cached": len(tracks), "last_sync": row[0] if row else None}
+        meta = dict(conn.execute("SELECT key,value FROM metadata"))
+        return tracks, {
+            "cached": len(tracks),
+            "last_sync": meta.get("last_sync"),
+            "available": int(meta["available"]) if "available" in meta else None,
+            "pending": int(meta["pending"]) if "pending" in meta else None,
+            "manifest_version": meta.get("manifest_version"),
+        }
+
+def feature_revision(cache: dict[str, dict], manifest_version: str | None = None) -> str:
+    """Deterministic revision of evidence consumed by a generation draft.
+
+    Include values, not just track IDs, so an AudioMuse reanalysis invalidates
+    the original source snapshot. Sorting makes this stable across cache reads.
+    """
+    content = json.dumps(cache, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(((manifest_version or "") + content).encode()).hexdigest()
+
+
+def readiness(library: dict, cache: dict, state: dict) -> dict:
+    """Reconcile the local Plex catalogue and the last observed AudioMuse manifest.
+
+    This is a local snapshot: live upstream completion is checked by the Sync
+    action. Report unknown manifest state explicitly, not as completed analysis.
+    """
+    from .playlist_curator import features_for
+    ids = set(str(k) for k in library)
+    indexed = set(str(k) for k in cache)
+    matching = ids & indexed
+    decoded = features_for({k: cache[k] for k in matching})
+    present = lambda value: value is not None
+    valid_musicnn = sum(present(decoded[k].get("musicnn")) for k in matching)
+    valid_clap = sum(present(decoded[k].get("clap")) for k in matching)
+    energy = sum(present(decoded[k].get("energy")) for k in matching)
+    tempo = sum(present(decoded[k].get("tempo")) for k in matching)
+    mood = sum(bool(decoded[k].get("mood")) for k in matching)
+    invalid_musicnn = sum(
+        cache[k].get("embedding") is not None and decoded[k].get("musicnn") is None
+        for k in matching
+    )
+    invalid_clap = sum(
+        cache[k].get("clap_embedding") is not None and decoded[k].get("clap") is None
+        for k in matching
+    )
+    pending = state.get("pending")
+    available = state.get("available")
+    return {
+        "plex_tracks": len(ids),
+        "audiomuse_available": available,
+        "cached_tracks": len(indexed),
+        "matched_track_ids": len(matching),
+        "unmatched_plex_tracks": len(ids - indexed),
+        "orphan_audio_tracks": len(indexed - ids),
+        "musicnn_available": valid_musicnn,
+        "clap_available": valid_clap,
+        "energy_available": energy,
+        "tempo_available": tempo,
+        "mood_available": mood,
+        "invalid_musicnn": invalid_musicnn,
+        "invalid_clap": invalid_clap,
+        "pending": pending,
+        "last_sync": state.get("last_sync"),
+        "manifest_version": state.get("manifest_version"),
+        "ready": bool(
+            ids and available is not None and pending == 0
+            and len(matching) == len(ids)
+            and (valid_musicnn + valid_clap) > 0
+        ),
+        "basis": "last_successful_local_sync",
+        "warning": (
+            "This is the last synchronized manifest, not a live upstream task status."
+        ),
+    }
