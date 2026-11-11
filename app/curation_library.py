@@ -15,7 +15,8 @@ from .playlist_curator import catalogue
 
 FILE = Path(os.getenv("CURATION_LIBRARY_FILE","/data/curation-library.json"))
 MAX_AGE_SECONDS = 3600
-_LOCK = threading.RLock()
+_LOCK = threading.RLock()  # protects the in-memory snapshot only
+_REFRESH_LOCK = threading.Lock()  # only one full Plex scan may publish
 _CACHED = {}
 
 
@@ -54,13 +55,23 @@ def _write(tracks):
 
 
 def get_library(music, refresh=False):
+    # Normal UI reads use the most recent complete snapshot immediately. A
+    # scheduled background refresh is responsible for freshness and must never
+    # block a browser request behind a long network-wide Plex scan.
     with _LOCK:
-        cached=_CACHED.get("snapshot")
+        cached = _CACHED.get("snapshot")
         if cached is None:
-            cached=_read()
-            if cached: _CACHED["snapshot"]=cached
-        if not refresh and cached and time.time()-cached["updated"] < MAX_AGE_SECONDS:
+            cached = _read()
+            if cached:
+                _CACHED["snapshot"] = cached
+        if cached and not refresh:
             return cached["tracks"]
+    with _REFRESH_LOCK:
+        # A second ordinary reader may have scanned while we waited.
+        with _LOCK:
+            cached = _CACHED.get("snapshot")
+            if cached and not refresh:
+                return cached["tracks"]
         # PlexAPI pagination is explicit; the returned value is complete only
         # when all search pages succeeded, otherwise retain the prior snapshot.
         all_tracks=music.searchTracks(container_size=200)
@@ -93,9 +104,9 @@ def get_library(music, refresh=False):
         if not _valid(tracks):
             raise RuntimeError("Plex returned an empty or invalid track catalogue.")
         new=_write(tracks)
-        _CACHED["snapshot"]=new
+        with _LOCK:
+            _CACHED["snapshot"]=new
         return new["tracks"]
-
 
 def metadata():
     with _LOCK:
