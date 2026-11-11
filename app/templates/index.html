@@ -144,6 +144,7 @@ small{color:var(--muted)}
 <body>
 <main class="signal-shell">
 {% include "_site_navigation.html" %}
+{% include "_workspace_tabs.html" %}
 <div class="workspace-heading">
   <div>
     <span class="workspace-label">LIBRARY / <span id="activeSectionPath">PLAYLISTS</span></span>
@@ -156,24 +157,6 @@ small{color:var(--muted)}
     <input id="coverZipFile" type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden>
   </div>
 </div>
-<section class="panel" aria-label="Playlist workflows">
-  <h3 style="font-size:15px;margin:0 0 9px">What do you want to do?</h3>
-  <div class="row" style="margin:0">
-    <a class="button" href="/playlist-generator" title="Choose a genre and create an editable draft; nothing is published before approval">Create a playlist</a>
-    <a class="button" href="/playlist-intelligence" title="Review an existing Plex playlist before approving changes">Improve an existing playlist</a>
-    <a class="button" href="/playlists?view=isc" title="Find recommended albums and compare with your Plex library">Discover music</a>
-    <a class="button" href="/playlists?view=health" title="Inspect playlist health and recent music reports">Library reports</a>
-    <details class="advanced" style="margin:0">
-      <summary style="padding:9px 12px">More library views</summary>
-      <div class="advanced-body">
-        <a href="/playlists?view=newmusic">Recently added albums</a> ·
-        <a href="/playlists?view=duplicates">Duplicate album report</a> ·
-        <a href="/playlists?view=discover">Find an album on YouTube Music</a>
-      </div>
-    </details>
-  </div>
-  <small>Completed AudioMuse results and the local Plex music index refresh automatically. Starting new audio analysis is still a separate action. Changing Plex playlists still requires your approval.</small>
-</section>
 <section class="collection-status" aria-label="Current collection">
   <div class="collection-identity">
     <span class="collection-label">Loaded collection</span>
@@ -431,7 +414,7 @@ function renderCards(definitions, statuses={}) {
   cards.innerHTML = "";
   const entries = Object.entries(definitions || {});
   if (!entries.length) {
-    cards.innerHTML = '<div class="empty"><strong>No playlist definitions yet.</strong> Use “Import & sync” above to load your existing YAML, or <a href="/playlist-generator">create a playlist</a>. Downloads, discovery, and library tools are still available.</div>';
+    cards.innerHTML = '<div class="empty"><strong>No playlist definitions yet.</strong> Use “Import & sync” above to load your existing YAML, or <a href="/playlists?work=create">create a playlist</a>. Downloads, discovery, and library tools are still available.</div>';
     applyListFilters();
     updateActions();
     return;
