@@ -150,12 +150,30 @@ small{color:var(--muted)}
     <h2 id="activeSectionTitle" tabindex="-1">Playlists</h2>
   </div>
   <div class="workspace-primary-action">
-    <button id="importPack" class="primary" title="Validate YAML, import and sync changes to Plex">Import &amp; sync</button>
+    <button id="importPack" class="primary" title="Validate YAML, import and sync changes to Plex">Import YAML and update Plex</button>
     <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
-    <button id="importCoverZip" type="button" title="Upload covers by ZIP filename">Upload cover ZIP</button>
+    <button id="importCoverZip" type="button" title="Upload covers by ZIP filename">Upload playlist covers (ZIP)</button>
     <input id="coverZipFile" type="file" accept=".zip,application/zip,application/x-zip-compressed" hidden>
   </div>
 </div>
+<section class="panel" aria-label="Playlist workflows">
+  <h3 style="font-size:15px;margin:0 0 9px">What do you want to do?</h3>
+  <div class="row" style="margin:0">
+    <a class="button" href="/playlist-generator" title="Choose a genre and create an editable draft; nothing is published before approval">Create a playlist</a>
+    <a class="button" href="/playlist-intelligence" title="Review an existing Plex playlist before approving changes">Improve an existing playlist</a>
+    <a class="button" href="/playlists?view=isc" title="Find recommended albums and compare with your Plex library">Discover music</a>
+    <a class="button" href="/playlists?view=health" title="Inspect playlist health and recent music reports">Library reports</a>
+    <details class="advanced" style="margin:0">
+      <summary style="padding:9px 12px">More library views</summary>
+      <div class="advanced-body">
+        <a href="/playlists?view=newmusic">Recently added albums</a> ·
+        <a href="/playlists?view=duplicates">Duplicate album report</a> ·
+        <a href="/playlists?view=discover">Find an album on YouTube Music</a>
+      </div>
+    </details>
+  </div>
+  <small>Audio analysis and the local music index update automatically. Changing Plex playlists still requires your approval.</small>
+</section>
 <section class="collection-status" aria-label="Current collection">
   <div class="collection-identity">
     <span class="collection-label">Loaded collection</span>
@@ -184,12 +202,12 @@ small{color:var(--muted)}
       <h2>Plex updates</h2>
       <small id="bulkSummary"></small>
     </div>
-    <button id="syncPending" class="primary" disabled>Sync pending</button>
+    <button id="syncPending" class="primary" disabled>Apply saved changes to Plex</button>
   </div>
   <div id="bulkProgress" class="bulk-progress" hidden aria-live="polite">
     <progress id="bulkBar" max="1" value="0"></progress>
     <div class="bulk-current" id="bulkCurrent"></div>
-    <button id="stopSync" type="button" hidden>Stop after current</button>
+    <button id="stopSync" type="button" hidden>Stop after this playlist</button>
     <div class="bulk-errors" id="bulkErrors" role="alert"></div>
   </div>
 </section>
@@ -209,22 +227,22 @@ small{color:var(--muted)}
   <div class="advanced-body">
     <textarea id="yaml" spellcheck="false"></textarea>
     <div class="row">
-      <button id="save">Save YAML</button>
-      <button id="reload">Discard</button>
+      <button id="save">Save playlist definitions</button>
+      <button id="reload">Discard edits</button>
       <small id="saveState"></small>
     </div>
   </div>
 </details>
 </section>
 <section id="viewHealth" class="panel" hidden>
-  <div class="section-title"><h2>Playlist health</h2><button class="refreshInsights" type="button">Refresh</button></div>
+  <div class="section-title"><h2>Playlist health</h2><button class="refreshInsights" type="button" title="This report updates when opened; use to recalculate now">Recalculate now</button></div>
   <div id="healthTotals" class="data-strip"></div>
   <div class="insights-tools"><span class="tag">Rotating targets: ≤20% per artist · ≤25% per album · ≥15% recently added</span>
   <span class="tag">Curated lists are not judged or auto-changed</span></div>
   <div id="healthRows" class="insight-scroll"><span class="album-meta">Open this tab to analyze the library.</span></div>
 </section>
 <section id="viewDuplicates" class="panel" hidden>
-  <div class="section-title"><h2>Duplicate albums</h2><button id="refreshDuplicates" type="button">Refresh</button></div>
+  <div class="section-title"><h2>Duplicate albums</h2><button id="refreshDuplicates" type="button" title="Rescan Plex now; nothing is deleted">Rescan albums now</button></div>
   <p class="album-meta">Complete albums compared by artist, release, tracklist, disc/track positions and duration (±2 seconds). Files and folders are never deleted. A marked folder is a review candidate, not a confirmed safe deletion.</p>
   <div id="duplicateTotals" class="data-strip"></div>
   <div class="insights-tools">
@@ -242,7 +260,7 @@ small{color:var(--muted)}
   <div id="duplicateRows">Open this tab to scan Plex.</div>
 </section>
 <section id="viewNewmusic" class="panel" hidden>
-  <div class="section-title"><h2>New music</h2><button class="refreshInsights" type="button">Refresh</button></div>
+  <div class="section-title"><h2>New music</h2><button class="refreshInsights" type="button" title="Recalculate recent music from Plex">Recalculate now</button></div>
   <div class="insights-tools">
     <label for="insightDays">Added within</label>
     <select id="insightDays" aria-label="Days to review"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="365">365 days</option></select>
@@ -254,7 +272,7 @@ small{color:var(--muted)}
 <section id="viewIsc" class="panel" hidden>
   <div class="section-title">
     <h2>Discover · In Sheep's Clothing</h2>
-    <button id="iscRefresh" type="button">Refresh source</button>
+    <button id="iscRefresh" type="button">Check source for new albums</button>
   </div>
   <p class="album-meta">Curated albums from In Sheep's Clothing Hi-Fi, compared with your Plex library. Suggestions only; your playlists are never changed. Genres are suggested from the source's published styles and tags.</p>
   <div id="iscTotals" class="data-strip"></div>
@@ -383,7 +401,7 @@ function pendingWork() {
 function updateActions() {
   const names = pendingWork();
   const button = $("syncPending");
-  button.textContent = names.length ? `Sync ${names.length} pending` : "Nothing to sync";
+  button.textContent = names.length ? `Apply ${names.length} saved playlist change${names.length === 1 ? "" : "s"} to Plex` : "Plex is up to date";
   button.disabled = syncing || editorDirty || names.length === 0;
   $("bulkSummary").textContent = names.length ? `${names.length} pending` : "";
   $("bulkPanel").hidden = !syncing && names.length === 0 && $("bulkErrors").textContent === "";
@@ -438,7 +456,7 @@ function renderCards(definitions, statuses={}) {
         ${spec.description ? `<div class="description">${esc(spec.description)}</div>` : ""}
         <ul>${cardItems(items)}</ul>
         ${items.length > 5 ? `<div class="more">+ ${items.length - 5} more items</div>` : ""}
-        <button class="primary build" ${disabled ? "disabled" : ""}>${status === "needs_sync" ? "Sync" : "Sync again"}</button>
+        <button class="primary build" ${disabled ? "disabled" : ""}>${status === "needs_sync" ? "Update Plex playlist" : "Rebuild in Plex"}</button>
         <div class="result" role="status"></div>
       </div>`;
     const button = row.querySelector(".build");
@@ -491,7 +509,7 @@ function markRowSynced(name) {
       chip.textContent = "Synced";
     }
     const button = row.querySelector(".build");
-    if (button) button.textContent = "Sync again";
+    if (button) button.textContent = "Rebuild in Plex";
   }
   renderVersion(config.version);
   applyListFilters();
@@ -1123,6 +1141,14 @@ async function showWorkspaceView(view) {
 const requestedView = typeof window === "undefined"
   ? "playlists" : new URLSearchParams(window.location.search).get("view");
 void showWorkspaceView(requestedView || "playlists");
+// Refresh only the visible report; never interrupt unsaved edits or an active Plex write.
+window.setInterval(() => {
+  if (document.hidden || syncing || coverUploading || editorDirty) return;
+  void checkHealth();
+  if (activeView === "health" || activeView === "newmusic") void loadInsights();
+  if (activeView === "duplicates") void loadDuplicates();
+  if (activeView === "isc") void loadIsc();
+}, 180000);
 // These are independent: a Plex outage cannot prevent local YAML editing.
 checkHealth();
 loadConfig().then(async () => {
