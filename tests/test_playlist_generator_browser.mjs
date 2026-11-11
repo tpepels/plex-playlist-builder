@@ -157,7 +157,7 @@ test("Hard bop generator submits authoritative structured controls and reference
   assert.deepEqual(Array.from(call.body.reference_track_ids),["200","201"]);
   assert.deepEqual(Array.from(call.body.negative_reference_track_ids),[]);
   assert.equal(h.get("workspace").hidden,false);
-  assert.equal(h.get("trackList").children.length,30);
+  assert.equal(h.get("trackList").children.length,30, h.get("notice").textContent);
   assert.match(h.get("selection").textContent,/400 library tracks/);
   assert.equal(h.get("review").disabled,false);
   assert(!h.calls.some(c=>c.path==="/api/generation/publish"));
@@ -168,7 +168,7 @@ test("Review rejection is versioned and prevents automatic repeated suggestion",
   await h.get("createForm").onsubmit({preventDefault(){}});
   await h.get("find").onclick();
   const list=h.get("candidateList");
-  assert.equal(list.children.length,1);
+  assert.equal(list.children.length,1, h.get("notice").textContent);
   const reviewButton=list.children[0].children.find(
     x=>x.textContent==="Review");
   assert(reviewButton);
@@ -190,7 +190,7 @@ test("Publish requires review dialog and affirmative user consent",async()=>{
   const h=harness();
   await h.get("createForm").onsubmit({preventDefault(){}});
   await h.get("review").onclick();
-  assert.equal(h.get("publishDialog").open,true);
+  assert.equal(h.get("publishDialog").open,true,h.get("notice").textContent);
   assert.equal(h.get("confirmPublish").disabled,true);
   assert(!h.calls.some(c=>c.path==="/api/generation/publish"));
   h.get("publishApproval").checked=true;
