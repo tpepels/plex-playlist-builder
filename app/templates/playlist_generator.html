@@ -404,7 +404,10 @@ $('generatorReviewReject').onclick=()=>submitGeneratorReview('reject');
 $('generatorReviewAccept').onclick=()=>submitGeneratorReview('accept');
 $('referenceQuery').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();searchReferences()}};
 $('searchReferences').onclick=searchReferences;
-$('genre').onchange=refreshGenreProfiles;
+$('genre').onchange=()=>{
+  if($('genre').value!=='jazz')$('subgenre').value='';
+  refreshGenreProfiles();
+};
 $('subgenre').onchange=refreshGenreProfiles;
 $('hardBopPreset').onclick=()=>{
   $('genre').value='jazz';$('subgenre').value='Hard bop';
