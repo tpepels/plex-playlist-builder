@@ -145,6 +145,27 @@ def _reference_sample(all_ids, manual_ids, maximum=28):
     return sorted(set(manual) | set(automatic))
 
 
+def _reference_prototypes(keys, decoded, groups=4):
+    """Bounded, deterministic musical prototypes for fast whole-library matching.
+
+    Multiple centroids preserve distinct reference neighborhoods; this avoids
+    per-candidate comparisons against thousands of reference tracks.
+    """
+    keys=sorted(keys)
+    if not keys:
+        return []
+    count=min(groups,len(keys))
+    buckets=[keys[i::count] for i in range(count)]
+    result=[]
+    for bucket in buckets:
+        result.append({
+            field:_centroid([decoded[k][field] for k in bucket
+                             if k in decoded and decoded[k].get(field) is not None])
+            for field in ("musicnn","clap")
+        })
+    return result
+
+
 def genre_profiles(library: dict, decoded: dict, *, genre: str,
                    subgenre: str = "", reference_track_ids=None,
                    negative_reference_track_ids=None, evidence_threshold="balanced"):
@@ -190,10 +211,14 @@ def genre_profiles(library: dict, decoded: dict, *, genre: str,
         raise GenerationError(
             "Insufficient analyzed " + genre + " references; select at least two positive tracks."
         )
+    positive_sample=_reference_sample(positive_set, positives)
+    negative_sample=_reference_sample(negative_set, negatives)
     return {
         "genre": genre, "subgenre": subgenre,
-        "positive_ids": _reference_sample(positive_set, positives),
-        "negative_ids": _reference_sample(negative_set, negatives),
+        "positive_ids": positive_sample,
+        "negative_ids": negative_sample,
+        "positive_prototypes": _reference_prototypes(positive_sample,decoded),
+        "negative_prototypes": _reference_prototypes(negative_sample,decoded),
         "verified_metadata_count": len(verified),
         "manual_positive_count": len(positives),
         "manual_negative_count": len(negatives),
@@ -209,8 +234,10 @@ def genre_evidence(key, info, decoded, profile, *, reviews=None):
     subgenre = profile["subgenre"]
     support = _evidence_tags(info, genre, subgenre)
     f = decoded.get(key, {})
-    pos = [decoded[k] for k in profile["positive_ids"] if k != key and k in decoded]
-    neg = [decoded[k] for k in profile["negative_ids"] if k != key and k in decoded]
+    pos = profile.get("positive_prototypes") or [
+        decoded[k] for k in profile["positive_ids"] if k != key and k in decoded]
+    neg = profile.get("negative_prototypes") or [
+        decoded[k] for k in profile["negative_ids"] if k != key and k in decoded]
     scores = _audio_affinity(f, pos)
     contrasts = _audio_affinity(f, neg)
     available = [(scores[x], w) for x,w in (("musicnn", .65), ("clap", .35))
