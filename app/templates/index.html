@@ -179,6 +179,7 @@ small{color:var(--muted)}
     <span class="collection-label">Loaded collection</span>
     <strong class="version-name" id="versionName">Reading saved definitions…</strong>
     <span class="version-detail" id="versionDetail"></span>
+    <span class="version-detail" id="collectionAutoStatus" role="status" aria-live="polite"></span>
     <details class="collection-info">
       <summary>Details</summary>
       <span class="id" id="versionId" title="Content fingerprint (not a date)">—</span>
@@ -1144,6 +1145,40 @@ const requestedView = typeof window === "undefined"
 $("onlyPending").checked = typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get("pending") === "1";
 void showWorkspaceView(requestedView || "playlists");
+// Load saved definitions without refreshing while the YAML editor or a Plex write
+// is active. Preserve search filters and expanded playlists across remote updates.
+async function checkSavedPlaylistRevision() {
+  if (!config || editorDirty || syncing || coverUploading || document.hidden) return;
+  try {
+    const status = await api("/api/config/status");
+    const before = config.version || {};
+    const after = status.version || {};
+    const same = before.id === after.id &&
+      JSON.stringify(before.sync_statuses || {}) === JSON.stringify(after.sync_statuses || {});
+    if (same) {
+      $("collectionAutoStatus").textContent = "";
+      return;
+    }
+    const next = await api("/api/config");
+    // User interaction can start while the network requests are in flight.
+    if (editorDirty || syncing || coverUploading) return;
+    const expanded = new Set([...$("cards").querySelectorAll(".playlist")]
+      .filter(row => row.open).map(row => row.dataset.name));
+    config = next;
+    $("yaml").value = next.text;
+    renderVersion(next.version);
+    renderCards(next.definitions, next.version.sync_statuses);
+    for (const row of $("cards").querySelectorAll(".playlist")) {
+      row.open = expanded.has(row.dataset.name);
+    }
+    $("collectionAutoStatus").textContent = "Saved playlist changes loaded automatically.";
+  } catch (error) {
+    $("collectionAutoStatus").textContent =
+      "Saved playlist status could not be checked. Will retry automatically.";
+  }
+}
+if (typeof window !== "undefined" && typeof window.setInterval === "function")
+  window.setInterval(() => { void checkSavedPlaylistRevision(); }, 90000);
 // Refresh only the visible report; never interrupt unsaved edits or an active Plex write.
 if (typeof window !== "undefined" && typeof window.setInterval === "function") window.setInterval(() => {
   if (document.hidden || syncing || coverUploading || editorDirty) return;
