@@ -43,7 +43,6 @@
       <p class="sub">The download engine could not provide its interface. Existing jobs and files remain in persistent storage.</p>
     </div>
     <div class="download-actions">
-      <button id="scan-plex" class="action" type="button">Scan Plex for new music</button>
       <a class="action" href="/downloads-audit">Download audit</a>
     </div>
     <div id="engine-status" class="engine-status" role="status" aria-live="polite">
@@ -52,8 +51,7 @@
     <div id="scan-result" class="scan-result" role="status" aria-live="polite"></div>
     <section class="engine-offline" role="alert">
       <h2>Downloader unavailable</h2>
-      <p>The downloader did not return its complete interface. Your download queue, saved jobs, metadata, cookies and staged media have not been changed. Check the yt-dlp-server container, then reload this page.</p>
-      <button type="button" onclick="window.location.reload()">Retry connection</button>
+      <p>The downloader did not return its complete interface. Your download queue, saved jobs, metadata, cookies and staged media have not been changed. The page checks the downloader automatically and reconnects when it comes back.</p>
     </section>
   </main>
   <script src="/static/download-portal.js" defer></script>
