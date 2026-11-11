@@ -624,7 +624,7 @@ def generate(request,library,feature_cache):
     if minutes_target and elapsed<minutes_target*60000:
         warnings.append("The requested duration could not be reached with eligible tracks.")
     if diagnostics["unmeasured_tracks"]:
-        warnings.append("Some placements lack AudioMuse measurements; see evidence for each track.")
+        warnings.append("Some track placements depend on metadata because AudioMuse measurements are unavailable; see evidence for each track.")
     tracks=[{"id":key,"artist":library[key]["artist"],"album":library[key]["album"],
              "title":library[key]["title"],"year":_year(library[key]),
              "duration_ms":_duration(library[key]),"genres":library[key].get("genres",[]),
