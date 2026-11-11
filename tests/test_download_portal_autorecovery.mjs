@@ -7,8 +7,8 @@ const source=fs.readFileSync(new URL("../app/static/download-portal.js",import.m
 const html=fs.readFileSync(new URL("../app/templates/download_portal.html",import.meta.url),"utf8");
 new vm.Script(source);
 
-function harness(){
-  let online=false,ready=false,now=500000,reloads=0,interval;
+function harness({online=false,ready=false}={}){
+  let now=500000,reloads=0,interval;
   const requests=[];
   const classes=new Set();
   const status={textContent:"",classList:{
@@ -49,8 +49,7 @@ test("offline downloader recovers full interface automatically without user acti
 });
 
 test("an already recovered page is attempted immediately on fallback render",async()=>{
-  const h=harness();h.setOnline(true);h.setReady(true);
-  // The first request is intentionally racing with the page becoming ready.
-  h.tick();await h.flush();
+  const h=harness({online:true,ready:true});
+  await h.flush();
   assert.equal(h.reloads,1);
 });
