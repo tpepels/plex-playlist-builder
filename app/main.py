@@ -86,7 +86,7 @@ from .disk_reconciliation import reconcile_inventory
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .downloader_bridge import router as downloader_router
 from .download_page import DownloadPageError, fetch_native_page
-from . import download_plex_sync
+from . import download_plex_sync, background_maintenance
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
     connect,
@@ -105,6 +105,7 @@ app.include_router(downloader_router)
 
 @app.on_event("startup")
 async def start_downloader_library_sync():
+    background_maintenance.start_tasks(app)
     if os.getenv("DOWNLOAD_BRIDGE_SCAN_ENABLED", "0") == "1":
         app.state.downloader_sync_task = asyncio.create_task(
             download_plex_sync.sync_loop(), name="download-plex-sync",
@@ -113,6 +114,7 @@ async def start_downloader_library_sync():
 
 @app.on_event("shutdown")
 async def stop_downloader_library_sync():
+    await background_maintenance.stop_tasks(app)
     task = getattr(app.state, "downloader_sync_task", None)
     if task is not None:
         task.cancel()
@@ -239,6 +241,12 @@ def index(request: Request):
 def playlist_workspace(request: Request):
     """The full playlist management workspace, unchanged for saved data."""
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/api/workspace/maintenance")
+def workspace_maintenance():
+    """Read-only status for the automatic local cache updaters."""
+    return background_maintenance.snapshot()
 
 
 @app.get("/api/health")
