@@ -17,7 +17,7 @@ from .config_store import fingerprint, load, read_text, save_text, mark_synced
 from .curation_apply import current_keys
 from .playlist_curator import yaml_items
 from .generation_store import LOCK as DRAFT_LOCK, get, mark_published, DraftConflict
-from .playlist_generation import diagnose, GenerationError
+from .playlist_generation import diagnose, GenerationError, catalogue_revision
 
 PUBLISH_LOCK=threading.RLock()
 
@@ -56,6 +56,9 @@ def prepare(plex,draft,title,library):
     if draft["status"]!="draft":
         raise DraftConflict("This draft has already been published.")
     keys=_validate(draft["data"],library)
+    original_sources=draft["data"].get("source_revisions") or {}
+    if original_sources.get("library") and original_sources["library"]!=catalogue_revision(library):
+        raise DraftConflict("Plex catalogue changed since generation. Regenerate and review the draft.")
     current=load()
     defs=current.get("playlists",{})
     if any(name.casefold()==title.casefold() for name in defs) or _lookup(plex,title):
@@ -68,6 +71,11 @@ def prepare(plex,draft,title,library):
             "yaml_version":version,"plan_id":token,
             "quality":draft["data"]["diagnostics"],
             "warnings":draft["data"]["warnings"],
+            "genre":draft["data"]["request"]["criteria"].get("genre"),
+            "subgenre":draft["data"]["request"]["criteria"].get("subgenre"),
+            "genre_evidence":draft["data"].get("genre_evidence",{}),
+            "source_revisions":original_sources,
+            "selection_policy_version":draft["data"].get("selection_policy_version"),
             "track_order":[{"id":k,"artist":library[k]["artist"],"album":library[k]["album"],
                             "title":library[k]["title"]} for k in keys]}
 
@@ -94,7 +102,9 @@ def publish(plex,draft_id,revision,title,plan_id,approved,library):
         entry={"description":draft["data"]["request"]["prompt"],
                "enabled":True,"strict":True,
                "generation":{"source":"Intelligent Playlist Generation",
-                   "criteria":draft["data"]["request"]["criteria"]},
+                   "criteria":draft["data"]["request"]["criteria"],
+                   "selection_policy_version":draft["data"].get("selection_policy_version"),
+                   "source_revisions":draft["data"].get("source_revisions")},
                "items":yaml_items(keys,library)}
         defs[title]=entry
         updated["playlists"]=defs
