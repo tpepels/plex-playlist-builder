@@ -155,7 +155,11 @@ def _moods(item):
 def cosine(a, b):
     if a is None or b is None or len(a) != len(b):
         return None
-    return max(-1., min(1., sum(x*y for x,y in zip(a,b))))
+    # math.sumprod (Python 3.12+) avoids a Python-level loop for each of
+    # the thousands of AudioMuse embedding comparisons during generation.
+    product = (math.sumprod(a,b) if hasattr(math,"sumprod")
+               else sum(x*y for x,y in zip(a,b)))
+    return max(-1., min(1., product))
 
 
 def _centroid(vectors):
