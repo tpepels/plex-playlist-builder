@@ -141,12 +141,10 @@ and show the active/main-task status:
   routes while the page is open. Analysis runs in AudioMuse's own worker and
   continues if you close the browser.
 - This integration cannot start clustering or touch Plex playlists.
-- Once analysis progresses or completes, press **Sync AudioMuse analysis**
-  to refresh the local feature cache. Each sync transfers at most 500 changed
+- Once analysis progresses or completes, Playlist Manager automatically copies completed results into the local feature cache. **Sync AudioMuse analysis** remains available for an immediate manual update. Each sync transfers at most 500 changed
   tracks per request. One click now continues through successive batches,
   with visible progress and a Stop-after-current-batch option.
-- No scheduled execution is enabled. Starting a whole-library analysis requires
-  the deliberate click and confirmation.
+- New albums and tracks are analyzed automatically by the Playlist Manager background worker after the Plex catalogue refresh. A durable state file prevents repeat submissions across restarts. The first scan baselines an existing library; subsequent arrivals are queued. Entire-library backfill is still a deliberate action.
 
 Update the existing manager service only after pulling the repository:
 
