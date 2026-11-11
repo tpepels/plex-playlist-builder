@@ -260,3 +260,24 @@ test("generator puts optional descriptions in advanced controls",()=>{
   assert.match(template, /<select id="variation"/);
   assert.match(template, /<select id="flow"/);
 });
+
+test("reference examples and draft alternatives are populated without Search clicks",async()=>{
+  const h=harness();await settle();
+  h.get("referenceQuery").value="Blue Note";
+  h.get("referenceQuery").oninput();
+  await new Promise(resolve=>setTimeout(resolve,290));
+  await settle();
+  assert.equal(h.get("referenceSearchResults").children.length,1);
+  assert(h.calls.some(x=>x.path.includes("/api/generation/reference-search")));
+  await h.get("createForm").onsubmit({preventDefault(){}});
+  await settle();
+  assert.equal(h.get("candidateList").children.length,1);
+  const before=h.calls.filter(x=>x.path.includes("/candidates?")).length;
+  h.get("search").value="Hard bop";
+  h.get("search").oninput();
+  await new Promise(resolve=>setTimeout(resolve,290));
+  await settle();
+  assert.equal(h.calls.filter(x=>x.path.includes("/candidates?")).length,before+1);
+  assert(h.calls.at(-1).path.includes("q=Hard%20bop"));
+  assert.doesNotMatch(template,/id="searchReferences"|id="find"|id="reindexLibrary"|id="syncAudioMuse"/);
+});
