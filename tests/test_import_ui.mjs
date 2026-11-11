@@ -516,7 +516,7 @@ test("imports and global export links remain accessible", async () => {
   for(const path of ["/playlists","/downloads","/downloads-audit",
     "/api/library-albums.tsv","/api/library-export.tsv","/api/playlists-export.yml"])
     assert(nav.includes('href="'+path+'"'));
-  assert(html.includes('href="/playlist-intelligence"'), "Curation is reachable from Playlists");
+  assert(html.includes('{% include "_workspace_tabs.html" %}'), "Curation is reachable from Playlists");
   assert.equal(h.calls.some(x=>/import-config|sync-pending/.test(x)),false);
 });
 
