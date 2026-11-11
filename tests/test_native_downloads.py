@@ -70,7 +70,7 @@ def test_real_downloader_document_is_one_integrated_workspace():
         'id="jobs"', 'id="history-results"', 'id="history-query"',
         'id="retry-all-failed"', 'id="vpn-upload"',
         'id="vpn-direct-button"', 'id="youtube-cookie-upload-form"',
-        'id="youtube-cookie-remove-button"', 'id="scan-plex"',
+        'id="youtube-cookie-remove-button"',
         'href="/playlists"',
         'href="/downloads-audit"', 'href="/static/download-native.css"',
         'href="/static/site-navigation.css"',
@@ -111,7 +111,7 @@ def test_native_download_route_uses_engine_html_directly(monkeypatch):
     assert page.status_code == 200
     assert 'id="download-form"' in page.text
     assert 'id="siteNavigationPanel"' in page.text
-    assert 'id="scan-plex"' in page.text
+    assert 'id="engine-status"' in page.text
     assert 'id="vpn-panel"' in page.text
     assert "<iframe" not in page.text.lower()
     assert len(received) == 1
@@ -158,5 +158,5 @@ def test_engine_timeout_does_not_remove_workflow_navigation(monkeypatch):
         page = client.get("/downloads")
     assert page.status_code == 200
     assert 'href="/playlists"' in page.text
-    assert "Check the yt-dlp-server container" in page.text
+    assert "automatically and reconnects" in page.text
     assert "<iframe" not in page.text.lower()
