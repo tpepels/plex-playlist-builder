@@ -370,8 +370,10 @@ test("Duplicates view groups complete albums with candidate folders and edition 
   h.$("duplicateSearch").value = "2022";
   h.$("duplicateSearch").oninput();
   assert.match(h.$("duplicateRows").innerHTML, /You Must Believe in Spring/);
-  await h.$("refreshDuplicates").onclick();
-  assert.ok(h.calls.includes("/api/duplicates?refresh=true"));
+  const duplicatesBefore=h.calls.filter(c=>c.startsWith("/api/duplicates?")).length;
+  await h.loadDuplicates();
+  assert.equal(h.calls.filter(c=>c.startsWith("/api/duplicates?")).length,duplicatesBefore+1);
+  assert.ok(h.calls.includes("/api/duplicates?refresh=false"));
   assert.ok(!h.calls.some(c => /sync-pending|curate-tracks/.test(c)));
 });
 
@@ -433,8 +435,10 @@ test("Discover tab compares curated albums with Plex and offers exact resolver U
   h.$("iscSearch").value = "nowhere";
   h.$("iscSearch").oninput();
   assert.match(h.$("iscRows").innerHTML, /No albums match these filters/);
-  await h.$("iscRefresh").onclick();
-  assert.ok(h.calls.includes("/api/discover/isc?refresh=true"));
+  const iscBefore=h.calls.filter(c=>c.startsWith("/api/discover/isc?")).length;
+  await h.loadIsc();
+  assert.equal(h.calls.filter(c=>c.startsWith("/api/discover/isc?")).length,iscBefore+1);
+  assert.ok(h.calls.includes("/api/discover/isc?refresh=false"));
   assert.ok(!h.calls.some(c => /curate-tracks|sync-pending/.test(c)));
 });
 
