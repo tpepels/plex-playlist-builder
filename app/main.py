@@ -264,6 +264,17 @@ def health(response: Response):
         return {"ok": False, "error": str(exc)}
 
 
+@app.get("/api/config/summary")
+def config_summary():
+    """Lightweight local Home counts; no Plex connection or YAML transfer."""
+    try:
+        payload = _config_payload(load())
+        return {"version": {"id": payload["version"]["id"],
+                            "counts": payload["version"]["counts"]}}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Playlist summary unavailable") from exc
+
+
 @app.get("/api/config")
 def get_config():
     try:
