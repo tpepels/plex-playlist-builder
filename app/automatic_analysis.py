@@ -115,8 +115,9 @@ def observe(library: dict) -> dict:
 def snapshot() -> dict:
     if not enabled():
         return {"enabled": False, "pending": 0, "inflight": None, "error": None}
-    with _serialized():
-        state = _read()
+    # A status GET must never create /data or take a write lock. The state
+    # file is published atomically and can be inspected lock-free.
+    state = _read()
     if state is None:
         return {"enabled": True, "baseline": False, "pending": 0,
                 "inflight": None, "error": None}
