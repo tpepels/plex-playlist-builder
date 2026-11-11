@@ -43,6 +43,15 @@ def snapshot() -> dict[str, Any]:
 
 def _refresh_library() -> dict[str, Any]:
     _, music = plex_client.connect()
+    # When deploying automatic analysis into an existing installation, seed its
+    # first baseline from the LAST persisted catalogue before refreshing Plex.
+    # This detects releases added while the manager was offline. Never force a
+    # network scan to establish that baseline.
+    state = automatic_analysis.snapshot()
+    if state.get("enabled") and not state.get("baseline"):
+        if curation_library.metadata().get("updated"):
+            previous = curation_library.get_library(music)
+            automatic_analysis.observe(previous)
     # A successful scheduled run must mean Plex was actually rescanned.
     tracks = curation_library.get_library(music, refresh=True)
     observed = automatic_analysis.observe(tracks)
