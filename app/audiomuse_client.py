@@ -23,6 +23,8 @@ MAX_CHANGED_TRACKS = 50000
 BATCH_SIZE = 100
 MAX_PER_REQUEST = 500  # Keep each synchronization bounded as the library grows.
 _SYNC_LOCK = threading.Lock()
+_FEATURES_LOCK = threading.RLock()
+_FEATURES_HOT: dict = {}  # full decoded SQLite snapshot, keyed by file signature
 
 
 def _settings() -> tuple[str, str]:
@@ -106,7 +108,10 @@ def _chunks(values: list[str], size: int = BATCH_SIZE):
 def synchronize() -> dict:
     """Serialize background and explicit sync requests against the SQLite cache."""
     with _SYNC_LOCK:
-        return _synchronize_locked()
+        result = _synchronize_locked()
+        with _FEATURES_LOCK:
+            _FEATURES_HOT.clear()
+        return result
 
 
 def _synchronize_locked() -> dict:
@@ -169,19 +174,37 @@ def _synchronize_locked() -> dict:
 
 
 def cached_features() -> tuple[dict[str, dict], dict]:
-    if not CACHE_FILE.is_file():
+    """Reuse one immutable decoded feature snapshot across browser requests.
+
+    SQLite is still authoritative. File signature and explicit sync invalidation
+    handle updates from this process and other processes sharing the volume.
+    """
+    try:
+        stat = CACHE_FILE.stat()
+    except FileNotFoundError:
         return {}, {"cached": 0, "last_sync": None}
-    with closing(_open_cache()) as conn:
-        tracks = {track_id: json.loads(payload)
-                  for track_id, payload in conn.execute("SELECT track_id,data FROM audio_features")}
-        meta = dict(conn.execute("SELECT key,value FROM metadata"))
-        return tracks, {
+    signature = (str(CACHE_FILE), stat.st_mtime_ns, stat.st_size)
+    with _FEATURES_LOCK:
+        if _FEATURES_HOT.get("signature") == signature:
+            return _FEATURES_HOT["tracks"], dict(_FEATURES_HOT["state"])
+        with closing(_open_cache()) as conn:
+            tracks = {track_id: json.loads(payload)
+                      for track_id, payload in conn.execute("SELECT track_id,data FROM audio_features")}
+            meta = dict(conn.execute("SELECT key,value FROM metadata"))
+        state = {
             "cached": len(tracks),
             "last_sync": meta.get("last_sync"),
             "available": int(meta["available"]) if "available" in meta else None,
             "pending": int(meta["pending"]) if "pending" in meta else None,
             "manifest_version": meta.get("manifest_version"),
         }
+        # A concurrent external sync may have changed the database while read.
+        current = CACHE_FILE.stat()
+        if (current.st_mtime_ns, current.st_size) == signature[1:]:
+            _FEATURES_HOT.clear()
+            _FEATURES_HOT.update(signature=signature, tracks=tracks, state=state)
+        return tracks, dict(state)
+
 
 def feature_revision(cache: dict[str, dict], manifest_version: str | None = None) -> str:
     """Deterministic revision of evidence consumed by a generation draft.
