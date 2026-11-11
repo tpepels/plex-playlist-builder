@@ -70,6 +70,8 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
 
   let imported = false;
   let synced = false;
+  let externalChanged = false;
+  const timers = [];
   const calls = [];
   const requests = [];
   const filename = "new-playlists.yml";
@@ -77,9 +79,11 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
   function snapshot() {
     const alpha = { items: [{ rating_key: "1" }] };
     const beta = { items: [{ rating_key: "2" }] };
-    const definitions = empty && !imported ? {}
+    const definitions = externalChanged ? { Alpha: alpha, Beta: beta }
+      : empty && !imported ? {}
       : imported && !alreadyLoaded ? { Alpha: alpha, Beta: beta } : { Alpha: alpha };
-    const statuses = empty && !imported ? {}
+    const statuses = externalChanged ? { Alpha: "synced", Beta: "needs_sync" }
+      : empty && !imported ? {}
       : imported && !alreadyLoaded
         ? { Alpha: "synced", Beta: synced ? "synced" : "needs_sync" }
         : { Alpha: "synced" };
@@ -91,7 +95,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     };
     return {
       text: "playlists: {}\n", definitions, playlists: Object.keys(definitions),
-      version: { id: imported ? "new-id" : "old-id", last_import: null, counts, sync_statuses: statuses },
+      version: { id: externalChanged ? "external-id" : imported ? "new-id" : "old-id", last_import: null, counts, sync_statuses: statuses },
     };
   }
 
@@ -104,6 +108,8 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
       body = { server: "Test Plex", library: "Music" };
     } else if (url === "/api/config") {
       body = snapshot();
+    } else if (url === "/api/config/status") {
+      body = {version: snapshot().version};
     } else if (url.startsWith("/api/insights?")) {
       body = {
         summary: {
@@ -209,6 +215,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
   }
   const route=initialUrl ? new URL(initialUrl,"http://media-server:5051") : null;
   const windowObj=route ? {
+    setInterval(callback, milliseconds){timers.push({callback, milliseconds})},
     location:{href:route.href,pathname:route.pathname,search:route.search,hash:route.hash},
     history:{replaceState(_state,_title,path){
       const next=new URL(path,"http://media-server:5051");
@@ -227,7 +234,8 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     input.files = [{ name: filename, text: async () => "playlists:\n  Beta: {}\n" }];
     await input.onchange();
   }
-  return { chooseFile, calls, requests, $, document, windowObj,
+  return { chooseFile, calls, requests, $, document, windowObj, timers,
+    externalUpdate(){externalChanged=true},
     showWorkspaceView: view => context.__switchView(view),
     filename, get imported() { return imported; }, get synced() { return synced; } };
 }
@@ -534,4 +542,42 @@ test("empty YAML boots the entire playlist workspace without blocking Plex statu
   assert.match(h.$("health").innerHTML, /Test Plex/);
   assert.equal(h.$("importPack").disabled, false);
   assert.equal(h.$("syncPending").disabled, true);
+});
+
+test("Home pending link opens the filtered playlist view rather than health report",async()=>{
+  const h=makeHarness({initialUrl:"http://media-server:5051/playlists?pending=1"});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.$("onlyPending").checked,true);
+  assert.equal(h.$("viewPlaylists").hidden,false);
+});
+
+test("background revision check reloads an idle playlist page without publishing",async()=>{
+  const h=makeHarness({initialUrl:"http://media-server:5051/playlists"});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.$("cards").children.length,1);
+  h.$("searchPlaylists").value="Alpha";
+  h.$("cards").children[0].open=true;
+  h.externalUpdate();
+  const tick=h.timers.find(t=>t.milliseconds===90000);
+  assert.ok(tick,"Passive revision polling should be active");
+  await tick.callback();
+  assert.equal(h.$("cards").children.length,2);
+  assert.equal(h.$("searchPlaylists").value,"Alpha");
+  assert.equal(h.$("cards").children[0].open,true);
+  assert.match(h.$("collectionAutoStatus").textContent,/loaded automatically/);
+  assert(h.calls.includes("/api/config/status"));
+  assert.equal(h.calls.some(c=>c.startsWith("/api/sync/")),false);
+});
+
+test("passive revision updates never overwrite an unsaved YAML edit",async()=>{
+  const h=makeHarness({initialUrl:"http://media-server:5051/playlists"});
+  await new Promise(resolve=>setImmediate(resolve));
+  h.$("yaml").value="playlists:\n  My changes: []";
+  h.$("yaml").oninput();
+  h.externalUpdate();
+  const before=h.calls.length;
+  await h.timers.find(t=>t.milliseconds===90000).callback();
+  assert.equal(h.calls.length,before,"Editing must suppress background network refresh");
+  assert.equal(h.$("yaml").value,"playlists:\n  My changes: []");
+  assert.equal(h.$("cards").children.length,1);
 });
