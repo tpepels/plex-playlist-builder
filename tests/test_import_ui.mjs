@@ -429,7 +429,7 @@ test("Discover tab compares curated albums with Plex and offers exact resolver U
 test("cover ZIP picker uploads raw ZIP, reports overwrites and unmatched, not YAML changes", async () => {
   const h = makeHarness();
   await new Promise(resolve => setImmediate(resolve));
-  assert.match(html, /id="importCoverZip"[^>]*>Upload cover ZIP/);
+  assert.match(html, /id="importCoverZip"[^>]*>Upload playlist covers \(ZIP\)/);
   assert.match(html, /id="coverZipFile"[^>]+accept="\.zip/);
   const file = {name:"plex-playlist-covers-109.zip"};
   h.$("coverZipFile").files = [file];
@@ -500,9 +500,10 @@ test("imports and global export links remain accessible", async () => {
     assert.match(html,new RegExp('id="'+id+'"'));
   }
   assert.match(nav,/id="siteNavRecentForm"/);
-  for(const path of ["/playlist-intelligence","/downloads","/downloads-audit",
+  for(const path of ["/playlists","/downloads","/downloads-audit",
     "/api/library-albums.tsv","/api/library-export.tsv","/api/playlists-export.yml"])
     assert(nav.includes('href="'+path+'"'));
+  assert(html.includes('href="/playlist-intelligence"'), "Curation is reachable from Playlists");
   assert.equal(h.calls.some(x=>/import-config|sync-pending/.test(x)),false);
 });
 
