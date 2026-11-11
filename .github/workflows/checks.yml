@@ -72,7 +72,9 @@ jobs:
         run: bash -n deploy/verify_genre_generator.sh deploy/apply_media_stack.sh
       - name: Shared navigation integration
         if: ${{ always() }}
-        run: node tests/test_site_navigation.mjs
+        run: |
+          node tests/test_site_navigation.mjs
+          node --test tests/test_download_portal_autorecovery.mjs
       - name: Validate coordinated root Compose
         run: |
           docker compose -f compose.yaml config --quiet
