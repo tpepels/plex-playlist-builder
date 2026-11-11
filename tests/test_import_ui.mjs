@@ -32,6 +32,11 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
   const cards = fakeElement();
   cards.querySelectorAll = (query) => query === ".playlist" ? rows : [];
   cards.appendChild = (row) => rows.push(row);
+  let htmlContents = "";
+  Object.defineProperty(cards, "innerHTML", {
+    get(){return htmlContents},
+    set(value){htmlContents=String(value);if(value==="")rows.length=0}
+  });
   elements.set("cards", cards);
 
   function $(id) {
@@ -554,16 +559,16 @@ test("Home pending link opens the filtered playlist view rather than health repo
 test("background revision check reloads an idle playlist page without publishing",async()=>{
   const h=makeHarness({initialUrl:"http://media-server:5051/playlists"});
   await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(h.$("cards").children.length,1);
+  assert.equal(h.$("cards").querySelectorAll(".playlist").length,1);
   h.$("searchPlaylists").value="Alpha";
-  h.$("cards").children[0].open=true;
+  h.$("cards").querySelectorAll(".playlist")[0].open=true;
   h.externalUpdate();
   const tick=h.timers.find(t=>t.milliseconds===90000);
   assert.ok(tick,"Passive revision polling should be active");
   await tick.callback();
-  assert.equal(h.$("cards").children.length,2);
+  assert.equal(h.$("cards").querySelectorAll(".playlist").length,2);
   assert.equal(h.$("searchPlaylists").value,"Alpha");
-  assert.equal(h.$("cards").children[0].open,true);
+  assert.equal(h.$("cards").querySelectorAll(".playlist")[0].open,true);
   assert.match(h.$("collectionAutoStatus").textContent,/loaded automatically/);
   assert(h.calls.includes("/api/config/status"));
   assert.equal(h.calls.some(c=>c.startsWith("/api/sync/")),false);
