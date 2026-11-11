@@ -333,7 +333,6 @@
       <p class="vpn-intro">Downloads use your normal direct connection by default. Upload Surfshark WireGuard .conf files as standby recovery endpoints. They connect automatically only after persistent YouTube bot challenges or HTTP 403 errors. Test all countries to verify them; testing returns to direct mode.</p>
       <div class="vpn-statusbar">
         <span id="vpn-connection" class="vpn-status-pill vpn-disconnected">Checking VPN…</span>
-        <button id="vpn-refresh" type="button" class="vpn-secondary">Refresh status</button>
       </div>
       <div class="vpn-fields">
         <input id="vpn-upload-input" type="file" accept=".conf" multiple aria-label="Select Surfshark WireGuard configuration files">
@@ -387,7 +386,6 @@
       </select>
       <input id="history-query" type="search" placeholder="Filter by album, artist or error (optional)"
         aria-label="Filter finished and failed downloads">
-      <button id="history-search" type="button">Refresh</button>
       <button id="retry-all-failed" type="button" title="Queue one retry per distinct failed album, preserving staged tracks">Retry all failed</button>
     </div>
     <p id="history-status" class="job-meta" role="status" aria-live="polite">Loading results…</p>
@@ -1342,13 +1340,11 @@
 
   async function refreshHistory() {
     const version = ++historyLoadVersion;
-    const button = document.getElementById("history-search");
     const status = document.getElementById("history-status");
-    button.disabled = true;
     status.textContent = "Loading all download attempts, including failures…";
-    historyRows = [];
-    historyGlobalCounts = {};
-    historyGlobalTotal = 0;
+    const nextRows = [];
+    let nextCounts = {};
+    let nextTotal = 0;
     let offset = 0;
     try {
       while (true) {
@@ -1360,10 +1356,13 @@
         if (version !== historyLoadVersion) return;
         if (!response.ok) throw Error(data.error || "History unavailable");
         if (!Array.isArray(data.items)) throw Error("Invalid history response.");
-        historyRows.push(...data.items);
-        historyGlobalCounts = data.all_status_counts || {};
-        historyGlobalTotal = data.all_attempts ?? data.total ?? historyRows.length;
+        nextRows.push(...data.items);
+        nextCounts = data.all_status_counts || {};
+        nextTotal = data.all_attempts ?? data.total ?? nextRows.length;
         offset += data.items.length;
+        historyRows = nextRows.slice();
+        historyGlobalCounts = nextCounts;
+        historyGlobalTotal = nextTotal;
         renderHistory();
         if (offset >= data.total || data.items.length === 0) break;
         status.textContent = "Loading attempt " + offset + " of " + data.total + "…";
@@ -1371,17 +1370,11 @@
     } catch (error) {
       if (version === historyLoadVersion) {
         status.textContent = "History could not be completely loaded: " + error.message +
-          ". " + historyRows.length + " attempts were retrieved.";
+          ". " + nextRows.length + " attempts were retrieved.";
       }
-    } finally {
-      if (version === historyLoadVersion) button.disabled = false;
     }
   }
 
-  document.getElementById("history-search").addEventListener("click", () => {
-    dismissFocus();
-    refreshHistory();
-  });
   document.getElementById("retry-all-failed").addEventListener("click", async () => {
     dismissFocus();
     const button = document.getElementById("retry-all-failed");
