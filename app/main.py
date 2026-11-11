@@ -274,6 +274,16 @@ def get_config():
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/config/status")
+def config_status():
+    """Small read-only revision check for automatic playlist-view updates."""
+    try:
+        version = _config_payload(load())["version"]
+        return {"version": version}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Playlist state unavailable.") from exc
+
+
 @app.put("/api/config")
 def put_config(body: ConfigBody):
     try:
