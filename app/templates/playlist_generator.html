@@ -44,6 +44,34 @@ dialog::backdrop{background:#000b}
 fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:15px}
 :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 @media(max-width:850px){.layout{grid-template-columns:1fr}.mini-grid{grid-template-columns:1fr 1fr}.metric-grid{grid-template-columns:repeat(2,1fr)}main{padding:14px}.row{flex-wrap:wrap}}
+.genre-primary{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:13px 0}
+.genre-primary label,.generator-options label{display:grid;gap:5px}
+.genre-primary input,.genre-primary select{width:100%}
+.generator-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin-top:14px}
+.generator-references{margin:13px 0;padding:13px;border:1px solid var(--line);border-radius:10px}
+.generator-ref-search{display:flex;gap:8px;margin:8px 0}
+.generator-ref-search input{flex:1;min-width:0}
+.generator-ref-row{display:flex;gap:7px;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding:7px 0}
+.generator-ref-row>span{flex:1;min-width:0;font-size:12px;overflow-wrap:anywhere}
+.generator-ref-row button{flex:0 0 auto;font-size:11px}
+.generator-tags{display:flex;gap:5px;flex-wrap:wrap;margin:7px 0;font-size:11px}
+.generator-tag{padding:5px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface)}
+.generator-tag button{margin-left:5px;padding:1px 5px;font-size:10px}
+.generator-status{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:8px 0 12px;color:var(--muted);font-size:12px}
+.generator-status button{min-height:30px;font-size:11px}
+.genre-evidence{font-size:11px;color:var(--muted);line-height:1.5;margin-top:4px;overflow-wrap:anywhere}
+.genre-evidence strong{color:var(--text)}
+.genre-evidence.warning{color:var(--amber)}
+.generator-transition{font-size:11px;color:var(--muted)}
+.generator-review-audio{display:grid;gap:9px;margin:12px 0}
+.generator-review-audio audio{width:100%}
+#generatorReviewDialog{max-width:560px;width:min(92vw,560px)}
+#generatorReviewDialog label{display:grid;gap:4px;margin:8px 0}
+#generatorReviewDialog textarea{min-height:60px}
+#referenceSearchResults{max-height:215px;overflow:auto}
+@media(max-width:750px){.generator-options{grid-template-columns:1fr 1fr}.generator-ref-row{flex-wrap:wrap}}
+@media(max-width:500px){.generator-options,.genre-primary{grid-template-columns:1fr}
+.generator-ref-search{flex-wrap:wrap}.generator-ref-search input{flex-basis:100%}}
 </style><link rel="stylesheet" href="/static/signal-console.css">
 <link rel="stylesheet" href="/static/site-navigation.css">
 </head>
@@ -52,14 +80,45 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
 
 <h1>Intelligent Playlist Generation</h1>
 <p class="muted">Generate from your Plex music library, inspect the evidence, audition and edit every track, then approve creation of a new playlist.</p>
+<div class="generator-status" id="generationReadiness" role="status" aria-live="polite">
+  <span id="generationReadinessText">Checking Plex and AudioMuse analysis…</span>
+  <button type="button" id="syncAudioMuse">Sync analyzed music</button>
+  <button type="button" id="stopAudioMuseSync" hidden>Stop after batch</button>
+</div>
 <section class="panel">
   <div class="row"><h2>1 · Describe the music</h2>
     <button id="reindexLibrary" type="button" title="Refresh album years and genres from Plex">Re-index Plex library</button></div>
   <form id="createForm">
     <label for="prompt">Musical brief</label>
-    <textarea id="prompt" required maxlength="400" minlength="8" placeholder="Intimate live jazz, 1955–1965, long improvisations, warm club atmosphere"></textarea>
+    <textarea id="prompt" required maxlength="400" minlength="8" placeholder="Describe the music">Hard bop jazz with balanced artist variety and smooth transitions.</textarea>
+    <div class="genre-primary">
+      <label>Genre<select id="genre">
+        <option value="">Legacy brief only</option>
+        <option value="jazz" selected>Jazz</option><option value="soul">Soul</option>
+        <option value="ambient">Ambient</option><option value="blues">Blues</option>
+        <option value="funk">Funk</option><option value="rock">Rock</option>
+        <option value="classical">Classical</option><option value="electronic">Electronic</option>
+        <option value="folk">Folk</option><option value="hip hop">Hip hop</option>
+      </select></label>
+      <label>Subgenre / style<input id="subgenre" maxlength="64" list="genreSubgenres" value="Hard bop"></label>
+      <datalist id="genreSubgenres"><option value="Hard bop"><option value="Bebop"><option value="Cool jazz"><option value="Modal jazz"><option value="Swing"><option value="Free jazz"><option value="Post bop"></datalist>
+    </div>
+    <div class="generator-status">
+      <button type="button" id="hardBopPreset">Jazz / Hard bop · 30 tracks · Balanced / Smooth</button>
+      <span id="genreProfileStatus" role="status" aria-live="polite">Checking verified reference availability…</span>
+    </div>
+    <div class="generator-references" id="referencePicker">
+      <label for="referenceQuery">Positive and negative reference recordings (optional)</label>
+      <div class="generator-ref-search">
+        <input id="referenceQuery" type="search" maxlength="120" placeholder="Search Plex artists, albums and tracks">
+        <button id="searchReferences" type="button">Search references</button>
+      </div>
+      <div id="referenceSearchResults" aria-live="polite"></div>
+      <div class="generator-tags" id="positiveReferences" aria-label="Positive references"></div>
+      <div class="generator-tags" id="negativeReferences" aria-label="Negative references"></div>
+    </div>
     <div class="mini-grid">
-      <label>Tracks (1–120)<input id="count" type="number" min="1" max="120" value="24" required></label>
+      <label>Tracks (1–120)<input id="count" type="number" min="1" max="120" value="30" required></label>
       <label>Target minutes (optional)<input id="minutes" type="number" min="15" max="900" placeholder="No limit"></label>
       <label>Playlist name<input id="name" maxlength="120" placeholder="New playlist name" required></label>
     </div>
@@ -68,10 +127,18 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
       <div class="mini-grid" style="margin-top:13px">
         <label>Styles (optional)<input id="styles" maxlength="240" placeholder="jazz, soul"></label>
         <label>Moods (optional)<input id="moods" maxlength="240" placeholder="warm, intimate, relaxed"></label>
-        <label>Variation<select id="variation"><option value="">Infer from brief</option><option value="focused">Focused</option><option value="balanced">Balanced</option><option value="eclectic">Eclectic</option></select></label>
+        <label>Variation<select id="variation"><option value="">Infer from brief</option><option value="focused">Focused</option><option value="balanced" selected>Balanced</option><option value="eclectic">Eclectic</option></select></label>
         <label>Energy<select id="energy"><option value="">Infer from brief</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="adaptive">Adaptive</option></select></label>
-        <label>Flow<select id="flow"><option value="">Infer from brief</option><option value="smooth">Smooth</option><option value="arc">Energy arc</option><option value="varied">Varied</option></select></label>
+        <label>Flow<select id="flow"><option value="">Infer from brief</option><option value="smooth" selected>Smooth</option><option value="arc">Energy arc</option><option value="varied">Varied</option></select></label>
         <label>Live preference<select id="live"><option value="">Infer from brief</option><option value="prefer">Prefer live</option><option value="neutral">Neutral</option><option value="avoid">Avoid live</option></select></label>
+      </div>
+      <div class="generator-options">
+        <label>Release year from<input id="yearFrom" type="number" min="1800" max="2100" placeholder="Optional"></label>
+        <label>Release year to<input id="yearTo" type="number" min="1800" max="2100" placeholder="Optional"></label>
+        <label>Genre evidence<select id="evidenceThreshold"><option value="strict">Strict</option><option value="balanced" selected>Balanced</option><option value="exploratory">Exploratory</option></select></label>
+        <label>Exclude artists (comma-separated)<input id="excludedArtists" placeholder="Artist names"></label>
+        <label>Exclude albums (comma-separated)<input id="excludedAlbums" placeholder="Album titles"></label>
+        <label>Exclude Plex track IDs (comma-separated)<input id="excludedTracks" placeholder="123, 456"></label>
       </div>
     </details>
     <footer>
@@ -119,6 +186,29 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
   <fieldset><label><input type="checkbox" id="publishApproval"> I approve creating this new playlist in Plex and saving it in the YAML collection.</label></fieldset>
   <footer><button id="cancelPublish" type="button">Cancel</button><button id="confirmPublish" class="primary" type="button" disabled>Create playlist</button></footer>
 </dialog>
+<dialog id="generatorReviewDialog" aria-labelledby="generatorReviewHeading">
+  <h2 id="generatorReviewHeading">Review recording</h2>
+  <p id="generatorReviewSummary" class="muted"></p>
+  <div class="generator-review-audio">
+    <div id="generatorOriginalBlock"><label>Original recording</label><audio id="generatorOriginalAudio" controls preload="none"></audio></div>
+    <div><label>Proposed recording</label><audio id="generatorCandidateAudio" controls preload="none"></audio></div>
+  </div>
+  <p id="generatorListenProgress" class="muted" role="status" aria-live="polite">Play the recordings for at least 15 seconds each.</p>
+  <label>Issue (for rejection)<select id="generatorReviewIssue">
+    <option value="none">None</option><option value="genre">Genre mismatch</option>
+    <option value="mood">Mood mismatch</option><option value="energy">Energy mismatch</option>
+    <option value="flow">Transition mismatch</option><option value="recording">Recording quality</option>
+    <option value="other">Other</option>
+  </select></label>
+  <label>Notes<textarea id="generatorReviewNote" maxlength="2000"></textarea></label>
+  <label><input id="generatorListenedConfirm" type="checkbox"> I listened to and compared the recordings.</label>
+  <footer>
+    <button id="generatorReviewLater" type="button">Needs review</button>
+    <button id="generatorReviewCancel" type="button">Cancel</button>
+    <button id="generatorReviewReject" type="button">Reject</button>
+    <button id="generatorReviewAccept" class="primary" type="button">Accept</button>
+  </footer>
+</dialog>
 </main>
 <script>
 'use strict';
@@ -126,6 +216,12 @@ const $=id=>document.getElementById(id);
 const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(cls)n.className=cls;return n};
 const smallButton=(text,action)=>{const b=node('button',text);b.type='button';b.onclick=action;return b};
 let draft=null,target=null,optionCache={},plan=null,working=false;
+const positiveRefIds=new Set(),negativeRefIds=new Set();
+const refLabels=new Map();
+let reviewContext=null;
+let originalPlayed=0,candidatePlayed=0;
+let syncStopRequested=false;
+
 function notify(message,error=false){
   $('notice').textContent=message;
   $('notice').className=error?'error':'';
@@ -140,6 +236,198 @@ async function api(path,options){
 const post=(url,obj)=>api(url,{method:'POST',
    headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)});
 const fmtMinutes=n=>n!==null&&n!==undefined?Number(n).toFixed(1)+' min':'Unknown duration';
+function refList(id){return $(''+id).value.split(',').map(x=>x.trim()).filter(Boolean)}
+function referenceIds(){return {
+  reference_track_ids:[...positiveRefIds].sort(),
+  negative_reference_track_ids:[...negativeRefIds].sort()
+}}
+function renderReferences(){
+  for(const [id,set,kind] of [['positiveReferences',positiveRefIds,'Positive'],
+                              ['negativeReferences',negativeRefIds,'Negative']]){
+    const root=$(id);root.replaceChildren();
+    root.append(node('strong',kind+' references ('+set.size+')'));
+    for(const key of [...set].sort()){
+      const label=node('span',undefined,'generator-tag');
+      label.append(node('span',refLabels.get(key)||('Plex #'+key)));
+      label.append(smallButton('×',()=>{set.delete(key);renderReferences()}));
+      root.append(label);
+    }
+  }
+}
+function addReferences(ids,kind,label){
+  const into=kind==='positive'?positiveRefIds:negativeRefIds;
+  const other=kind==='positive'?negativeRefIds:positiveRefIds;
+  const unique=[...new Set(ids.map(String))];
+  if(unique.length+into.size>150){
+    notify('Maximum 150 positive or negative reference tracks.',true);return;
+  }
+  for(const key of unique){
+    into.add(key);other.delete(key);
+    if(label)refLabels.set(key,label);
+  }
+  renderReferences();
+}
+async function searchReferences(){
+  const query=$('referenceQuery').value.trim(),results=$('referenceSearchResults');
+  if(query.length<2){results.textContent='Type at least two characters.';return}
+  results.textContent='Searching complete Plex library…';
+  try{
+    const data=await api('/api/generation/reference-search?q='+
+      encodeURIComponent(query)+'&limit=30');
+    results.replaceChildren();
+    if(!data.tracks.length)results.append(node('p','No Plex tracks found.'));
+    for(const item of data.tracks){
+      const row=node('div',undefined,'generator-ref-row');
+      row.append(node('span',item.artist+' — '+item.title+' · '+item.album));
+      row.append(smallButton('+ Example',()=>addReferences([item.id],'positive',item.artist+' — '+item.title)));
+      row.append(smallButton('− Example',()=>addReferences([item.id],'negative',item.artist+' — '+item.title)));
+      row.append(smallButton('+ Album',()=>addReferences(item.album_track_ids,'positive',item.artist+' — '+item.album)));
+      row.append(smallButton('− Album',()=>addReferences(item.album_track_ids,'negative',item.artist+' — '+item.album)));
+      results.append(row);
+    }
+  }catch(error){results.textContent='Reference search failed: '+error.message}
+}
+async function refreshReadiness(){
+  try{
+    const state=await api('/api/generation/readiness');
+    const full=state.plex_tracks,matched=state.matched_track_ids;
+    $('generationReadinessText').textContent=
+      'Plex '+full+' tracks · AudioMuse matched '+matched+'/'+full+
+      ' · MusiCNN '+state.musicnn_available+' · CLAP '+state.clap_available+
+      ' · pending '+(state.pending===null?'unknown':state.pending)+
+      (state.ready?' · Ready':' · Incomplete analysis/cache');
+  }catch(error){
+    $('generationReadinessText').textContent='AudioMuse/Plex readiness unavailable: '+error.message;
+  }
+}
+async function refreshGenreProfiles(){
+  const genre=$('genre').value,subgenre=$('subgenre').value.trim();
+  if(!genre){$('genreProfileStatus').textContent='Metadata-only legacy prompt mode';return}
+  try{
+    const response=await api('/api/generation/genre-profiles?genre='+
+      encodeURIComponent(genre)+'&subgenre='+encodeURIComponent(subgenre));
+    const profile=response.profiles?.[0];
+    $('genreProfileStatus').textContent=profile
+      ? profile.analyzed_references+' verified analyzed '+(subgenre||genre)+
+        ' references'+(profile.available?' · ready':' · select more positive examples')
+      : 'No reference profile; select positive examples';
+  }catch(error){$('genreProfileStatus').textContent='Reference status unavailable: '+error.message}
+}
+function describeEvidence(t){
+  const signal=t.genre_evidence;
+  if(!signal)return null;
+  const ev=signal.evidence||{};
+  const sources=[
+    'Metadata: '+(ev.metadata_support||'unknown').replaceAll('_',' '),
+    'MusiCNN: '+(ev.musicnn_similarity===null?'unknown':Number(ev.musicnn_similarity).toFixed(2)),
+    'CLAP: '+(ev.clap_similarity===null?'unknown':Number(ev.clap_similarity).toFixed(2)),
+    'Contrast: '+(ev.subgenre_contrast===null?'unknown':Number(ev.subgenre_contrast).toFixed(3)),
+    'Review: '+(ev.review_status||'unreviewed').replaceAll('_',' '),
+  ];
+  return node('div',sources.join(' · '),'genre-evidence'+(signal.compatible?'':' warning'));
+}
+function trackedPlayback(audio,field){
+  let previous=null;
+  audio.addEventListener('timeupdate',()=>{
+    if(!reviewContext||audio.paused||audio.seeking)return;
+    if(previous!==null){
+      const delta=audio.currentTime-previous;
+      if(delta>0&&delta<=1.5){
+        if(field==='candidate')candidatePlayed+=delta;
+        else originalPlayed+=delta;
+      }
+    }
+    previous=audio.currentTime;
+    $('generatorListenProgress').textContent=
+      'Candidate '+Math.floor(candidatePlayed)+'/15 s'+
+      (reviewContext.target?' · original '+Math.floor(originalPlayed)+'/15 s':'')+
+      ' · seeking does not count as listening';
+  });
+  audio.addEventListener('seeking',()=>{previous=null});
+  audio.addEventListener('ended',()=>{previous=null});
+}
+function openGeneratorReview(candidate,targetId=null){
+  if(!draft||draft.status!=='draft')return;
+  reviewContext={candidate:String(candidate),target:targetId?String(targetId):null};
+  const t=optionCache[candidate]||draft.data.tracks.find(x=>x.id===candidate);
+  $('generatorReviewSummary').textContent=
+    (t?.artist||'')+' — '+(t?.title||candidate);
+  $('generatorReviewHeading').textContent=targetId?'Compare replacement':'Review recording';
+  $('generatorOriginalBlock').hidden=!targetId;
+  $('generatorOriginalAudio').pause();$('generatorCandidateAudio').pause();
+  $('generatorOriginalAudio').src=targetId?'/api/curation/audio/'+encodeURIComponent(targetId):'';
+  $('generatorCandidateAudio').src='/api/curation/audio/'+encodeURIComponent(candidate);
+  $('generatorListenedConfirm').checked=false;
+  $('generatorReviewIssue').value='none';$('generatorReviewNote').value='';
+  originalPlayed=0;candidatePlayed=0;
+  $('generatorListenProgress').textContent='Play each recording for at least 15 seconds.';
+  $('generatorReviewDialog').showModal();
+}
+async function submitGeneratorReview(verdict){
+  if(!reviewContext||!draft||working)return;
+  if(verdict!=='needs_review'&&(
+       !$('generatorListenedConfirm').checked||candidatePlayed<15||
+       (reviewContext.target&&originalPlayed<15))){
+    notify('Audition each recording for at least 15 seconds and confirm listening.',true);return;
+  }
+  if(verdict==='reject'&&$('generatorReviewIssue').value==='none'){
+    notify('Select a reason for rejecting this recording.',true);return;
+  }
+  working=true;
+  try{
+    const updated=await post('/api/generation/drafts/'+encodeURIComponent(draft.id)+'/reviews',{
+      revision:draft.revision,candidate_id:reviewContext.candidate,
+      target_id:reviewContext.target,verdict,
+      issue:verdict==='reject' ? $('generatorReviewIssue').value : 'none',
+      note:$('generatorReviewNote').value,
+      listened:verdict!=='needs_review',
+      candidate_played_seconds:Math.floor(candidatePlayed),
+      original_played_seconds:Math.floor(originalPlayed)
+    });
+    draft=updated;
+    $('generatorOriginalAudio').pause();$('generatorCandidateAudio').pause();
+    $('generatorReviewDialog').close();reviewContext=null;
+    draw();await findCandidates();
+    notify('Review saved in the current draft. Plex unchanged.');
+  }catch(error){notify(error.message,true)}
+  finally{working=false}
+}
+trackedPlayback($('generatorOriginalAudio'),'original');
+trackedPlayback($('generatorCandidateAudio'),'candidate');
+$('generatorReviewCancel').onclick=()=>{
+  $('generatorOriginalAudio').pause();$('generatorCandidateAudio').pause();
+  $('generatorReviewDialog').close();reviewContext=null;
+};
+$('generatorReviewLater').onclick=()=>submitGeneratorReview('needs_review');
+$('generatorReviewReject').onclick=()=>submitGeneratorReview('reject');
+$('generatorReviewAccept').onclick=()=>submitGeneratorReview('accept');
+$('referenceQuery').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();searchReferences()}};
+$('searchReferences').onclick=searchReferences;
+$('genre').onchange=refreshGenreProfiles;
+$('subgenre').onchange=refreshGenreProfiles;
+$('hardBopPreset').onclick=()=>{
+  $('genre').value='jazz';$('subgenre').value='Hard bop';
+  $('count').value='30';$('variation').value='balanced';$('flow').value='smooth';
+  $('prompt').value='Hard bop jazz with balanced artist variety and smooth transitions.';
+  refreshGenreProfiles();
+};
+$('syncAudioMuse').onclick=async()=>{
+  $('syncAudioMuse').disabled=true;syncStopRequested=false;
+  $('stopAudioMuseSync').hidden=false;
+  try{
+    for(let round=0;round<120&&!syncStopRequested;round++){
+      const state=await post('/api/audiomuse/sync',{});
+      $('generationReadinessText').textContent='AudioMuse cached '+state.cached+'/'+
+        state.available+' · '+state.pending+' pending';
+      if(state.complete)break;
+    }
+    await refreshReadiness();await refreshGenreProfiles();
+  }catch(error){$('generationReadinessText').textContent='Sync failed: '+error.message}
+  finally{$('syncAudioMuse').disabled=false;$('stopAudioMuseSync').hidden=true}
+};
+$('stopAudioMuseSync').onclick=()=>{syncStopRequested=true};
+void refreshReadiness();void refreshGenreProfiles();renderReferences();
+
 const descriptions={coherence:'Musical coherence',variation:'Variety',
    energy:'Energy',flow:'Sequence',intent:'Brief alignment'};
 function readName(){return $('name').value.trim()}
@@ -168,7 +456,22 @@ function itemView(t,index){
   meta.append(node('span',detail));
   item.append(meta);
   item.append(smallButton('▶',()=>audio(t.id)));
+  if(index>0)item.append(smallButton('◀ Prev',()=>audio(draft.data.tracks[index-1].id)));
+  if(index+1<draft.data.tracks.length)
+    item.append(smallButton('Next ▶',()=>audio(draft.data.tracks[index+1].id)));
+  const transitions=draft.data.diagnostics.transitions||[];
+  const signal=describeEvidence(t);
+  if(signal)meta.append(signal);
+  const edge=transitions.find(x=>x.to_id===t.id);
+  if(edge)meta.append(node('div','Transition: '+
+     (edge.audio_similarity===null?'unknown audio':Math.round(edge.audio_similarity*100)+'% similarity')+
+     (edge.energy_jump===null?'':' · energy jump '+edge.energy_jump)+
+     (edge.warning?' · REVIEW':''),'generator-transition'));
+  if(draft.data.reviews?.[t.id]){
+    meta.append(node('div','Listening verdict: '+draft.data.reviews[t.id].verdict,'genre-evidence'));
+  }
   const controls=draft.status==='draft';
+  if(controls)item.append(smallButton('Review',()=>openGeneratorReview(t.id)));
   if(controls){
     const up=smallButton('↑',()=>move(index,-1));up.disabled=index===0;item.append(up);
     const down=smallButton('↓',()=>move(index,1));down.disabled=index>=draft.data.tracks.length-1;item.append(down);
@@ -198,6 +501,14 @@ function draw(){
   $('warnings').replaceChildren();
   for(const warning of [...new Set([...(data.warnings||[]),...(d.flags||[])])])
     $('warnings').append(node('p',warning,'flag'));
+  if(data.genre_profile){
+    const profile=data.genre_profile;
+    $('warnings').append(node('p','Subgenre reference set: '+
+      profile.verified_metadata_count+' metadata-labeled, '+
+      profile.manual_positive_count+' user-confirmed positive, '+
+      profile.manual_negative_count+' negative reference tracks. '+
+      'Audio similarities are not calibrated genre probabilities.','muted'));
+  }
   $('selection').textContent=data.selection.catalogue+' library tracks · '+
     data.selection.initial_candidates+' pass hard filters · '+
     data.selection.eligible+' have evidence for requested style · '+
@@ -224,6 +535,19 @@ async function loadDraft(id){
     $('energy').value=profile.energy;
     $('flow').value=profile.flow;
     $('live').value=profile.live;
+    const criteria=draft.data.request.criteria||{};
+    $('genre').value=criteria.genre||'';
+    $('subgenre').value=criteria.subgenre||'';
+    $('yearFrom').value=criteria.years?.[0]||'';
+    $('yearTo').value=criteria.years?.[1]||'';
+    $('evidenceThreshold').value=criteria.evidence_threshold||'balanced';
+    $('excludedArtists').value=(criteria.excluded_artists||[]).join(', ');
+    $('excludedAlbums').value=(criteria.excluded_albums||[]).join(', ');
+    $('excludedTracks').value=(criteria.excluded_track_ids||[]).join(', ');
+    positiveRefIds.clear();negativeRefIds.clear();
+    for(const id of criteria.reference_track_ids||[])positiveRefIds.add(String(id));
+    for(const id of criteria.negative_reference_track_ids||[])negativeRefIds.add(String(id));
+    renderReferences();
     localStorage.setItem('playlistGenerationDraft',draft.id);
     target=null;optionCache={};
     draw();
@@ -255,7 +579,10 @@ async function findCandidates(){
       meta.append(node('span',item.match===null?'Unscored (limited AudioMuse)':
              Math.round(item.match*100)+'% fit · '+item.confidence+' confidence'));
       if(item.criteria_issue)meta.append(node('span','Outside brief: '+item.criteria_issue,'warn'));
+      const genre=describeEvidence(item);
+      if(genre)meta.append(genre);
       row.append(meta,smallButton('▶',()=>audio(item.id)));
+      row.append(smallButton('Review',()=>openGeneratorReview(item.id,target)));
       const b=smallButton(target?'Replace':'Add',()=>edit([
         target?{type:'replace',track_id:target,candidate_id:item.id}:
           {type:'add',candidate_id:item.id,...(
@@ -315,7 +642,15 @@ $('createForm').onsubmit=async(event)=>{
     const created=await post('/api/generation/drafts',{
       prompt,name,count:Number($('count').value),
       minutes:$('minutes').value?Number($('minutes').value):null,
-      identity:Object.keys(overrides).length?overrides:null
+      identity:Object.keys(overrides).length?overrides:null,
+      genre:$('genre').value||null,subgenre:$('subgenre').value.trim()||null,
+      ...referenceIds(),
+      excluded_track_ids:refList('excludedTracks'),
+      excluded_artists:refList('excludedArtists'),
+      excluded_albums:refList('excludedAlbums'),
+      year_from:$('yearFrom').value?Number($('yearFrom').value):null,
+      year_to:$('yearTo').value?Number($('yearTo').value):null,
+      evidence_threshold:$('evidenceThreshold').value
     });
     draft=created;target=null;optionCache={};
     localStorage.setItem('playlistGenerationDraft',draft.id);
