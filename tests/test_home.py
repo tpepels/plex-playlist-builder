@@ -66,11 +66,12 @@ def test_home_status_is_read_only_and_has_failure_states():
     markup = HTML.read_text()
     code = JS.read_text()
     for target in ("plex-value", "playlist-count", "download-count",
-                   "sync-count", "attention-list", "refresh-home"):
+                   "sync-count", "attention-list"):
         assert f'id="{target}"' in markup
     for endpoint in ("/api/health", "/api/config/summary", "/api/downloads/bridge/status"):
         assert endpoint in code
     assert "Promise.allSettled" in code
+    assert "workspace:changed" in code
     assert "response.ok" in code
     assert "Offline" in code
     assert "textContent" in code
