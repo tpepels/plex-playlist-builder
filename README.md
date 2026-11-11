@@ -72,26 +72,61 @@ The YAML configuration API does not require Plex connectivity. If Plex or
 the downloader is unavailable, their status is shown independently; the
 other tools and saved playlist definitions remain accessible.
 
-## Automatic workspace maintenance
+## Automatic workspace maintenance and faster loading
 
-The primary navigation contains **Home**, **Downloads**, and **Playlists & library**. Playlist creation, improvement, music discovery, reports, and duplicate detection are available as contextual tasks inside **Playlists & library**. Technical diagnostics and exports are under **Tools & exports**.
+The application has one global navigation (**Home**, **Downloads**, **Playlists & library**).
+The playlist workspace at `/playlists` contains the original library, generator,
+curator, discovery, reports and audio-analysis workflows, with one shared workflow
+selector and one shared visual system. Direct bookmarks to the older standalone
+routes still work. This reuses the existing engines and publication safeguards.
 
-The manager runs two read-only maintenance loops by default, starting shortly after service startup:
+Three server workers run independently of the browser:
 
-- **AudioMuse cache:** Check for completed analysis changes every 15 minutes. Each pass updates at most 500 tracks in the local SQLite cache; while pending work remains, batches continue about every five seconds.
-- **Plex music index:** Check the complete catalogue every hour, retaining the last complete index when a rescan fails. Indexing does not modify Plex.
+- **AudioMuse feature cache:** sync completed analysis every 15 minutes, up to
+  500 changed tracks per batch, continuing at five-second intervals while pending.
+- **Plex music catalogue:** refresh the full track/album index every 15 minutes.
+  Browsers read the most recent complete snapshot without waiting for a scan.
+- **New-music analysis:** every two minutes, check the durable queue of newly
+  indexed Plex tracks (including new tracks on existing albums). After the first
+  successful library scan establishes a baseline, later additions enqueue their
+  albums. Check upstream AudioMuse task state before submitting a bounded
+  `num_recent_albums` analysis through the **existing** AudioMuse API. Only
+  one task may be in flight. Task IDs and pending albums are persisted in
+  `/data/workspace-analysis.json`, including across restarts. An analysis that
+  fails is retried at most three times; missing or ambiguous completion evidence
+  is **reported**, not silently treated as success. Full-library backfill is
+  available in the advanced audio-analysis controls.
 
-The downloader-to-Plex publication scan remains a separate existing background service. Starting a new CPU-intensive AudioMuse analysis is **not** automatic; it remains an explicit user action. Saving, publishing, replacing, or reordering Plex playlists also remains approval-gated. No automatic maintenance task changes Plex playlists or YAML definitions.
+The first baseline intentionally does not initiate a potentially expensive
+full-library analysis. If old music is still unanalyzed, run an explicit backfill.
+Automatic requests use AudioMuse's recent-albums API, so its recent-album ordering
+must correspond to the same Plex library; the actual analyzed coverage is exposed
+separately. Neither these workers nor the existing downloader-to-Plex scan can
+publish or replace playlists or YAML definitions. Those changes still require
+approval. Enable the existing downloader scan using
+`DOWNLOAD_BRIDGE_SCAN_ENABLED=1` in the parent Compose configuration.
 
-The read-only endpoint `GET /api/workspace/maintenance` reports last attempt, last success, pending batches, and errors for both background jobs. Home shows the status of both workers, including failures and records still queued. A successful scheduled Plex-index refresh means Plex was actually scanned, not just that an old cached snapshot was read.
+`GET /api/workspace/maintenance` reports queue depth, active analysis,
+last successful cache/index updates and failures. Disable all maintenance with
+`WORKSPACE_AUTO_REFRESH_ENABLED=0`, or only automatic analysis with
+`WORKSPACE_AUTO_ANALYSIS_ENABLED=0`.
 
-The playlist editor checks `GET /api/config/status` every 90 seconds while visible and idle. If YAML content or the saved Plex-sync status changes, it reloads the page data without losing search filters or expanded playlists. Checks are suppressed during unsaved YAML edits, imports, cover uploads, or Plex sync operations. The Home link for unpublished changes opens `/playlists?pending=1` and activates the pending-only filter. The **Audio analysis & coherence** page displays this status and automatically refreshes its reports. Visible library reports update periodically without disturbing YAML edits or an active publish.
+**Loading improvements:** Home requests the lightweight local
+`/api/config/summary` endpoint instead of fetching full YAML, and displays
+each independent status as soon as its response arrives. A slow Plex or
+downloader request cannot hold up local playlist counts. Full Plex scans
+are handled by the background indexer and never block an ordinary cached
+library read. Repeated requests share a decoded AudioMuse SQLite snapshot
+until its file changes or a sync commits. These improvements preserve the
+last successfully fetched catalogue on transient outages.
 
-To disable automatic cache maintenance set `WORKSPACE_AUTO_REFRESH_ENABLED=0` on the `plex-playlist-manager` service. Existing caches are retained when a source is temporarily unavailable. Manual cache/index controls remain under each page's optional **Data maintenance** section.
+The playlist editor also checks `GET /api/config/status` every 90 seconds
+when visible and idle, updating external changes without losing unsaved YAML
+edits, filters or expanded rows. Report and analysis views refresh themselves.
 
 ## Genre-aware playlist creation (AudioMuse)
 
-Open **Playlists & library → Create a playlist** at `http://media-server:5051/playlist-generator` to create a
+Open **Playlists & library → Create** at `http://media-server:5051/playlists?work=create` to create a
 new playlist from the existing Plex Music catalogue. The creation screen now uses structured **Genre**, **Subgenre**, **Track count**, **Variation** and **Sequence** choices. The musical description is optional and kept under advanced settings. Changing genres does not leave an unrelated pre-filled text brief; structured controls alone are sufficient to create a draft. Optional reference recordings are shown when the selected style lacks evidence. The installed preset is:
 
 - **Genre:** Jazz
