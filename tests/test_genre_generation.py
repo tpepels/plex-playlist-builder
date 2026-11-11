@@ -195,3 +195,20 @@ def test_medium_catalogue_full_scan_performance_without_shortlist():
     assert len(result["keys"])==30
     assert result["selection"]["evaluated"]>500
     assert elapsed<30, f"Full-catalogue generation took {elapsed:.2f}s (1800 tracks, 128D)."
+
+
+def test_structured_genre_creation_requires_no_duplicate_text_brief():
+    criteria = parse_prompt(
+        "", genre="Jazz", subgenre="Hard bop", count=30,
+        overrides={"variation":"balanced", "flow":"smooth"}
+    )
+    assert criteria["criteria"]["genre"] == "jazz"
+    assert criteria["criteria"]["subgenre"] == "hard bop"
+    assert criteria["criteria"]["count"] == 30
+    assert criteria["identity"]["variation"] == "balanced"
+    assert criteria["identity"]["flow"] == "smooth"
+    assert criteria["prompt"] == "Hard bop Jazz music"
+    soul = parse_prompt("", genre="Soul", count=24)
+    assert soul["criteria"]["genre"] == "soul"
+    with pytest.raises(GenerationError, match="Select a genre"):
+        parse_prompt("")
