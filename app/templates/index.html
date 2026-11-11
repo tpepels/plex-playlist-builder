@@ -219,14 +219,14 @@ small{color:var(--muted)}
 </details>
 </section>
 <section id="viewHealth" class="panel" hidden>
-  <div class="section-title"><h2>Playlist health</h2><button class="refreshInsights" type="button" title="This report updates when opened; use to recalculate now">Recalculate now</button></div>
+  <div class="section-title"><h2>Playlist health</h2><small>Updated automatically</small></div>
   <div id="healthTotals" class="data-strip"></div>
   <div class="insights-tools"><span class="tag">Rotating targets: ≤20% per artist · ≤25% per album · ≥15% recently added</span>
   <span class="tag">Curated lists are not judged or auto-changed</span></div>
   <div id="healthRows" class="insight-scroll"><span class="album-meta">Open this tab to analyze the library.</span></div>
 </section>
 <section id="viewDuplicates" class="panel" hidden>
-  <div class="section-title"><h2>Duplicate albums</h2><button id="refreshDuplicates" type="button" title="Rescan Plex now; nothing is deleted">Rescan albums now</button></div>
+  <div class="section-title"><h2>Duplicate albums</h2><small>Updated automatically</small></div>
   <p class="album-meta">Complete albums compared by artist, release, tracklist, disc/track positions and duration (±2 seconds). Files and folders are never deleted. A marked folder is a review candidate, not a confirmed safe deletion.</p>
   <div id="duplicateTotals" class="data-strip"></div>
   <div class="insights-tools">
@@ -244,7 +244,7 @@ small{color:var(--muted)}
   <div id="duplicateRows">Open this tab to scan Plex.</div>
 </section>
 <section id="viewNewmusic" class="panel" hidden>
-  <div class="section-title"><h2>New music</h2><button class="refreshInsights" type="button" title="Recalculate recent music from Plex">Recalculate now</button></div>
+  <div class="section-title"><h2>New music</h2><small>Updated automatically</small></div>
   <div class="insights-tools">
     <label for="insightDays">Added within</label>
     <select id="insightDays" aria-label="Days to review"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option><option value="365">365 days</option></select>
@@ -256,7 +256,7 @@ small{color:var(--muted)}
 <section id="viewIsc" class="panel" hidden>
   <div class="section-title">
     <h2>Discover · In Sheep's Clothing</h2>
-    <button id="iscRefresh" type="button">Check source for new albums</button>
+    <small>Updated automatically</small>
   </div>
   <p class="album-meta">Curated albums from In Sheep's Clothing Hi-Fi, compared with your Plex library. Suggestions only; your playlists are never changed. Genres are suggested from the source's published styles and tags.</p>
   <div id="iscTotals" class="data-strip"></div>
@@ -880,7 +880,7 @@ function renderIsc() {
 }
 async function loadIsc(refresh=false) {
   $("iscMeta").textContent = refresh ? "Refreshing the source collection…" : "Loading source collection and comparing Plex…";
-  $("iscRefresh").disabled = true;
+
   try {
     iscData = await api("/api/discover/isc?refresh=" + String(refresh));
     iscDisplayLimit = 40;
@@ -890,8 +890,6 @@ async function loadIsc(refresh=false) {
   } catch(e) {
     $("iscMeta").textContent = "Discovery unavailable: " + e.message;
     $("iscRows").textContent = "";
-  } finally {
-    $("iscRefresh").disabled = false;
   }
 }
 
@@ -1093,13 +1091,9 @@ $("insightDays").onchange = () => loadInsights();
 $("iscSearch").oninput = () => { iscDisplayLimit = 40; renderIsc(); };
 $("iscStatus").onchange = () => { iscDisplayLimit = 40; renderIsc(); };
 $("iscMood").onchange = () => { iscDisplayLimit = 40; renderIsc(); };
-$("iscRefresh").onclick = () => loadIsc(true);
 $("iscMore").onclick = () => { iscDisplayLimit += 40; renderIsc(); };
 $("duplicateSearch").oninput = renderDuplicates;
 $("duplicateKind").onchange = renderDuplicates;
-$("refreshDuplicates").onclick = () => loadDuplicates(true);
-for (const b of document.querySelectorAll(".refreshInsights"))
-  b.onclick = () => loadInsights(true);
 const NAVIGATION_TITLES = {
   playlists:"Playlists", health:"Playlist health", duplicates:"Duplicate albums",
   newmusic:"New music", isc:"Music discovery", discover:"Find album"
@@ -1163,13 +1157,19 @@ async function checkSavedPlaylistRevision() {
 if (typeof window !== "undefined" && typeof window.setInterval === "function")
   window.setInterval(() => { void checkSavedPlaylistRevision(); }, 90000);
 // Refresh only the visible report; never interrupt unsaved edits or an active Plex write.
-if (typeof window !== "undefined" && typeof window.setInterval === "function") window.setInterval(() => {
+function updateVisibleReports(){
   if (document.hidden || syncing || coverUploading || editorDirty) return;
   void checkHealth();
   if (activeView === "health" || activeView === "newmusic") void loadInsights();
   if (activeView === "duplicates") void loadDuplicates();
   if (activeView === "isc") void loadIsc();
-}, 180000);
+}
+if (typeof window !== "undefined" && typeof window.setInterval === "function")
+  window.setInterval(updateVisibleReports, 180000);
+if (typeof document.addEventListener === "function")
+  document.addEventListener("visibilitychange", () => {
+    if(!document.hidden) {void checkSavedPlaylistRevision();updateVisibleReports();}
+  });
 // These are independent: a Plex outage cannot prevent local YAML editing.
 checkHealth();
 loadConfig().then(async () => {
