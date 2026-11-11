@@ -227,29 +227,54 @@ input,textarea,select {accent-color:var(--workspace-accent)}
   .workspace-brand small {letter-spacing:.07em;font-size:8px}
 }
 
-/* Workflows are panels within the playlist workspace, not separate site navs. */
-.workspace-workflow-tabs {
-  display:flex;flex-wrap:wrap;gap:5px;align-items:center;
-  padding:5px;margin:-12px 0 22px;
-  border:1px solid var(--workspace-line);border-radius:11px;
-  background:var(--workspace-panel);
+
+/* Single primary header: playlist workflows expand beside their parent link. */
+.workspace-playlists-control {
+  display:inline-flex;align-items:center;gap:0;flex:0 0 auto;min-width:0;
 }
-.workspace-workflow-tabs a {
-  display:inline-flex;align-items:center;justify-content:center;
-  min-height:36px;padding:8px 13px;border-radius:7px;
-  color:var(--workspace-muted)!important;text-decoration:none!important;
-  font:650 12px/1.35 system-ui,sans-serif!important;
-  border:1px solid transparent;
+.workspace-playlists-control > a {
+  box-sizing:border-box;display:inline-flex!important;align-items:center;
+  justify-content:center;min-height:39px;padding:8px 10px!important;
+  border:1px solid transparent!important;border-radius:8px 0 0 8px;
+  background:transparent!important;color:var(--workspace-muted)!important;
+  font:650 13px/1.35 system-ui,sans-serif!important;
+  text-decoration:none!important;white-space:nowrap;
 }
-.workspace-workflow-tabs a:hover {
-  background:var(--workspace-surface);color:var(--workspace-text)!important;
+.workspace-playlists-control > a:hover,
+.workspace-playlists-control > a[aria-current="page"] {
+  background:#1c3e3b!important;color:var(--workspace-accent)!important;
 }
-.workspace-workflow-tabs a[aria-current="page"] {
-  background:#1c3e3b;border-color:#3e685d;
-  color:var(--workspace-accent)!important;
+.workspace-playlists-menu {
+  flex:0 0 auto;position:relative!important;overflow:visible!important;
+  margin:0!important;padding:0!important;width:auto!important;
+  min-width:0!important;max-width:none!important;border:0!important;
+  background:transparent!important;box-shadow:none!important;
 }
-@media(max-width:650px) {
-  .workspace-workflow-tabs {display:flex;overflow-x:auto;flex-wrap:nowrap;
-    scrollbar-width:thin;gap:2px;padding:4px;margin-bottom:18px}
-  .workspace-workflow-tabs a {white-space:nowrap;padding:8px 10px;font-size:11px!important}
+.workspace-playlists-menu > summary {
+  list-style:none;display:flex;align-items:center;justify-content:center;
+  width:28px;min-height:39px;padding:6px!important;border:1px solid transparent!important;
+  border-radius:0 8px 8px 0;color:var(--workspace-muted)!important;
+  background:transparent!important;cursor:pointer;
+}
+.workspace-playlists-menu > summary::-webkit-details-marker{display:none}
+.workspace-playlists-menu[open] > summary,
+.workspace-playlists-menu > summary:hover {
+  background:var(--workspace-surface)!important;color:var(--workspace-text)!important;
+}
+.workspace-playlists-menu > .workspace-more-menu {right:0;top:calc(100% + 8px)}
+@media(max-width:1050px) {
+  .workspace-playlists-control > a{font-size:12px!important;padding:8px 7px!important}
+}
+@media(max-width:800px) {
+  .workspace-playlists-control{display:flex;width:100%;align-items:stretch}
+  .workspace-playlists-control > a {
+    flex:1;justify-content:flex-start;padding:11px 13px!important;
+  }
+  .workspace-playlists-menu{width:38px!important}
+  .workspace-playlists-menu > summary {width:38px!important;min-height:43px}
+  .workspace-playlists-menu > .workspace-more-menu {
+    position:static;width:min(100vw - 56px,300px);max-height:none;
+    margin-top:3px;box-shadow:none;
+    transform:translateX(calc(-100% + 38px));
+  }
 }
