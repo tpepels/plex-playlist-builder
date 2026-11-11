@@ -1,9 +1,10 @@
-{# One context selector shared by the existing playlist, generator, curation and analysis engines. #}
+{# One selector; also renderable by static-template tests without a Request. #}
+{% set current_view = request.query_params.get("view") if request is defined else "" %}
 <nav class="workspace-workflow-tabs" aria-label="Playlist workspace sections">
-  <a href="/playlists" {% if workspace_work|default('library') == 'library' and not request.query_params.get('view') %}aria-current="page"{% endif %}>My playlists</a>
+  <a href="/playlists" {% if workspace_work|default('library') == 'library' and not current_view %}aria-current="page"{% endif %}>My playlists</a>
   <a href="/playlists?work=create" {% if workspace_work|default('library') == 'create' %}aria-current="page"{% endif %}>Create</a>
   <a href="/playlists?work=improve" {% if workspace_work|default('library') == 'improve' %}aria-current="page"{% endif %}>Improve</a>
-  <a href="/playlists?view=isc" {% if request.query_params.get('view') == 'isc' %}aria-current="page"{% endif %}>Discover</a>
-  <a href="/playlists?view=health" {% if request.query_params.get('view') in ('health','duplicates','newmusic') %}aria-current="page"{% endif %}>Reports</a>
+  <a href="/playlists?view=isc" {% if current_view == 'isc' %}aria-current="page"{% endif %}>Discover</a>
+  <a href="/playlists?view=health" {% if current_view in ('health','duplicates','newmusic') %}aria-current="page"{% endif %}>Reports</a>
   <a href="/playlists?work=analysis" {% if workspace_work|default('library') == 'analysis' %}aria-current="page"{% endif %}>Audio analysis</a>
 </nav>
