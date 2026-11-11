@@ -83,15 +83,6 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
 <div class="generator-status" id="generationReadiness" role="status" aria-live="polite">
   <span id="generationReadinessText">Checking Plex and AudioMuse analysis…</span>
 </div>
-<details class="panel">
-  <summary>Data maintenance (usually automatic)</summary>
-  <p class="muted">The server automatically analyzes newly indexed recordings, copies completed AudioMuse results into its local cache and refreshes the Plex music index. Neither operation changes playlists. Use the controls below only when you need an immediate update.</p>
-  <div class="controls">
-    <button type="button" id="syncAudioMuse" title="Copies completed AudioMuse features into Playlist Manager; does not start audio analysis or change Plex playlists">Copy new AudioMuse results now</button>
-    <button type="button" id="stopAudioMuseSync" hidden>Stop after this batch</button>
-    <button id="reindexLibrary" type="button" title="Read current track, album and genre metadata from Plex into the local search index; does not change Plex">Rescan Plex music metadata now</button>
-  </div>
-</details>
 <section class="panel">
   <div class="row"><h2>1 · Describe the music</h2></div>
   <form id="createForm">
@@ -117,7 +108,7 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
       <label for="referenceQuery">Search examples of the requested genre or subgenre</label>
       <div class="generator-ref-search">
         <input id="referenceQuery" type="search" maxlength="120" placeholder="Search Plex artists, albums and tracks">
-        <button id="searchReferences" type="button">Search references</button>
+        <span class="muted">Matches appear as you type</span>
       </div>
       <div id="referenceSearchResults" aria-live="polite"></div>
       <div class="generator-tags" id="positiveReferences" aria-label="Positive references"></div>
@@ -179,7 +170,7 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
   </section>
   <section class="panel">
     <div class="row"><h2 id="suggestionHeading">Browse the library</h2><button id="clearTarget" type="button">Add tracks</button></div>
-    <div class="controls"><input id="search" type="search" maxlength="120" placeholder="Artist, album or song…"><button id="find" type="button">Search</button></div>
+    <div class="controls"><input id="search" type="search" maxlength="120" placeholder="Search Plex artists, albums or tracks…" aria-label="Search library"></div>
     <p class="muted" id="candidateHint">Choose a track to find replacements, or search the library to add music.</p>
     <div id="candidateList" class="scroll"></div>
     <audio id="player" controls preload="none" hidden></audio>
@@ -235,7 +226,8 @@ const positiveRefIds=new Set(),negativeRefIds=new Set();
 const refLabels=new Map();
 let reviewContext=null;
 let originalPlayed=0,candidatePlayed=0;
-let syncStopRequested=false;
+let referenceTimer=null,candidateTimer=null;
+let referenceSerial=0,candidateSerial=0;
 
 function notify(message,error=false){
   $('notice').textContent=message;
@@ -283,12 +275,14 @@ function addReferences(ids,kind,label){
   renderReferences();
 }
 async function searchReferences(){
+  const serial=++referenceSerial;
   const query=$('referenceQuery').value.trim(),results=$('referenceSearchResults');
   if(query.length<2){results.textContent='Type at least two characters.';return}
   results.textContent='Searching complete Plex library…';
   try{
     const data=await api('/api/generation/reference-search?q='+
       encodeURIComponent(query)+'&limit=30');
+    if(serial!==referenceSerial)return;
     results.replaceChildren();
     if(!data.tracks.length)results.append(node('p','No Plex tracks found.'));
     for(const item of data.tracks){
@@ -300,7 +294,7 @@ async function searchReferences(){
       row.append(smallButton('− Album',()=>addReferences(item.album_track_ids,'negative',item.artist+' — '+item.album)));
       results.append(row);
     }
-  }catch(error){results.textContent='Reference search failed: '+error.message}
+  }catch(error){if(serial===referenceSerial)results.textContent='Reference search failed: '+error.message}
 }
 async function refreshReadiness(){
   try{
@@ -420,8 +414,17 @@ $('generatorReviewCancel').onclick=()=>{
 $('generatorReviewLater').onclick=()=>submitGeneratorReview('needs_review');
 $('generatorReviewReject').onclick=()=>submitGeneratorReview('reject');
 $('generatorReviewAccept').onclick=()=>submitGeneratorReview('accept');
-$('referenceQuery').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();searchReferences()}};
-$('searchReferences').onclick=searchReferences;
+$('referenceQuery').oninput=()=>{
+  ++referenceSerial;
+  clearTimeout(referenceTimer);
+  if($('referenceQuery').value.trim().length<2){
+    $('referenceSearchResults').replaceChildren();return;
+  }
+  referenceTimer=setTimeout(()=>{void searchReferences()},250);
+};
+$('referenceQuery').onkeydown=e=>{
+  if(e.key==='Enter'){e.preventDefault();clearTimeout(referenceTimer);void searchReferences()}
+};
 $('genre').onchange=()=>{
   if($('genre').value!=='jazz')$('subgenre').value='';
   refreshGenreProfiles();
@@ -434,21 +437,6 @@ $('hardBopPreset').onclick=()=>{
   $('prompt').value='';
   refreshGenreProfiles();
 };
-$('syncAudioMuse').onclick=async()=>{
-  $('syncAudioMuse').disabled=true;syncStopRequested=false;
-  $('stopAudioMuseSync').hidden=false;
-  try{
-    for(let round=0;round<120&&!syncStopRequested;round++){
-      const state=await post('/api/audiomuse/sync',{});
-      $('generationReadinessText').textContent='AudioMuse cached '+state.cached+'/'+
-        state.available+' · '+state.pending+' pending';
-      if(state.complete)break;
-    }
-    await refreshReadiness();await refreshGenreProfiles();
-  }catch(error){$('generationReadinessText').textContent='Sync failed: '+error.message}
-  finally{$('syncAudioMuse').disabled=false;$('stopAudioMuseSync').hidden=true}
-};
-$('stopAudioMuseSync').onclick=()=>{syncStopRequested=true};
 void refreshReadiness();void refreshGenreProfiles();renderReferences();
 // Refresh the readiness indicator without changing an open draft or user selections.
 if (typeof window !== "undefined" && typeof window.setInterval === "function")
@@ -579,7 +567,7 @@ async function loadDraft(id){
     renderReferences();
     localStorage.setItem('playlistGenerationDraft',draft.id);
     target=null;optionCache={};
-    draw();
+    draw();void findCandidates();
     notify('Draft restored.');
   }catch(error){localStorage.removeItem('playlistGenerationDraft');notify(error.message,true)}
 }
@@ -594,11 +582,13 @@ function selectTarget(id){
 const chooseTarget=selectTarget;
 async function findCandidates(){
   if(!draft)return;
+  const serial=++candidateSerial, currentDraft=draft, currentTarget=target;
   $('candidateHint').textContent='Searching Plex library…';
   try{
     const result=await api('/api/generation/drafts/'+encodeURIComponent(draft.id)+
       '/candidates?target='+encodeURIComponent(target||'')+
       '&q='+encodeURIComponent($('search').value.trim())+'&limit=30');
+    if(serial!==candidateSerial||draft!==currentDraft||target!==currentTarget)return;
     $('candidateList').replaceChildren();
     for(const item of result.candidates){
       optionCache[item.id]=item;
@@ -624,7 +614,7 @@ async function findCandidates(){
     $('candidateHint').textContent=result.candidates.length+
       ' alternatives · metadata outside the original brief is marked';
     if(!result.candidates.length)$('candidateList').append(node('p','No matching tracks.','muted'));
-  }catch(error){$('candidateHint').textContent=error.message;notify(error.message,true)}
+  }catch(error){if(serial===candidateSerial){$('candidateHint').textContent=error.message;notify(error.message,true)}}
 }
 async function edit(operations){
   if(!draft||draft.status!=='draft')return;
@@ -660,15 +650,6 @@ $('regenerateDraft').onclick=async()=>{
   }catch(error){notify(error.message,true)}
   finally{working=false;$('regenerateDraft').disabled=draft?.status!=='draft'}
 };
-$('reindexLibrary').onclick=async()=>{
-  $('reindexLibrary').disabled=true;
-  notify('Reading complete Plex music catalogue and release metadata…');
-  try{
-    const result=await post('/api/curation/library/refresh',{});
-    notify('Plex music catalogue refreshed · '+result.tracks+' tracks');
-  }catch(error){notify(error.message,true)}
-  finally{$('reindexLibrary').disabled=false}
-};
 $('createForm').onsubmit=async(event)=>{
   event.preventDefault();if(working)return;
   const prompt=$('prompt').value.trim(),name=readName();
@@ -700,13 +681,19 @@ $('createForm').onsubmit=async(event)=>{
     });
     draft=created;target=null;optionCache={};
     localStorage.setItem('playlistGenerationDraft',draft.id);
-    draw();notify('Draft generated. Review and adjust tracks before publishing.');
+    draw();void findCandidates();
+    notify('Draft generated. Review and adjust tracks before publishing.');
   }catch(error){notify(error.message,true)}
   finally{working=false;$('generate').disabled=false}
 };
 $('clearTarget').onclick=()=>selectTarget(null);
-$('find').onclick=findCandidates;
-$('search').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();findCandidates()}};
+$('search').oninput=()=>{
+  ++candidateSerial;clearTimeout(candidateTimer);
+  candidateTimer=setTimeout(()=>{void findCandidates()},250);
+};
+$('search').onkeydown=e=>{
+  if(e.key==='Enter'){e.preventDefault();clearTimeout(candidateTimer);void findCandidates()}
+};
 $('review').onclick=async()=>{
   if(!draft||working)return;
   try{
