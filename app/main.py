@@ -42,7 +42,8 @@ from .recent_export import export_recent_tracks
 from .album_export import export_album_names
 from .insights import analyze
 from .audiomuse_verification import verify_plex_track_keys
-from .audiomuse_client import (cached_features, synchronize as synchronize_audiomuse,
+from .audiomuse_client import (cached_features, decoded_features,
+                              synchronize as synchronize_audiomuse,
                               readiness as audiomuse_readiness, feature_revision)
 from .audiomuse_coherence import coherence_report
 from .audiomuse_analysis import AudioMuseControlError, analysis_status, start_analysis
@@ -1185,7 +1186,7 @@ def generation_readiness():
     try:
         library = _read_generation_catalogue()
         cache, state = cached_features()
-        report = audiomuse_readiness(library, cache, state)
+        report = audiomuse_readiness(library, cache, state, decoded=decoded_features(cache))
         # Readiness is a hot UI path. Checking the live upstream AudioMuse
         # process here caused two network requests (potentially 24 seconds).
         # The dedicated task-status API remains available for live progress.
@@ -1205,7 +1206,7 @@ def generation_genre_profiles(genre: str = "jazz", subgenre: str = "hard bop"):
         library = _read_generation_catalogue()
         cache, state = cached_features()
         from .playlist_curator import features_for
-        decoded = features_for(cache)
+        decoded = decoded_features(cache)
         from .playlist_generation import _style_token, _tags
         broad = _style_token(genre) if genre else ""
         specific = _style_token(subgenre) if subgenre else ""
