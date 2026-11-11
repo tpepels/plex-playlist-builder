@@ -72,7 +72,7 @@ details.method{font-size:12px;color:var(--muted);margin-top:18px}
 {% include "_site_navigation.html" %}
 
 <h1>Audio analysis &amp; playlist coherence</h1>
-<p>Review audio-feature coverage and unusual transitions in existing playlists. Reports and task status update while this page is open.</p>
+<p>Audio coverage, analysis progress and playlist coherence update automatically. Full-library backfill remains available for older recordings missing analysis.</p>
 <section class="panel" aria-label="AudioMuse status">
   <div id="autoMaintenance" class="desc" role="status">Checking automatic cache updates…</div>
   <div id="analysisStatus" role="status" aria-live="polite"></div>
@@ -81,7 +81,7 @@ details.method{font-size:12px;color:var(--muted);margin-top:18px}
   <div id="metrics" class="metrics"></div>
 </section>
 <details aria-label="Audio analysis maintenance">
-  <summary>Manual backfill, retry and cache controls</summary>
+  <summary>Analyze existing music (optional backfill)</summary>
   <div class="detail-body">
     <p>New recordings are analyzed automatically after Plex indexing. Manual controls can backfill or retry older recordings.  Copying completed results updates only Playlist Manager's SQLite cache. Neither changes Plex playlists.</p>
     <div class="controls">
@@ -91,10 +91,7 @@ details.method{font-size:12px;color:var(--muted);margin-top:18px}
         <option value="0">Entire library</option>
       </select>
       <button id="startAnalysis" type="button">Start AudioMuse audio analysis</button>
-      <button id="refreshAnalysis" type="button">Check analysis progress now</button>
-      <button id="sync" type="button">Copy completed audio results now</button>
-      <button id="refresh" type="button">Recalculate coherence report</button>
-      <button id="stopSync" type="button" hidden>Stop after cache batch</button>
+
     </div>
   </div>
 </details>
@@ -266,7 +263,6 @@ $('startAnalysis').addEventListener('click', async () => {
     $('startAnalysis').disabled = false;
   }
 });
-$('refreshAnalysis').addEventListener('click', refreshAnalysisStatus);
 setInterval(() => { if (document.visibilityState === 'visible') refreshAnalysisStatus(); }, 15000);
 async function updateAutomaticStatus() {
   try {
@@ -297,41 +293,9 @@ setInterval(() => { if (document.visibilityState === 'visible') void updateAutom
 setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 90000);
 refreshAnalysisStatus();
 
-$('refresh').addEventListener('click', load);
 $('filter').addEventListener('input', () => { visibleLimit = 20; render(); });
 $('visibility').addEventListener('change', () => { visibleLimit = 20; render(); });
 $('showMore').addEventListener('click', () => { visibleLimit += 20; render(); });
-let stopSyncRequested = false;
-$('stopSync').addEventListener('click', () => { stopSyncRequested = true; });
-$('sync').addEventListener('click', async () => {
-  $('sync').disabled = true;
-  $('stopSync').hidden = false;
-  $('status').hidden = false;
-  $('status').className = '';
-  stopSyncRequested = false;
-  $('status').textContent = 'Syncing…';
-  try {
-    let data;
-    let rounds = 0;
-    do {
-      data = await request('/api/audiomuse/sync', {method: 'POST'});
-      rounds += 1;
-      $('status').textContent = 'Sync ' + data.cached + '/' + data.available +
-        ' · ' + data.pending + ' pending';
-    } while (!data.complete && !stopSyncRequested && rounds < 120);
-    await load();
-    $('status').hidden = false;
-    $('status').textContent = (data.complete ? 'Synced' : stopSyncRequested ? 'Paused' : 'Partial') +
-      ' · ' + data.cached + '/' + data.available;
-  } catch (error) {
-    $('status').className = 'error';
-    $('status').hidden = false;
-    $('status').textContent = error.message;
-  } finally {
-    $('sync').disabled = false;
-    $('stopSync').hidden = true;
-  }
-});
 load();
 </script>
 <script src="/static/signal-console.js" defer></script>
