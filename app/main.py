@@ -1150,9 +1150,13 @@ def generation_genre_profiles(genre: str = "jazz", subgenre: str = "hard bop"):
         from .playlist_generation import _style_token, _tags
         broad = _style_token(genre) if genre else ""
         specific = _style_token(subgenre) if subgenre else ""
+        if specific and (specific not in SUBGENRE_ALIASES or broad!="jazz"):
+            raise HTTPException(status_code=422,detail="Unsupported genre/subgenre pairing.")
         profiles = []
-        for name in ([specific] if specific else sorted(SUBGENRE_ALIASES)):
-            candidates=[key for key,info in library.items() if name in _tags(info)]
+        for name in ([specific] if specific else
+                     (sorted(SUBGENRE_ALIASES) if broad=="jazz" else [""])):
+            target=name or broad
+            candidates=[key for key,info in library.items() if target in _tags(info)]
             measured=[key for key in candidates if
                       key in decoded and any(decoded[key].get(f) is not None
                                               for f in ("musicnn","clap"))]
@@ -1164,6 +1168,8 @@ def generation_genre_profiles(genre: str = "jazz", subgenre: str = "hard bop"):
         return {"genres":sorted(GENRE_ALIASES),
                 "subgenres":sorted(SUBGENRE_ALIASES),
                 "profiles":profiles, "cache_last_sync":state.get("last_sync")}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Genre profiles unavailable") from exc
 
