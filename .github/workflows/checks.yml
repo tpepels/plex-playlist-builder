@@ -35,6 +35,7 @@ jobs:
             tests/test_genre_generation.py \
             tests/test_generation_publish.py \
             tests/test_generation_api.py \
+            tests/test_genre_generation_api.py \
             tests/test_site_navigation.py
       - name: Python tests
         run: python -m pytest -q tests
