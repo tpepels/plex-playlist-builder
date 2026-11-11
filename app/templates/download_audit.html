@@ -38,8 +38,7 @@ label{font-size:13px;color:#bbc2ca}
 <p>Controleer of yt-dlp-bestanden daadwerkelijk door Plex zijn geïndexeerd. Vergelijking gebeurt op bestandslocatie, ook wanneer Plex een klassieke opname onder een andere uitvoerder of albumtitel toont.</p>
 <form id="audit-form" class="toolbar">
   <input id="query" name="q" type="search" placeholder="Zoek op Beethoven, album, artiest of job-ID" aria-label="Zoek in downloadgeschiedenis">
-  <button type="submit" id="check">Controleren</button>
-  <button type="button" id="scan">Plex-bibliotheek scannen</button>
+  <span class="metadata">Automatisch bijgewerkt</span>
 </form>
 <div id="notice" role="status" aria-live="polite">Downloadgeschiedenis en Plex-index worden vergeleken…</div>
 <div id="metrics" class="metrics"></div>
@@ -49,8 +48,6 @@ label{font-size:13px;color:#bbc2ca}
 (() => {
   const form = document.getElementById("audit-form");
   const query = document.getElementById("query");
-  const button = document.getElementById("check");
-  const scan = document.getElementById("scan");
   const notice = document.getElementById("notice");
   const results = document.getElementById("results");
   const metrics = document.getElementById("metrics");
@@ -168,39 +165,37 @@ label{font-size:13px;color:#bbc2ca}
     notice.textContent = "Controle gereed: " + data.jobs_considered +
       " jobs gecontroleerd tegen de huidige Plex-index.";
   }
+  let requestSerial=0;
   async function check() {
-    button.disabled = true;
+    const serial=++requestSerial;
     notice.textContent = "Downloadgeschiedenis ophalen en Plex-bestanden vergelijken…";
     try {
       const q = query.value.trim();
       history.replaceState(null, "", "/downloads-audit" + (q ? "?q=" + encodeURIComponent(q) : ""));
       const response = await fetch("/api/download-audit?q=" + encodeURIComponent(q), {cache:"no-store"});
       const data = await response.json();
+      if(serial!==requestSerial)return;
       if (!response.ok) throw Error(data.detail || "De controle kon niet worden uitgevoerd.");
       showResults(data);
     } catch (error) {
-      notice.textContent = "Controle mislukt: " + error.message;
-      results.replaceChildren();
-    } finally {
-      button.disabled = false;
+      if(serial===requestSerial)
+        notice.textContent = "Controle mislukt, nieuwe poging volgt automatisch: " + error.message;
     }
   }
-  form.addEventListener("submit", event => { event.preventDefault(); check(); });
-  scan.addEventListener("click", async () => {
-    scan.disabled = true;
-    notice.textContent = "Plex-scan aanvragen…";
-    try {
-      const response = await fetch("/api/download-audit/scan",
-        {method:"POST",headers:{"Accept":"application/json"}});
-      const data = await response.json();
-      if (!response.ok) throw Error(data.detail || "Scannen mislukt.");
-      notice.textContent = "Plex-scan aangevraagd. Indexering kan nog lopen; gebruik Controleren om later opnieuw te vergelijken.";
-    } catch (error) {
-      notice.textContent = "Scannen mislukt: " + error.message;
-    } finally {
-      scan.disabled = false;
-    }
+  let queryTimer=null;
+  form.addEventListener("submit",event=>{
+    event.preventDefault();clearTimeout(queryTimer);void check();
   });
+  query.addEventListener("input",()=>{
+    clearTimeout(queryTimer);
+    queryTimer=setTimeout(()=>{void check()},350);
+  });
+  if(typeof window!=="undefined"&&typeof window.setInterval==="function")
+    window.setInterval(()=>{if(!document.hidden)void check()},300000);
+  if(typeof document.addEventListener==="function")
+    document.addEventListener("visibilitychange",()=>{
+      if(!document.hidden)void check();
+    });
   check();
 })();
 </script>
