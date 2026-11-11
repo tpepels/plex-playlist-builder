@@ -12,17 +12,20 @@ def test_status_api_explains_what_is_automated(monkeypatch):
     assert result["enabled"] is True
     assert result["policy"]["plex_playlist_writes"] is False
     assert result["policy"]["audio_seconds"] > 0
-    assert set(result["jobs"]) == {"audio", "library"}
+    assert set(result["jobs"]) == {"audio", "library", "analysis"}
+    assert result["automatic_analysis"]["enabled"] is True
 
 
 def test_library_job_only_reads_music_and_updates_local_index(monkeypatch):
     calls = []
     monkeypatch.setattr(jobs.plex_client, "connect",
                         lambda: (object(), "music"))
+    monkeypatch.setattr(jobs.automatic_analysis, "observe",
+                        lambda tracks: {"new_tracks": 1, "new_albums": 1})
     monkeypatch.setattr(jobs.curation_library, "get_library",
                         lambda music, refresh=False: calls.append((music, refresh)) or {"1": {}})
     result = jobs._refresh_library()
-    assert result == {"tracks": 1, "pending": 0}
+    assert result == {"tracks": 1, "new_tracks": 1, "new_albums": 1, "pending": 0}
     assert calls == [("music", True)]
 
 
@@ -61,7 +64,7 @@ def test_workers_can_be_disabled_and_shutdown_without_running_jobs(monkeypatch):
         await jobs.stop_tasks(app)
         monkeypatch.setenv("WORKSPACE_AUTO_REFRESH_ENABLED", "1")
         jobs.start_tasks(app)
-        assert len(app.state.workspace_maintenance_tasks) == 2
+        assert len(app.state.workspace_maintenance_tasks) == 3
         await jobs.stop_tasks(app)
         assert app.state.workspace_maintenance_tasks == []
 
