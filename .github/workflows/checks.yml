@@ -64,6 +64,8 @@ jobs:
       - name: Intelligent generation UI and APIs
         if: ${{ always() }}
         run: node tests/test_playlist_generator_ui.mjs
+      - name: Intelligent generation browser integration
+        run: node --test tests/test_playlist_generator_browser.mjs
       - name: Shared navigation integration
         if: ${{ always() }}
         run: node tests/test_site_navigation.mjs
