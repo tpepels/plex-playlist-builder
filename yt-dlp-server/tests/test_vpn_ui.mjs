@@ -68,7 +68,7 @@ function harness() {
     "vpn-feedback", "vpn-public-keys", "vpn-profiles", "vpn-test-results", "vpn-test-progress",
     "vpn-key-setup", "vpn-private-key", "vpn-count", "vpn-connection",
     "vpn-upload-input", "vpn-test-button", "vpn-next-button", "vpn-direct-button",
-    "vpn-refresh", "vpn-upload",
+    "vpn-upload",
   ]) panel.append(get(id));
   get("vpn-key-setup").hidden = true;
   let status = {
@@ -94,10 +94,11 @@ function harness() {
     throw Error("Unexpected request: " + url);
   }
   const document = {getElementById: get, createElement: node};
+  const timers=[];
   const context = {
     document, fetch, window: {
       confirm: () => true,
-      setInterval: () => 15, clearInterval() {},
+      setInterval: (callback) => {timers.push(callback);return 15}, clearInterval() {},
     },
     FormData: class { append() {} },
     console,
@@ -106,7 +107,9 @@ function harness() {
   const profile = () => get("vpn-profiles").children[0];
   const connect = () => profile().querySelector("button.vpn-secondary");
   return {
-    get, requests, profile, connect, setStatus(value) {status = value;},
+    get, requests, profile, connect,
+    tick(){panel.open=true;timers.at(-1)?.()},
+    setStatus(value) {status = value;},
     settleConnect(data, ok = false) {
       assert.equal(typeof resolveConnect, "function");
       resolveConnect(fakeResponse(data, ok));
@@ -124,7 +127,7 @@ test("Connect immediately shows an in-row state and stays locked during a status
   assert.equal(ui.connect().disabled, true);
   assert.match(ui.profile().children.at(-1).textContent, /Contacting Surfshark/);
   // Simulate a background GET while POST is still unresolved.
-  ui.get("vpn-refresh").click();
+  ui.tick();
   await flush();
   assert.equal(ui.connect().disabled, true);
   assert.equal(ui.connect().textContent, "Connecting…");
@@ -189,7 +192,7 @@ test("Direct is default and manual Disconnect VPN restores it", async () => {
     active: "a".repeat(32), mode: "vpn", kill_switch: true, tunnel_ready: true,
     test: {running: false, done: true, results: []},
   });
-  ui.get("vpn-refresh").click();
+  ui.tick();
   await flush();
   assert.equal(ui.get("vpn-direct-button").disabled, false);
   ui.get("vpn-direct-button").click();
