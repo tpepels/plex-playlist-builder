@@ -9,34 +9,26 @@
   <nav id="siteNavigationPanel" class="workspace-navigation" aria-label="Workspace navigation">
     <a href="/" data-nav="home">Home</a>
     <a href="/downloads" data-nav="downloads">Downloads</a>
-    <a href="/playlists" data-nav="playlists">Playlists</a>
-    <a href="/playlists?view=isc" data-nav="discovery">Discover</a>
-    <a href="/playlist-generator" data-nav="create">Create</a>
-    <a href="/playlist-intelligence" data-nav="curate">Curate</a>
+    <a href="/playlists" data-nav="playlists">Playlists &amp; library</a>
     <details class="workspace-more" id="workspaceMore">
-      <summary>More <span aria-hidden="true">⌄</span></summary>
+      <summary>Tools &amp; exports <span aria-hidden="true">⌄</span></summary>
       <div class="workspace-more-menu">
-        <span class="workspace-menu-heading">Library</span>
-        <a href="/playlists?view=newmusic">New music</a>
-        <a href="/playlists?view=health">Playlist health</a>
-        <a href="/playlists?view=duplicates">Duplicate albums</a>
-        <a href="/playlists?view=discover">Find an album</a>
-        <a href="/musical-coherence">Musical coherence</a>
-        <span class="workspace-menu-heading">Maintenance</span>
-        <a href="/downloads-audit">Download audit</a>
-        <span class="workspace-menu-heading">Export</span>
-        <a href="/api/library-albums.tsv" download="plex-albums.tsv">Album list TSV</a>
-        <a href="/api/library-export.tsv" download="plex-music-library.tsv">Full library TSV</a>
-        <a href="/api/playlists-export.yml" download="plex-playlists.yml">Playlist YAML</a>
+        <span class="workspace-menu-heading">Diagnostics</span>
+        <a href="/musical-coherence">Audio analysis &amp; coherence</a>
+        <a href="/downloads-audit">Download diagnostics</a>
+        <span class="workspace-menu-heading">Export (download only)</span>
+        <a href="/api/library-albums.tsv" download="plex-albums.tsv">Album list (TSV)</a>
+        <a href="/api/library-export.tsv" download="plex-music-library.tsv">Music library (TSV)</a>
+        <a href="/api/playlists-export.yml" download="plex-playlists.yml">Playlist definitions (YAML)</a>
         <form id="siteNavRecentForm" action="/api/library-recent.tsv" method="get" class="workspace-recent-export">
-          <label for="siteNavRecentMode">Recent library export</label>
+          <label for="siteNavRecentMode">Recent music export</label>
           <select id="siteNavRecentMode" name="mode" aria-label="Recent export mode">
-            <option value="hours">Last hours</option>
-            <option value="albums">Latest albums</option>
+            <option value="hours">Added within hours</option>
+            <option value="albums">Last albums added</option>
           </select>
           <label for="siteNavRecentLimit">Hours or albums</label>
           <input id="siteNavRecentLimit" name="limit" type="number" value="48" min="1" max="8760" required>
-          <button type="submit">Export TSV</button>
+          <button type="submit">Download TSV</button>
         </form>
         <div class="workspace-menu-settings">
           <button id="signal-theme-toggle" type="button" class="workspace-theme-button"
