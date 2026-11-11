@@ -196,6 +196,7 @@ const $=id=>document.getElementById(id);
 let source=null,actions=[],target=null,chosen={},filteredPage=0,plan=null,busy=false,reviewChoice=null;
 let observedPlayback={original:0,candidate:0};
 let playbackPrevious={original:null,candidate:null};
+let identityDirty=false;
 const PAGE=35;
 const el=(tag,txt,cls)=>{
   const n=document.createElement(tag);
@@ -553,7 +554,7 @@ async function loadNames(){
       message('No saved playlists. Create or import a playlist to begin.');
       return;
     }
-    if(source && actions.length && source.name!==preferred){
+    if(source && (actions.length||identityDirty) && source.name!==preferred){
       // Deletion/reorder from another client must not destroy an active draft.
       return;
     }
@@ -662,6 +663,7 @@ function renderIdentity(){
   $('resetIdentity').disabled=current.source!=='manual';
   $('identityEvidence').textContent='Based on '+current.evidence.basis.join(' + ')+
     ' · '+current.evidence.analyzed_tracks+' analyzed tracks. Verify inferred choices.';
+  identityDirty=false;
 }
 function editedIdentity(){
   const tags=id=>$(id).value.split(',').map(t=>t.trim().toLowerCase()).filter(Boolean);
@@ -699,8 +701,13 @@ $('resetIdentity').onclick=async()=>{
   }catch(e){message(e.message,true)}
   finally{$('resetIdentity').disabled=source?.identity?.source!=='manual'}
 };
+for(const id of ['intentPurpose','intentStyles','intentMoods','intentVariation',
+                 'intentEnergy','intentFlow','intentLive']){
+  $(id).addEventListener('input',()=>{identityDirty=true});
+  $(id).addEventListener('change',()=>{identityDirty=true});
+}
 $('playlist').onchange=()=>{
-  if(actions.length&&!confirm('Discard staged changes?')){
+  if((actions.length||identityDirty)&&!confirm('Discard unsaved edits?')){
     $('playlist').value=source?.name||'';return;
   }
   recentPlaylist=$('playlist').value;
@@ -761,13 +768,13 @@ if(typeof window!=='undefined'&&typeof window.setInterval==='function'){
     void loadNames();
   },60000);
   window.setInterval(async()=>{
-    if(document.hidden||busy||actions.length||!source)return;
+    if(document.hidden||busy||actions.length||identityDirty||!source)return;
     // Refresh only when the underlying Plex playlist changed. An unchanged
     // revision never resets target, scroll or staged UI choices.
     const current=source,serial=++playlistRequestSerial;
     try{
       const incoming=await api('/api/curation/playlist/'+encodeURIComponent(current.name));
-      if(serial!==playlistRequestSerial||source!==current||actions.length||busy)return;
+      if(serial!==playlistRequestSerial||source!==current||actions.length||identityDirty||busy)return;
       if(incoming.snapshot===current.snapshot&&incoming.version===current.version){
         return;
       }
