@@ -221,3 +221,15 @@ test("Explicit regeneration is revisioned, never silently triggered",async()=>{
   assert.equal(call.body.revision,1);
   assert.match(h.get("draftStatus").textContent,/revision 2/);
 });
+
+test("An existing unpublished draft can be reopened by ID without generating or publishing",async()=>{
+  const h=harness();
+  h.get("existingDraftId").value="generated-42";
+  h.get("openExistingDraft").onclick();
+  await settle();
+  const loaded=h.calls.find(c=>c.path==="/api/generation/drafts/generated-42"&&c.method==="GET");
+  assert(loaded);
+  assert.equal(h.get("workspace").hidden,false);
+  assert.equal(h.get("trackList").children.length,30);
+  assert(!h.calls.some(c=>c.path==="/api/generation/publish"));
+});
