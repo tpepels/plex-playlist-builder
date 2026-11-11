@@ -58,7 +58,8 @@ from .playlist_generation import (parse_prompt, generate as generate_playlist,
                                   catalogue_revision, GENRE_ALIASES, SUBGENRE_ALIASES,
                                   _bounded_ids, SELECTION_POLICY_VERSION)
 from .generation_store import (DraftConflict, create as create_generation_draft,
-                               get as get_generation_draft, revise as revise_generation_draft)
+                               get as get_generation_draft, revise as revise_generation_draft,
+                               genre_feedback as generation_genre_feedback)
 from .generation_publish import prepare as prepare_generation_publish, publish as publish_generation_draft
 from .playlist_identity import (
     IdentityConflict, identity as playlist_identity, get_override,
@@ -1224,7 +1225,10 @@ def create_generation(body: GenerationCreateBody,request: Request):
                             evidence_threshold=body.evidence_threshold)
         _,library=_generation_context()
         cached,_=cached_features()
-        built=generate_playlist(intent,library,cached)
+        criteria=intent["criteria"]
+        previous=generation_genre_feedback(criteria.get("genre",""),
+                                          criteria.get("subgenre",""))
+        built=generate_playlist(intent,library,cached,reviews=previous)
         from .generation_publish import _name
         title=_name(body.name)
         data={"request":intent,"name":title,"keys":built["keys"],
@@ -1325,7 +1329,10 @@ def regenerate_generation(draft_id: str, body: GenerationRegenerateBody, request
         criteria["excluded_track_ids"]=list(dict.fromkeys(
             list(criteria.get("excluded_track_ids",[]))+sorted(rejected)))
         request_spec["criteria"]=criteria
-        generated=generate_playlist(request_spec,library,cached)
+        prior=generation_genre_feedback(criteria.get("genre",""),
+                                        criteria.get("subgenre",""))
+        prior.update(data.get("reviews") or {})
+        generated=generate_playlist(request_spec,library,cached,reviews=prior)
         data.update({
             "request":request_spec,"keys":generated["keys"],
             "diagnostics":generated["diagnostics"],
@@ -1354,6 +1361,9 @@ def generation_candidates(draft_id: str,target: str="",q: str="",
         keys=draft["data"]["keys"]
         criteria=draft["data"]["request"]["criteria"]
         signals=None
+        combined_reviews=generation_genre_feedback(criteria.get("genre",""),
+                                                   criteria.get("subgenre",""))
+        combined_reviews.update(draft["data"].get("reviews",{}))
         if criteria.get("genre"):
             from .playlist_curator import features_for
             ff=features_for(cache)
@@ -1364,12 +1374,14 @@ def generation_candidates(draft_id: str,target: str="",q: str="",
                 evidence_threshold=criteria.get("evidence_threshold","balanced"))
             signals={
                 key:genre_evidence(key,info,ff,profile,
-                                    reviews=draft["data"].get("reviews"))
+                                    reviews=combined_reviews)
                 for key,info in library.items()
                 if key not in keys
             }
-        rejected={key for key,review in draft["data"].get("reviews",{}).items()
-                  if review.get("verdict")=="reject"}
+        rejected={key for key,review in combined_reviews.items()
+                  if review.get("verdict")=="reject" and (
+                      review.get("issue")=="genre" or
+                      key in draft["data"].get("reviews",{}))}
         recommendations=rank_candidates(keys,library,cache,
                     draft["data"]["request"]["identity"],target=target or None,
                     query=q,limit=limit,genre_signals=signals,rejected_ids=rejected)
