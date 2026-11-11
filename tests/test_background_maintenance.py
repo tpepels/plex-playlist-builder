@@ -22,6 +22,8 @@ def test_library_job_only_reads_music_and_updates_local_index(monkeypatch):
                         lambda: (object(), "music"))
     monkeypatch.setattr(jobs.automatic_analysis, "observe",
                         lambda tracks: {"new_tracks": 1, "new_albums": 1})
+    monkeypatch.setattr(jobs.automatic_analysis, "snapshot",
+                        lambda: {"enabled": True, "baseline": True})
     monkeypatch.setattr(jobs.curation_library, "get_library",
                         lambda music, refresh=False: calls.append((music, refresh)) or {"1": {}})
     result = jobs._refresh_library()
@@ -69,3 +71,23 @@ def test_workers_can_be_disabled_and_shutdown_without_running_jobs(monkeypatch):
         assert app.state.workspace_maintenance_tasks == []
 
     asyncio.run(exercise())
+
+
+def test_first_automatic_scan_uses_previous_index_as_baseline(monkeypatch, tmp_path):
+    from app import automatic_analysis as auto
+    monkeypatch.setattr(auto, "STATE_FILE", tmp_path / "auto.json")
+    monkeypatch.setenv("WORKSPACE_AUTO_ANALYSIS_ENABLED", "1")
+    monkeypatch.setattr(jobs.plex_client, "connect",
+                        lambda: (object(), "Plex music"))
+    monkeypatch.setattr(jobs.curation_library, "metadata",
+                        lambda: {"updated": 123, "tracks": 1})
+    queries = []
+    def catalogue(music, refresh=False):
+        queries.append(refresh)
+        return {"1":{"album_key":"old"}} if not refresh else {
+            "1":{"album_key":"old"}, "2":{"album_key":"new"}}
+    monkeypatch.setattr(jobs.curation_library, "get_library", catalogue)
+    result = jobs._refresh_library()
+    assert queries == [False, True]
+    assert result["new_albums"] == 1
+    assert auto.snapshot()["pending"] == 1
