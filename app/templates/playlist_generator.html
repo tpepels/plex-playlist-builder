@@ -150,7 +150,8 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
 </section>
 <div id="workspace" hidden>
 <section class="panel">
-  <div class="row"><h2>2 · Inspect musical identity and selection</h2><span id="draftStatus" class="pill"></span></div>
+  <div class="row"><h2>2 · Inspect musical identity and selection</h2><span id="draftStatus" class="pill"></span>
+    <button id="regenerateDraft" type="button">Regenerate with current analysis</button></div>
   <p id="identity" class="muted"></p>
   <div class="metric-grid" id="summary"></div>
   <div id="warnings"></div>
@@ -485,6 +486,7 @@ function draw(){
   $('workspace').hidden=false;
   const data=draft.data,d=data.diagnostics,brief=data.request;
   $('draftStatus').textContent=draft.status==='published'?'Published to Plex #'+draft.playlist_id:'Draft revision '+draft.revision;
+  $('regenerateDraft').disabled=draft.status!=='draft';
   $('review').disabled=draft.status!=='draft';
   $('identity').textContent='Styles: '+(brief.identity.styles.join(', ')||'unclassified')+
      ' · mood: '+(brief.identity.moods.join(', ')||'unspecified')+
@@ -501,6 +503,8 @@ function draw(){
   $('warnings').replaceChildren();
   for(const warning of [...new Set([...(data.warnings||[]),...(d.flags||[])])])
     $('warnings').append(node('p',warning,'flag'));
+  if(draft.source_stale?.library)
+    $('warnings').append(node('p','Plex catalogue changed since this draft was generated. Regenerate before editing or publishing.','flag'));
   if(data.genre_profile){
     const profile=data.genre_profile;
     $('warnings').append(node('p','Subgenre reference set: '+
@@ -618,6 +622,19 @@ function move(index,direction){
          after_id:destination===0?null:direction===1?keys[destination]:
                    keys[destination-1]}]);
 }
+$('regenerateDraft').onclick=async()=>{
+  if(!draft||draft.status!=='draft'||working)return;
+  if(!confirm('Regenerate the selected tracks using current Plex and AudioMuse analysis? Your current order will be replaced. Listening rejections are retained.'))return;
+  working=true;$('regenerateDraft').disabled=true;
+  notify('Regenerating using current analyzed music…');
+  try{
+    const updated=await post('/api/generation/drafts/'+encodeURIComponent(draft.id)+
+       '/regenerate',{revision:draft.revision});
+    draft=updated;target=null;optionCache={};
+    draw();await findCandidates();notify('Draft regenerated. Plex unchanged.');
+  }catch(error){notify(error.message,true)}
+  finally{working=false;$('regenerateDraft').disabled=draft?.status!=='draft'}
+};
 $('reindexLibrary').onclick=async()=>{
   $('reindexLibrary').disabled=true;
   notify('Reading complete Plex music catalogue and release metadata…');
