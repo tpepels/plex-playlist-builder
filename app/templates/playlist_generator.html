@@ -443,7 +443,8 @@ $('syncAudioMuse').onclick=async()=>{
 $('stopAudioMuseSync').onclick=()=>{syncStopRequested=true};
 void refreshReadiness();void refreshGenreProfiles();renderReferences();
 // Refresh the readiness indicator without changing an open draft or user selections.
-window.setInterval(() => { if (!document.hidden) void refreshReadiness(); }, 60000);
+if (typeof window !== "undefined" && typeof window.setInterval === "function")
+  window.setInterval(() => { if (!document.hidden) void refreshReadiness(); }, 60000);
 
 const descriptions={coherence:'Musical coherence',variation:'Variety',
    energy:'Energy',flow:'Sequence',intent:'Brief alignment'};
