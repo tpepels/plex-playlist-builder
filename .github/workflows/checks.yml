@@ -66,6 +66,8 @@ jobs:
         run: node tests/test_playlist_generator_ui.mjs
       - name: Intelligent generation browser integration
         run: node --test tests/test_playlist_generator_browser.mjs
+      - name: Live genre-acceptance probe shell syntax
+        run: bash -n deploy/verify_genre_generator.sh deploy/apply_media_stack.sh
       - name: Shared navigation integration
         if: ${{ always() }}
         run: node tests/test_site_navigation.mjs
