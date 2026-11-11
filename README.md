@@ -50,13 +50,13 @@ two prominent actions:
 
 Below the entry forms, Home shows live Plex, saved-playlist, download and
 pending-sync counts, followed by specific issues requiring attention. The
-read-only status portion refreshes every 30 seconds when the tab is visible
-or through **Refresh status**.
+read-only status updates automatically every 30 seconds when the tab is visible
+and immediately after a completed YAML import. No refresh button is required.
 
 **One shared navigation and theme** is used on every screen, including the
-complete native downloader. The header links to Home, Downloads, Playlists,
-Discover, Create and Curate; More provides playlist health, new music,
-duplicates, the album resolver, musical coherence, audits and exports.
+native downloader. The header has Home, Downloads and Playlists & library.
+The playlist dropdown opens creation, curation, discovery, reports and
+audio analysis; Tools & exports contains diagnostics and exports.
 There are no separate page headers, second playlist tab bars, drawers or
 embedded frames. The mobile header collapses the same navigation into one
 Menu button.
@@ -146,11 +146,13 @@ It does not create a second draft store or publishing pipeline.
 **Data preparation:** The AudioMuse analysis task must finish. Playlist Manager automatically synchronizes completed results into its local cache. The generator displays matched
 Plex IDs, valid MusiCNN/CLAP embeddings, pending records, and other coverage.
 The readiness status is based on the **last synchronized** manifest, not proof
-that an upstream analysis task is current. The background worker downloads up to 500 changed tracks per batch and continues while records are pending; check full embedding coverage. Use **Data maintenance → Copy new AudioMuse results now** only to request an immediate update.
+that an upstream analysis task is current. The background worker downloads up
+to 500 changed tracks per batch and continues while records are pending.
+The page loads current cached coverage automatically, without a manual sync step.
 
 **Selecting a subgenre:** The program identifies verified examples from
 explicit Plex subgenre tags and optionally from user-selected positive
-examples. Use **Search references** to add individual tracks or all tracks
+examples. Search results appear as you type; choose tracks or full albums
 from an album; negative examples help distinguish related Jazz styles. The
 user needs at least two analyzed, labeled or confirmed positive examples to
 establish a defensible genre reference profile. General `Jazz` metadata is
@@ -443,11 +445,12 @@ The full feature workflow is available in one screen:
    The playlist identity and artwork are preserved. Partial failures trigger
    best-effort rollback with an explicit error if reconciliation is required.
 
-The full Plex catalogue is retrieved via paginated search once and stored
-atomically in the existing data volume at /data/curation-library.json.
-It is reused for an hour and survives container restarts. **Re-index library**
-forces an explicit full rescan. AudioMuse continues running independently and
-the local embedding cache is read-only to this workflow.
+The full Plex catalogue is stored atomically in /data/curation-library.json
+and refreshed in the background every 15 minutes. Opening curation loads
+available playlist names and the selected playlist automatically; the last
+selected playlist is restored when possible. A stale catalogue is displayed
+immediately while background updates run. Candidate searches update as you
+type. Neither the catalogue updater nor AudioMuse changes playlists.
 
 ### Step 3 — paired improvement measurement
 
@@ -684,9 +687,10 @@ search for exactly `artist album`, without a download. Discovery itself
 does not alter playlist definitions.
 
 The catalog is cached for 24 hours in /data/isc-discovery.json so normal
-dashboard visits do not repeatedly scrape the site; **Refresh source**
-bypasses the cache. A failed refresh uses the previous catalog with a
-staleness warning, if one exists. Source failures are reported rather than
+dashboard visits do not repeatedly scrape the site. The report loads on
+opening, refreshes automatically while visible and uses the server's cached
+source. A failed fetch uses the previous catalog with a staleness warning,
+if one exists. Source failures are reported rather than
 inventing releases. A temporary network problem without a cache returns 503.
 
 API: GET /api/discover/isc?refresh=false.
@@ -787,8 +791,8 @@ it does not remove, move or save any files. The UI also shows file formats
 (e.g. FLAC vs MP3) and offers a **Copy path** button. The TSV export has
 **one row per album copy**, including folder, file formats, track count,
 Plex album/track keys and comparison category. Filter by artist, album
-or directory, or download the complete report. Refresh bypasses the
-five-minute Plex track cache.
+or directory, or download the complete report. The report updates when
+opened and periodically; no rescan button is required.
 
 **Safety limitations:** This uses metadata, not audio fingerprints or
 checksums. Plex paths may be inside a different filesystem namespace from
@@ -803,10 +807,11 @@ API: GET /api/duplicates?refresh=false and GET /api/duplicates.tsv.
 
 ## Health, New Music and Discover
 
-The top navigation has five views: **Playlists**, **Health**, **Duplicates**, **New music**,
-and **Find album**. Health and New music compare the saved playlist definitions
-with the current Plex music library; Plex tracks are cached for five minutes,
-and **Refresh** forces a live rescan.
+The single playlist workspace includes **My playlists**, **Create**, **Improve**,
+**Discover**, **Reports** and **Audio analysis** through the global navigation.
+Health, duplicates and new-music reports load when opened and refresh
+automatically while visible. They compare saved playlists with cached Plex
+music and never require a manual reload.
 
 **Health** reports unique Plex tracks not included in any saved playlist,
 unresolved playlist references (deleted/moved tracks), tracks appearing in
