@@ -59,7 +59,7 @@ async function makeHarness(sources){
 test("home renders live Plex, playlist, downloader and attention counters",async()=>{
   const h=await makeHarness({
     "/api/health":{ok:true,server:"Plex Home",library:"Music"},
-    "/api/config":{playlists:["Alpha","Beta","Gamma","Delta"],
+    "/api/config/summary":{playlists:["Alpha","Beta","Gamma","Delta"],
       version:{counts:{total:4,needs_sync:2}}},
     "/api/downloads/bridge/status":{ok:true,counts:{
       queued:1,running:2,finalizing:0,failed:1,partial:0,needs_metadata:1
@@ -83,14 +83,14 @@ test("home renders live Plex, playlist, downloader and attention counters",async
   assert.match(message,/1 release\(s\) awaiting Plex scan/);
   assert.equal(e["refresh-home"].disabled,false);
   assert.equal(h.calls.length,4);
-  assert.match(e["maintenance-status"].textContent,/40 audio records still queued/);
+  assert.match(e["maintenance-status"].textContent,/40 cache records queued/);
   assert.equal(e["attention-list"].children[0].children[2]?.href,"/playlists?pending=1");
 });
 
 test("partial outages report explicit problems and do not invent success",async()=>{
   const h=await makeHarness({
     "/api/health":new Error("Plex offline"),
-    "/api/config":{playlists:[],version:{counts:{total:0,needs_sync:0}}},
+    "/api/config/summary":{playlists:[],version:{counts:{total:0,needs_sync:0}}},
     "/api/downloads/bridge/status":new Error("yt-dlp offline"),
     "/api/workspace/maintenance":{enabled:true,jobs:{audio:{},library:{}}}
   });
@@ -106,7 +106,7 @@ test("partial outages report explicit problems and do not invent success",async(
 test("manual refresh recovers from failed services without mutating playlists",async()=>{
   const statuses={
     "/api/health":new Error("offline"),
-    "/api/config":new Error("storage offline"),
+    "/api/config/summary":new Error("storage offline"),
     "/api/downloads/bridge/status":new Error("offline"),
     "/api/workspace/maintenance":new Error("offline")
   };
@@ -126,7 +126,7 @@ test("manual refresh recovers from failed services without mutating playlists",a
 test("automatic-cache errors are visible but do not alter Plex or playlist state",async()=>{
   const h=await makeHarness({
     "/api/health":{ok:true,server:"Plex",library:"Music"},
-    "/api/config":{playlists:[],version:{counts:{total:0,needs_sync:0}}},
+    "/api/config/summary":{playlists:[],version:{counts:{total:0,needs_sync:0}}},
     "/api/downloads/bridge/status":{ok:true,counts:{},plex_sync:{}},
     "/api/workspace/maintenance":{enabled:true,jobs:{
       audio:{error:"AudioMuse token unavailable",pending:100},
@@ -134,8 +134,8 @@ test("automatic-cache errors are visible but do not alter Plex or playlist state
     }}
   });
   assert.match(flatten(h.elements["attention-list"]),/Audio feature cache update failed/);
-  assert.match(flatten(h.elements["attention-list"]),/automatic retry scheduled/);
-  assert.match(h.elements["maintenance-status"].textContent,/100 audio records still queued/);
+  assert.match(flatten(h.elements["attention-list"]),/View update details/);
+  assert.match(h.elements["maintenance-status"].textContent,/100 cache records queued/);
   assert.equal(h.calls.every(path=>path.startsWith("/api/")),true);
   assert.equal(h.calls.length,4);
 });
