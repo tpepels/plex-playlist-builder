@@ -79,3 +79,38 @@ def test_sanitized_long_status_details():
     assert result["progress"] == 100
     assert len(result["message"]) == 180
     assert "details" not in result
+
+
+def test_decoded_feature_cache_reuses_sqlite_until_file_changes(tmp_path, monkeypatch):
+    from app import audiomuse_client as ac
+    from contextlib import closing
+    path = tmp_path / "features.sqlite"
+    monkeypatch.setattr(ac, "CACHE_FILE", path)
+    monkeypatch.setattr(ac, "_FEATURES_HOT", {})
+    with closing(ac._open_cache()) as connection:
+        with connection:
+            connection.execute(
+                "INSERT INTO audio_features(track_id,fp,data) VALUES(?,?,?)",
+                ("7", "fp", '{"artist":"Seven","embedding":"abc"}'),
+            )
+    original = ac._open_cache
+    seen = []
+    def counted():
+        seen.append(1)
+        return original()
+    monkeypatch.setattr(ac, "_open_cache", counted)
+    first, meta = ac.cached_features()
+    second, new_meta = ac.cached_features()
+    assert first is second
+    assert len(seen) == 1
+    assert second["7"]["artist"] == "Seven"
+    # External writers are detected, not just this process's sync calls.
+    with closing(original()) as connection:
+        with connection:
+            connection.execute(
+                "UPDATE audio_features SET data=? WHERE track_id=?",
+                ('{"artist":"Eight"}', "7"),
+            )
+    changed, _ = ac.cached_features()
+    assert changed["7"]["artist"] == "Eight"
+    assert len(seen) == 2
