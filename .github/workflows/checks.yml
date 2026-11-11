@@ -287,7 +287,7 @@ jobs:
               assert "Downloader unavailable" in portal.text
               assert "<iframe" not in portal.text.lower()
               assert 'id="siteNavigationPanel"' in portal.text
-              assert "Scan Plex for new music" in portal.text
+              assert "automatically and reconnects" in portal.text
               unavailable = client.get("/api/downloads/bridge/status")
               assert unavailable.status_code == 503, unavailable.text
               assert unavailable.json()["engine"] == "offline"
