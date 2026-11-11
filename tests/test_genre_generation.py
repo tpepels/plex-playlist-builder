@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import struct
+import time
 
 import pytest
 
@@ -177,3 +178,20 @@ def test_missing_manifest_is_unknown_not_success():
     assert report["pending"] is None
     assert report["audiomuse_available"] is None
     assert report["ready"] is False
+
+
+def test_medium_catalogue_full_scan_performance_without_shortlist():
+    # Reproduce the complete-catalogue path with realistically sized embeddings.
+    lib,cache=catalogue(1800)
+    pos=vec(*([1.,0.,0.,0.]+[0.]*124))
+    neg=vec(*([0.,1.,0.,0.]+[0.]*124))
+    for key,item in cache.items():
+        acoustic=int(key)<=5 or int(key)>=500
+        item["embedding"]=pos if acoustic else neg
+        item["clap_embedding"]=pos if acoustic else neg
+    start=time.perf_counter()
+    result=generate(intent(),lib,cache)
+    elapsed=time.perf_counter()-start
+    assert len(result["keys"])==30
+    assert result["selection"]["evaluated"]>500
+    assert elapsed<30, f"Full-catalogue generation took {elapsed:.2f}s (1800 tracks, 128D)."
