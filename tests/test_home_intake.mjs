@@ -13,7 +13,7 @@ function harness({inspect, importResult, syncResponse}={}) {
     "home-import-status","home-import-preview","home-import-summary",
     "home-import-description","home-import-confirm","home-import-cancel",
     "home-import-progress-panel","home-import-progress","home-import-current",
-    "home-import-errors","refresh-home",
+    "home-import-errors",
   ];
   const elements = new Map();
   function el(id) {
@@ -32,7 +32,7 @@ function harness({inspect, importResult, syncResponse}={}) {
   for(const id of ids)el(id);
   const calls = [];
   let refreshes=0;
-  elements.get("refresh-home").click=()=>{refreshes++};
+
   const fakeInspect=inspect ?? {new:["New"],updated:["Changed"],
     unchanged:["Same"],retained:["Local"],already_loaded:false};
   const fakeImport=importResult ?? {changed:["New","Changed"],version:{id:"v42"}};
@@ -53,7 +53,9 @@ function harness({inspect, importResult, syncResponse}={}) {
   };
   const document={getElementById:id=>elements.get(id)||null,
     createElement:tag=>({tag,textContent:""})};
-  vm.runInNewContext(js,{document,fetch,AbortController,setTimeout,clearTimeout});
+  vm.runInNewContext(js,{document,fetch,AbortController,setTimeout,clearTimeout,
+    Event:class{constructor(type){this.type=type}},
+    window:{dispatchEvent(event){if(event.type==="workspace:changed")refreshes++}}});
   const file={name:"playlists.yml",size:160,
     text:async()=> "playlists:\n  New:\n    items:\n      - rating_key: 1\n"};
   async function select(f=file){
