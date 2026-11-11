@@ -112,7 +112,7 @@ test("manual refresh recovers from failed services without mutating playlists",a
   };
   const h=await makeHarness(statuses);
   statuses["/api/health"]={ok:true,server:"Plex",library:"Music"};
-  statuses["/api/config"]={playlists:[],version:{counts:{total:0,needs_sync:0}}};
+  statuses["/api/config/summary"]={playlists:[],version:{counts:{total:0,needs_sync:0}}};
   statuses["/api/downloads/bridge/status"]={ok:true,counts:{}};
   statuses["/api/workspace/maintenance"]={enabled:true,jobs:{audio:{pending:0},library:{}}};
   await h.elements["refresh-home"].listeners.click();
