@@ -20,10 +20,10 @@ def test_library_job_only_reads_music_and_updates_local_index(monkeypatch):
     monkeypatch.setattr(jobs.plex_client, "connect",
                         lambda: (object(), "music"))
     monkeypatch.setattr(jobs.curation_library, "get_library",
-                        lambda music: calls.append(music) or {"1": {}})
+                        lambda music, refresh=False: calls.append((music, refresh)) or {"1": {}})
     result = jobs._refresh_library()
     assert result == {"tracks": 1, "pending": 0}
-    assert calls == ["music"]
+    assert calls == [("music", True)]
 
 
 def test_success_failure_and_recovery_keep_status_visible():
