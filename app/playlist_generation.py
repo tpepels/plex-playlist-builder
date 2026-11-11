@@ -628,7 +628,7 @@ def diagnose(keys,library,feature_cache,intent,request=None):
             "unmeasured_tracks":len(keys)-metrics["counts"]["audio_analyzed"]}
 
 
-def generate(request,library,feature_cache):
+def generate(request,library,feature_cache, *, reviews=None):
     """Select and sequence across the entire catalogue using observed evidence."""
     identity=request["identity"]
     criteria=request["criteria"]
@@ -649,7 +649,7 @@ def generate(request,library,feature_cache):
             excluded[reason]+=1
             continue
         if profile:
-            signal=genre_evidence(key,info,ff,profile)
+            signal=genre_evidence(key,info,ff,profile,reviews=reviews)
             if not signal["compatible"]:
                 excluded["genre_evidence_insufficient"]+=1
                 continue
@@ -725,7 +725,8 @@ def generate(request,library,feature_cache):
                "eligible":len(base),"shortlisted":len(ranked),
                "evaluated":len(ranked),"excluded":dict(excluded),
                "target":wanted,"target_minutes":minutes_target,
-               "selection_policy_version":SELECTION_POLICY_VERSION}
+               "selection_policy_version":SELECTION_POLICY_VERSION,
+               "prior_genre_reviews":len(reviews or {})}
     return {"keys":ordered,"tracks":tracks,"diagnostics":diagnostics,
             "genre_evidence":{key:evidence[key] for key in ordered if key in evidence},
             "genre_profile":profile,"selection":selection,"warnings":warnings}
