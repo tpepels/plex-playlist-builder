@@ -230,7 +230,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
   } : undefined;
   const context = { document, fetch,
     ...(windowObj?{window:windowObj,URL,URLSearchParams}:{}) };
-  vm.runInNewContext(script + "\n;globalThis.__switchView = showWorkspaceView;", context);
+  vm.runInNewContext(script + "\n;globalThis.__switchView = showWorkspaceView;globalThis.__loadDuplicates = loadDuplicates;globalThis.__loadIsc = loadIsc;", context);
 
   async function chooseFile() {
     // Let initial health/config fetches and DOM rendering settle.
@@ -242,6 +242,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
   return { chooseFile, calls, requests, $, document, windowObj, timers,
     externalUpdate(){externalChanged=true},
     showWorkspaceView: view => context.__switchView(view),
+    loadDuplicates: ()=>context.__loadDuplicates(),loadIsc: ()=>context.__loadIsc(),
     filename, get imported() { return imported; }, get synced() { return synced; } };
 }
 
