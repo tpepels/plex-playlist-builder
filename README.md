@@ -83,14 +83,16 @@ The manager runs two read-only maintenance loops by default, starting shortly af
 
 The downloader-to-Plex publication scan remains a separate existing background service. Starting a new CPU-intensive AudioMuse analysis is **not** automatic; it remains an explicit user action. Saving, publishing, replacing, or reordering Plex playlists also remains approval-gated. No automatic maintenance task changes Plex playlists or YAML definitions.
 
-The read-only endpoint `GET /api/workspace/maintenance` reports last attempt, last success, pending batches, and errors for both background jobs. The **Audio analysis & coherence** page displays this status and automatically refreshes its reports. Visible library reports update periodically without disturbing YAML edits or an active publish.
+The read-only endpoint `GET /api/workspace/maintenance` reports last attempt, last success, pending batches, and errors for both background jobs. Home shows the status of both workers, including failures and records still queued. A successful scheduled Plex-index refresh means Plex was actually scanned, not just that an old cached snapshot was read.
+
+The playlist editor checks `GET /api/config/status` every 90 seconds while visible and idle. If YAML content or the saved Plex-sync status changes, it reloads the page data without losing search filters or expanded playlists. Checks are suppressed during unsaved YAML edits, imports, cover uploads, or Plex sync operations. The Home link for unpublished changes opens `/playlists?pending=1` and activates the pending-only filter. The **Audio analysis & coherence** page displays this status and automatically refreshes its reports. Visible library reports update periodically without disturbing YAML edits or an active publish.
 
 To disable automatic cache maintenance set `WORKSPACE_AUTO_REFRESH_ENABLED=0` on the `plex-playlist-manager` service. Existing caches are retained when a source is temporarily unavailable. Manual cache/index controls remain under each page's optional **Data maintenance** section.
 
 ## Genre-aware playlist creation (AudioMuse)
 
 Open **Playlists & library → Create a playlist** at `http://media-server:5051/playlist-generator` to create a
-new playlist from the existing Plex Music catalogue. The installed preset is:
+new playlist from the existing Plex Music catalogue. The creation screen now uses structured **Genre**, **Subgenre**, **Track count**, **Variation** and **Sequence** choices. The musical description is optional and kept under advanced settings. Changing genres does not leave an unrelated pre-filled text brief; structured controls alone are sufficient to create a draft. Optional reference recordings are shown when the selected style lacks evidence. The installed preset is:
 
 - **Genre:** Jazz
 - **Subgenre:** Hard bop
