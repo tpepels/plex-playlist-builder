@@ -23,9 +23,9 @@ def test_home_is_application_root_and_has_full_navigation():
         assert 'href="/" data-nav="home"' in html
         assert 'href="/downloads"' in html
         assert 'href="/playlists"' in html
-        assert 'href="/playlist-generator"' in html
-        assert 'href="/playlist-intelligence"' in html
-        assert 'href="/musical-coherence"' in html
+        assert 'href="/playlists?work=create"' in html
+        assert 'href="/playlists?work=improve"' in html
+        assert 'href="/playlists?work=analysis"' in html
         assert 'href="/downloads-audit"' in html
         assert 'src="/static/home.js"' in html
         assert 'href="/static/home.css"' in html
@@ -68,7 +68,7 @@ def test_home_status_is_read_only_and_has_failure_states():
     for target in ("plex-value", "playlist-count", "download-count",
                    "sync-count", "attention-list", "refresh-home"):
         assert f'id="{target}"' in markup
-    for endpoint in ("/api/health", "/api/config", "/api/downloads/bridge/status"):
+    for endpoint in ("/api/health", "/api/config/summary", "/api/downloads/bridge/status"):
         assert endpoint in code
     assert "Promise.allSettled" in code
     assert "response.ok" in code
@@ -102,5 +102,5 @@ def test_home_has_background_status_and_pending_deep_link():
     script = JS.read_text(encoding="utf-8")
     assert 'href="/playlists?pending=1"' in markup
     assert 'id="maintenance-status"' in markup
-    assert 'request("/api/workspace/maintenance")' in script
+    assert '"/api/workspace/maintenance"' in script
     assert 'link:"/playlists?pending=1"' in script
