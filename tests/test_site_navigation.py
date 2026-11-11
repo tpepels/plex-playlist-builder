@@ -11,7 +11,7 @@ PAGES = (
 )
 DESTINATIONS = (
     "/", "/downloads", "/playlists",
-    "/musical-coherence", "/downloads-audit",
+    "/playlists?work=analysis", "/downloads-audit",
     "/api/library-albums.tsv", "/api/library-export.tsv",
     "/api/playlists-export.yml",
 )
@@ -80,10 +80,10 @@ def test_all_html_route_templates_are_covered():
 
 def test_workflow_actions_live_in_playlist_workspace():
     html = rendered_page("index.html")
-    for target in ("/playlist-generator", "/playlist-intelligence",
+    for target in ("/playlists?work=create", "/playlists?work=improve",
                    "/playlists?view=isc", "/playlists?view=health",
                    "/playlists?view=newmusic", "/playlists?view=duplicates"):
         assert f'href="{target}"' in html
     header = rendered_page("home.html")
-    assert 'href="/playlist-generator"' in header
-    assert 'href="/playlist-intelligence"' in header
+    assert 'href="/playlists?work=create"' in header
+    assert 'href="/playlists?work=improve"' in header
