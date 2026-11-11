@@ -529,6 +529,8 @@ def _sequence(keys,lib,ff,intent):
             continuity-=.06
         elif lib[first]["artist"]==lib[second]["artist"]:
             continuity-=.025
+        if adjacent is not None and adjacent>.975 and intent["variation"]!="focused":
+            continuity-=.035  # Avoid an entire sequence of virtually identical recordings.
         if intent["flow"]=="arc":
             gradient=clamp(1-abs(energy2-arc_target(pos))/.7) if energy2 is not None else .5
             return clamp(.65*continuity+.35*gradient)
@@ -645,9 +647,17 @@ def generate(request,library,feature_cache):
             if not signal["compatible"]:
                 excluded["genre_evidence_insufficient"]+=1
                 continue
-            evidence[key]=signal
             intrinsic,_ = _intent_score(ff.get(key,{}),info,identity,None)
             value=.76*signal["fit"]+.24*(intrinsic if intrinsic is not None else .5)
+            signal["ranking_components"]={
+                "genre_fit":signal["fit"],
+                "intent_fit":round(intrinsic,4) if intrinsic is not None else None,
+                "weighted_fit":round(value,4),
+                "weights":{"genre_fit":.76,"intent_fit":.24},
+                "intent_unmeasured":intrinsic is None,
+                "meaning":"Relative evidence, not a calibrated genre probability",
+            }
+            evidence[key]=signal
             base[key]=round(value,6)
         else:
             value=_initial_value(info,ff.get(key,{}),identity)
