@@ -1299,6 +1299,9 @@ def edit_generation(draft_id: str,body: GenerationEditBody,request: Request):
         }
         violations={key:_constraints(library[key],data["request"])
                     for key in after if _constraints(library[key],data["request"])}
+        for key,signal in data.get("genre_evidence",{}).items():
+            if key in after and not signal["compatible"]:
+                violations[key]="outside_requested_genre"
         data["warnings"]=list(dict.fromkeys(
             [w for w in data["warnings"] if not w.startswith("Manual edits")]
             + ([f"Manual edits include {len(violations)} tracks outside the original criteria."]
