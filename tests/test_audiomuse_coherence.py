@@ -124,3 +124,44 @@ def test_missing_token_is_not_logged(tmp_path, monkeypatch):
     monkeypatch.setenv("AUDIOMUSE_URL", "http://audio")
     with pytest.raises(RuntimeError, match="Mount your existing token file"):
         client._settings()
+
+
+def test_bounded_sync_reports_partial_then_resumes_to_complete(tmp_path, monkeypatch):
+    monkeypatch.setattr(client, "CACHE_FILE", tmp_path / "partial.sqlite")
+    monkeypatch.setattr(client, "_settings", lambda: ("http://audio", "secret"))
+    monkeypatch.setattr(client, "MAX_PER_REQUEST", 2)
+    fingerprints = {str(i): "fp-" + str(i) for i in range(1, 6)}
+    calls=[]
+    def mock(url, token, params):
+        calls.append(params)
+        if params.get("fields") == "index":
+            return {"tracks":[{"id":k,"fp":v} for k,v in fingerprints.items()],
+                    "total_tracks":len(fingerprints),"provider_type":"plex",
+                    "has_more":False}
+        ids=params["ids"].split(",")
+        return {"tracks":[{"id":key,"fp":fingerprints[key],
+                           "embedding":vector(1.,0.,0.,0.),
+                           "clap_embedding":vector(1.,0.,0.,0.),
+                           "energy":.5,"tempo":112,
+                           "other_features":{"relaxed":.5}} for key in ids],
+                "provider_type":"plex"}
+    monkeypatch.setattr(client, "_get", mock)
+    one=client.synchronize()
+    assert one["pending"]==3 and not one["complete"]
+    tracks,meta=client.cached_features()
+    assert len(tracks)==2 and meta["pending"]==3 and meta["available"]==5
+    first_version=meta["manifest_version"]
+    two=client.synchronize()
+    assert two["pending"]==1 and not two["complete"]
+    three=client.synchronize()
+    assert three["pending"]==0 and three["complete"]
+    tracks,meta=client.cached_features()
+    assert len(tracks)==5 and meta["manifest_version"]==first_version
+    report=client.readiness({key:{} for key in fingerprints},tracks,meta)
+    assert report["ready"] is True
+    assert report["musicnn_available"]==5
+    before=len([c for c in calls if "ids" in c])
+    four=client.synchronize()
+    assert four["new_or_updated"]==0
+    assert len([c for c in calls if "ids" in c])==before
+
