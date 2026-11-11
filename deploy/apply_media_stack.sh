@@ -146,6 +146,7 @@ base = "http://127.0.0.1:5051"
 checks = (
     ("/", b'id="siteNavigationPanel"'),
     ("/playlists", b'id="viewPlaylists"'),
+    ("/playlist-generator", b'id="genre"'),
     ("/downloads", b'id="download-form"'),
 )
 for attempt in range(15):
@@ -160,6 +161,12 @@ for attempt in range(15):
             if path == "/" and (b'id="home-playlist-file"' not in page
                                 or b'id="home-download-form"' not in page):
                 raise ValueError("Home has no working YAML or download entry point")
+            if path == "/playlist-generator" and (
+                b'id="subgenre"' not in page or
+                b'id="referenceSearchResults"' not in page or
+                b'id="generatorReviewDialog"' not in page or
+                b'id="publishApproval"' not in page):
+                raise ValueError("Genre-aware generation and review are missing")
             if path == "/downloads" and b"<iframe" in page.lower():
                 raise ValueError("Downloads still contains a nested iframe")
         with urlopen(base + "/api/config", timeout=8) as response:
@@ -172,7 +179,7 @@ for attempt in range(15):
             state = json.load(response)
         if not state.get("ok"):
             raise ValueError("Download engine is not reachable through Playlist Manager")
-        print("Home, playlist configuration (including empty), native Downloads and downloader bridge: OK")
+        print("Home, Playlists, genre generator, native Downloads and downloader bridge: OK")
         sys.exit(0)
     except (OSError, ValueError, HTTPError, URLError) as exc:
         if attempt == 14:
@@ -189,6 +196,7 @@ fi
 
 printf '\nHome: http://<media-server>:5051/\n'
 printf 'Playlists: http://<media-server>:5051/playlists\n'
+printf 'Create genre playlist: http://<media-server>:5051/playlist-generator\n'
 printf 'Downloads: http://<media-server>:5051/downloads\n'
 printf 'Existing Plex playlists are not changed automatically.\n'
 printf 'Legacy ~/media-stack/yt-dlp-server Git checkout is no longer used; do not delete it until you verify the new deployment.\n'
