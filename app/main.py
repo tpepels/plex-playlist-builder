@@ -42,7 +42,8 @@ from .recent_export import export_recent_tracks
 from .album_export import export_album_names
 from .insights import analyze
 from .audiomuse_verification import verify_plex_track_keys
-from .audiomuse_client import cached_features, synchronize as synchronize_audiomuse
+from .audiomuse_client import (cached_features, synchronize as synchronize_audiomuse,
+                              readiness as audiomuse_readiness, feature_revision)
 from .audiomuse_coherence import coherence_report
 from .audiomuse_analysis import AudioMuseControlError, analysis_status, start_analysis
 from .playlist_curator import (
@@ -51,7 +52,11 @@ from .playlist_curator import (
 )
 from .curation_apply import find_live, current_items, current_keys, change_plan, apply_approved
 from .curation_library import get_library, metadata as curation_library_metadata
-from .playlist_generation import parse_prompt, generate as generate_playlist, diagnose as generation_diagnose, GenerationError, _constraints
+from .playlist_generation import (parse_prompt, generate as generate_playlist,
+                                  diagnose as generation_diagnose, GenerationError,
+                                  _constraints, genre_profiles, genre_evidence,
+                                  catalogue_revision, GENRE_ALIASES, SUBGENRE_ALIASES,
+                                  _bounded_ids, SELECTION_POLICY_VERSION)
 from .generation_store import (DraftConflict, create as create_generation_draft,
                                get as get_generation_draft, revise as revise_generation_draft)
 from .generation_publish import prepare as prepare_generation_publish, publish as publish_generation_draft
@@ -1044,11 +1049,28 @@ class GenerationCreateBody(BaseModel):
     count: int | None = None
     minutes: int | None = None
     identity: dict | None = None
+    genre: str | None = None
+    subgenre: str | None = None
+    reference_track_ids: list[str] = []
+    negative_reference_track_ids: list[str] = []
+    excluded_track_ids: list[str] = []
 
 
 class GenerationEditBody(BaseModel):
     revision: int
     operations: list[dict]
+
+
+class GenerationReviewBody(BaseModel):
+    revision: int
+    candidate_id: str
+    target_id: str | None = None
+    verdict: Literal["accept", "reject", "needs_review"]
+    issue: str = "none"
+    note: str = ""
+    listened: bool = False
+    candidate_played_seconds: int = 0
+    original_played_seconds: int = 0
 
 
 class GenerationPlanBody(BaseModel):
@@ -1070,10 +1092,15 @@ def _generation_context():
 def _generation_payload(draft,library):
     data=draft["data"]
     keys=data["keys"]
+    evidence=data.get("genre_evidence") or {}
+    reviews=data.get("reviews") or {}
     rows=[{"id":k,"artist":library[k]["artist"],"album":library[k]["album"],
            "title":library[k]["title"],"year":library[k].get("year"),
            "duration_ms":library[k].get("duration_ms"),
-           "genres":library[k].get("genres",[])} for k in keys]
+           "genres":library[k].get("genres",[]),
+           "audio_analyzed": bool(evidence.get(k,{}).get("evidence",{}).get("audio_coverage")),
+           "genre_evidence": evidence.get(k),
+           "review":reviews.get(k)} for k in keys]
     return {**draft, "data":{**data,"tracks":rows}}
 
 
@@ -1081,6 +1108,79 @@ def _generation_origin(request):
     origin=request.headers.get("origin")
     if not origin or origin.rstrip("/")!=str(request.base_url).rstrip("/"):
         raise HTTPException(status_code=403,detail="Same-origin browser request required.")
+
+
+@app.get("/api/generation/readiness")
+def generation_readiness():
+    """Local ID/embedding reconciliation plus optional current upstream task."""
+    try:
+        _, music = connect()
+        library = get_library(music)
+        cache, state = cached_features()
+        report = audiomuse_readiness(library, cache, state)
+        try:
+            report["analysis"] = analysis_status()
+        except (AudioMuseControlError, RuntimeError):
+            report["analysis"] = {"available": False, "warning": "Upstream status unavailable"}
+        return report
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Plex/AudioMuse readiness unavailable") from exc
+
+
+@app.get("/api/generation/genre-profiles")
+def generation_genre_profiles(genre: str = "jazz", subgenre: str = "hard bop"):
+    try:
+        _, library = _generation_context()
+        cache, state = cached_features()
+        from .playlist_curator import features_for
+        decoded = features_for(cache)
+        from .playlist_generation import _style_token, _tags
+        broad = _style_token(genre) if genre else ""
+        specific = _style_token(subgenre) if subgenre else ""
+        profiles = []
+        for name in ([specific] if specific else sorted(SUBGENRE_ALIASES)):
+            candidates=[key for key,info in library.items() if name in _tags(info)]
+            measured=[key for key in candidates if
+                      key in decoded and any(decoded[key].get(f) is not None
+                                              for f in ("musicnn","clap"))]
+            profiles.append({"genre":broad,"subgenre":name,
+                "verified_metadata_count":len(candidates),
+                "analyzed_references":len(measured),
+                "available":len(measured)>=2,
+                "note":"Explicit Plex tags are used as seed labels; not an automated genre probability."})
+        return {"genres":sorted(GENRE_ALIASES),
+                "subgenres":sorted(SUBGENRE_ALIASES),
+                "profiles":profiles, "cache_last_sync":state.get("last_sync")}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Genre profiles unavailable") from exc
+
+
+@app.get("/api/generation/reference-search")
+def generation_reference_search(q: str = Query(min_length=2, max_length=120),
+                                limit: int = Query(default=20, ge=1, le=50)):
+    """Search Plex track and album references; never download or mutate music."""
+    _, library = _generation_context()
+    from .insights import normalize
+    needle = normalize(q)
+    result=[]
+    for key,info in sorted(library.items(), key=lambda p:(
+            normalize(p[1]["artist"]),normalize(p[1]["album"]),
+            normalize(p[1]["title"]),p[0])):
+        if needle not in normalize(" ".join((
+                info["artist"],info["album"],info["title"]))):
+            continue
+        result.append({"id":key,"artist":info["artist"],
+                       "album":info["album"],"title":info["title"],
+                       "genres":info.get("genres",[])})
+        if len(result)>=limit:break
+    albums={}
+    for info in result:
+        key=library[info["id"]]["album_key"]
+        if key not in albums:
+            albums[key]=[k for k,row in library.items() if row["album_key"]==key]
+        info["album_track_ids"]=sorted(albums[key],key=lambda k:(
+            library[k].get("disc") or 0,library[k].get("index") or 0,k))
+    return {"tracks":result,"total_returned":len(result)}
 
 
 @app.get("/playlist-generator",response_class=HTMLResponse)
@@ -1093,7 +1193,11 @@ def create_generation(body: GenerationCreateBody,request: Request):
     _generation_origin(request)
     try:
         intent=parse_prompt(body.prompt,count=body.count,minutes=body.minutes,
-                            overrides=body.identity)
+                            overrides=body.identity,genre=body.genre,
+                            subgenre=body.subgenre,
+                            reference_track_ids=body.reference_track_ids,
+                            negative_reference_track_ids=body.negative_reference_track_ids,
+                            excluded_track_ids=body.excluded_track_ids)
         _,library=_generation_context()
         cached,_=cached_features()
         built=generate_playlist(intent,library,cached)
@@ -1101,7 +1205,14 @@ def create_generation(body: GenerationCreateBody,request: Request):
         title=_name(body.name)
         data={"request":intent,"name":title,"keys":built["keys"],
               "diagnostics":built["diagnostics"],
-              "selection":built["selection"],"warnings":built["warnings"]}
+              "selection":built["selection"],"warnings":built["warnings"],
+              "genre_evidence":built["genre_evidence"],
+              "genre_profile":built["genre_profile"],"reviews":{},
+              "selection_policy_version":SELECTION_POLICY_VERSION,
+              "source_revisions":{
+                  "library":catalogue_revision(library),
+                  "audio":feature_revision(cached)
+              }}
         return _generation_payload(create_generation_draft(data),library)
     except (GenerationError,ValueError) as exc:
         raise HTTPException(status_code=422,detail=str(exc)) from exc
@@ -1135,6 +1246,23 @@ def edit_generation(draft_id: str,body: GenerationEditBody,request: Request):
         data["keys"]=after
         data["diagnostics"]=generation_diagnose(after,library,cached,data["request"]["identity"],
                                                  data["request"])
+        criteria=data["request"]["criteria"]
+        if criteria.get("genre"):
+            from .playlist_curator import features_for
+            decoded=features_for(cached)
+            profile=genre_profiles(library,decoded,genre=criteria["genre"],
+                subgenre=criteria.get("subgenre") or "",
+                reference_track_ids=criteria.get("reference_track_ids",[]),
+                negative_reference_track_ids=criteria.get("negative_reference_track_ids",[]))
+            data["genre_profile"]=profile
+            data["genre_evidence"]={
+                key: genre_evidence(key,library[key],decoded,profile,
+                                    reviews=data.get("reviews"))
+                for key in after
+            }
+        data["source_revisions"]={
+            "library":catalogue_revision(library),"audio":feature_revision(cached)
+        }
         violations={key:_constraints(library[key],data["request"])
                     for key in after if _constraints(library[key],data["request"])}
         data["warnings"]=list(dict.fromkeys(
@@ -1158,15 +1286,74 @@ def generation_candidates(draft_id: str,target: str="",q: str="",
         _,library=_generation_context()
         cache,_=cached_features()
         keys=draft["data"]["keys"]
+        criteria=draft["data"]["request"]["criteria"]
+        signals=None
+        if criteria.get("genre"):
+            from .playlist_curator import features_for
+            ff=features_for(cache)
+            profile=genre_profiles(library,ff,genre=criteria["genre"],
+                subgenre=criteria.get("subgenre") or "",
+                reference_track_ids=criteria.get("reference_track_ids",[]),
+                negative_reference_track_ids=criteria.get("negative_reference_track_ids",[]))
+            signals={
+                key:genre_evidence(key,info,ff,profile,
+                                    reviews=draft["data"].get("reviews"))
+                for key,info in library.items()
+                if key not in keys
+            }
+        rejected={key for key,review in draft["data"].get("reviews",{}).items()
+                  if review.get("verdict")=="reject"}
         recommendations=rank_candidates(keys,library,cache,
                     draft["data"]["request"]["identity"],target=target or None,
-                    query=q,limit=limit)
+                    query=q,limit=limit,genre_signals=signals,rejected_ids=rejected)
         for row in recommendations:
             row["criteria_issue"]=_constraints(library[row["id"]],
                                                 draft["data"]["request"])
         return {"candidates":recommendations,"target":target or None,
                 "revision":draft["revision"]}
     except (DraftConflict,GenerationError,CurationConflict) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@app.post("/api/generation/drafts/{draft_id}/reviews")
+def generation_review(draft_id: str, body: GenerationReviewBody, request: Request):
+    """Persist audited verdicts in the existing versioned generation draft store."""
+    _generation_origin(request)
+    try:
+        draft=get_generation_draft(draft_id)
+        if draft["status"]!="draft" or draft["revision"]!=body.revision:
+            raise DraftConflict("Draft changed. Reload before reviewing.")
+        _,library=_generation_context()
+        candidate=str(body.candidate_id)
+        target=str(body.target_id) if body.target_id else None
+        if candidate not in library or (target and target not in draft["data"]["keys"]):
+            raise DraftConflict("Review references an unknown Plex track or draft target.")
+        if not isinstance(body.note,str) or len(body.note)>2000:
+            raise DraftConflict("Review note exceeds 2000 characters.")
+        if len(body.issue)>48:
+            raise DraftConflict("Review issue exceeds 48 characters.")
+        if body.verdict in ("accept","reject") and (
+                not body.listened or body.candidate_played_seconds<15 or
+                (target and body.original_played_seconds<15)):
+            raise DraftConflict("Review requires listening to both tracks for at least 15 seconds.")
+        data=dict(draft["data"])
+        reviews=dict(data.get("reviews") or {})
+        reviews[candidate]={
+            "verdict":body.verdict,"issue":body.issue,"note":body.note,
+            "target_id":target, "listened":body.listened,
+            "candidate_played_seconds":body.candidate_played_seconds,
+            "original_played_seconds":body.original_played_seconds,
+            "evidence_at_review":data.get("genre_evidence",{}).get(candidate),
+        }
+        data["reviews"]=reviews
+        if candidate in data.get("genre_evidence",{}):
+            current=dict(data["genre_evidence"])
+            current[candidate]={**current[candidate],
+                "evidence":{**current[candidate]["evidence"],
+                            "review_status":body.verdict}}
+            data["genre_evidence"]=current
+        return _generation_payload(revise_generation_draft(draft_id,body.revision,data),library)
+    except (DraftConflict,GenerationError,ValueError) as exc:
         raise HTTPException(status_code=409,detail=str(exc)) from exc
 
 
