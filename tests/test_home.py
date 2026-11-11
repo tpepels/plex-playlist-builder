@@ -77,3 +77,30 @@ def test_home_status_is_read_only_and_has_failure_states():
     assert "innerHTML" not in code
     assert "document.hidden" in code
     assert "@media(max-width:520px)" in CSS.read_text()
+
+
+def test_playlist_revision_status_is_read_only_and_does_not_export_yaml(monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, "load", lambda: {"playlists":{
+        "Updated playlist":{"items":[{"rating_key":"123"}]}
+    }})
+    monkeypatch.setattr(main, "version_details", lambda defs: {
+        "id":"latest-version", "last_import":None,
+        "sync_statuses":{"Updated playlist":"needs_sync"},
+        "counts":{"total":1,"needs_sync":1,"synced":0,"unverified":0}
+    })
+    status = main.config_status()
+    assert set(status) == {"version"}
+    assert status["version"]["id"] == "latest-version"
+    assert status["version"]["counts"]["needs_sync"] == 1
+    assert "definitions" not in status
+    assert "text" not in status
+
+
+def test_home_has_background_status_and_pending_deep_link():
+    markup = HTML.read_text(encoding="utf-8")
+    script = JS.read_text(encoding="utf-8")
+    assert 'href="/playlists?pending=1"' in markup
+    assert 'id="maintenance-status"' in markup
+    assert 'request("/api/workspace/maintenance")' in script
+    assert 'link:"/playlists?pending=1"' in script
