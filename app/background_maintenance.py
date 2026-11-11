@@ -42,7 +42,8 @@ def snapshot() -> dict[str, Any]:
 
 def _refresh_library() -> dict[str, Any]:
     _, music = plex_client.connect()
-    tracks = curation_library.get_library(music)
+    # A successful scheduled run must mean Plex was actually rescanned.
+    tracks = curation_library.get_library(music, refresh=True)
     return {"tracks": len(tracks), "pending": 0}
 
 
