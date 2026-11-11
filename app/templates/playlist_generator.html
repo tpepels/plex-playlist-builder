@@ -95,8 +95,6 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
 <section class="panel">
   <div class="row"><h2>1 · Describe the music</h2></div>
   <form id="createForm">
-    <label for="prompt">Musical brief</label>
-    <textarea id="prompt" required maxlength="400" minlength="8" placeholder="Describe the music">Hard bop jazz with balanced artist variety and smooth transitions.</textarea>
     <div class="genre-primary">
       <label>Genre<select id="genre">
         <option value="">Legacy brief only</option>
@@ -113,8 +111,10 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
       <button type="button" id="hardBopPreset">Jazz / Hard bop · 30 tracks · Balanced / Smooth</button>
       <span id="genreProfileStatus" role="status" aria-live="polite">Checking verified reference availability…</span>
     </div>
-    <div class="generator-references" id="referencePicker">
-      <label for="referenceQuery">Positive and negative reference recordings (optional)</label>
+    <details id="referencePickerPanel" style="margin:12px 0">
+      <summary class="muted" style="cursor:pointer">Reference recordings (optional; useful when genre evidence is missing)</summary>
+      <div class="generator-references" id="referencePicker">
+      <label for="referenceQuery">Search examples of the requested genre or subgenre</label>
       <div class="generator-ref-search">
         <input id="referenceQuery" type="search" maxlength="120" placeholder="Search Plex artists, albums and tracks">
         <button id="searchReferences" type="button">Search references</button>
@@ -122,21 +122,26 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
       <div id="referenceSearchResults" aria-live="polite"></div>
       <div class="generator-tags" id="positiveReferences" aria-label="Positive references"></div>
       <div class="generator-tags" id="negativeReferences" aria-label="Negative references"></div>
-    </div>
+      </div>
+    </details>
     <div class="mini-grid">
       <label>Tracks (1–120)<input id="count" type="number" min="1" max="120" value="30" required></label>
       <label>Target minutes (optional)<input id="minutes" type="number" min="15" max="900" placeholder="No limit"></label>
       <label>Playlist name<input id="name" maxlength="120" placeholder="New playlist name" required></label>
     </div>
+    <div class="mini-grid">
+      <label>Variation<select id="variation"><option value="focused">Focused</option><option value="balanced" selected>Balanced</option><option value="eclectic">Eclectic</option></select></label>
+      <label>Sequence<select id="flow"><option value="smooth" selected>Smooth transitions</option><option value="arc">Energy arc</option><option value="varied">More variety</option></select></label>
+    </div>
     <details id="advancedBrief" style="margin-top:12px">
-      <summary class="muted" style="cursor:pointer">Advanced musical preferences</summary>
+      <summary class="muted" style="cursor:pointer">Optional description and advanced preferences</summary>
+      <label for="prompt">Additional musical description (optional)</label>
+      <textarea id="prompt" maxlength="400" minlength="8" placeholder="Optional: mostly 1955–1965, with live recordings and longer solos…"></textarea>
       <div class="mini-grid" style="margin-top:13px">
-        <label>Styles (optional)<input id="styles" maxlength="240" placeholder="jazz, soul"></label>
+        <label>Other styles (optional)<input id="styles" maxlength="240" placeholder="jazz, soul"></label>
         <label>Moods (optional)<input id="moods" maxlength="240" placeholder="warm, intimate, relaxed"></label>
-        <label>Variation<select id="variation"><option value="">Infer from brief</option><option value="focused">Focused</option><option value="balanced" selected>Balanced</option><option value="eclectic">Eclectic</option></select></label>
-        <label>Energy<select id="energy"><option value="">Infer from brief</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="adaptive">Adaptive</option></select></label>
-        <label>Flow<select id="flow"><option value="">Infer from brief</option><option value="smooth" selected>Smooth</option><option value="arc">Energy arc</option><option value="varied">Varied</option></select></label>
-        <label>Live preference<select id="live"><option value="">Infer from brief</option><option value="prefer">Prefer live</option><option value="neutral">Neutral</option><option value="avoid">Avoid live</option></select></label>
+        <label>Energy<select id="energy"><option value="">Use musical description</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="adaptive">Adaptive</option></select></label>
+        <label>Live preference<select id="live"><option value="">Use musical description</option><option value="prefer">Prefer live</option><option value="neutral">Neutral</option><option value="avoid">Avoid live</option></select></label>
       </div>
       <div class="generator-options">
         <label>Release year from<input id="yearFrom" type="number" min="1800" max="2100" placeholder="Optional"></label>
@@ -321,6 +326,8 @@ async function refreshGenreProfiles(){
       ? profile.analyzed_references+' verified analyzed '+(subgenre||genre)+
         ' references'+(profile.available?' · ready':' · select more positive examples')
       : 'No reference profile; select positive examples';
+    if(!profile?.available && $('referencePickerPanel'))
+      $('referencePickerPanel').open=true;
   }catch(error){$('genreProfileStatus').textContent='Reference status unavailable: '+error.message}
 }
 function describeEvidence(t){
@@ -423,7 +430,8 @@ $('subgenre').onchange=refreshGenreProfiles;
 $('hardBopPreset').onclick=()=>{
   $('genre').value='jazz';$('subgenre').value='Hard bop';
   $('count').value='30';$('variation').value='balanced';$('flow').value='smooth';
-  $('prompt').value='Hard bop jazz with balanced artist variety and smooth transitions.';
+  // Structured preset is complete; never retain a conflicting older text brief.
+  $('prompt').value='';
   refreshGenreProfiles();
 };
 $('syncAudioMuse').onclick=async()=>{
@@ -665,6 +673,10 @@ $('createForm').onsubmit=async(event)=>{
   event.preventDefault();if(working)return;
   const prompt=$('prompt').value.trim(),name=readName();
   if(!name){notify('Name the playlist before generating.',true);return}
+  if(!$('genre').value && prompt.length<8){
+    notify('Select a genre or provide a musical description of at least 8 characters.',true);
+    return;
+  }
   working=true;$('generate').disabled=true;notify('Selecting and sequencing music from Plex…');
   try{
     const overrides={};
