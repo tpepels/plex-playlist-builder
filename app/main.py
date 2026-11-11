@@ -1186,10 +1186,14 @@ def generation_readiness():
         library = _read_generation_catalogue()
         cache, state = cached_features()
         report = audiomuse_readiness(library, cache, state)
-        try:
-            report["analysis"] = analysis_status()
-        except (AudioMuseControlError, RuntimeError):
-            report["analysis"] = {"available": False, "warning": "Upstream status unavailable"}
+        # Readiness is a hot UI path. Checking the live upstream AudioMuse
+        # process here caused two network requests (potentially 24 seconds).
+        # The dedicated task-status API remains available for live progress.
+        report["analysis"] = {
+            "available": False,
+            "status_endpoint": "/api/audiomuse/analysis/status",
+            "warning": "Live task status is loaded separately from the local readiness snapshot."
+        }
         return report
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Plex/AudioMuse readiness unavailable") from exc
