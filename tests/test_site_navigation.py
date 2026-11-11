@@ -10,10 +10,7 @@ PAGES = (
     "album_download.html", "download_portal.html", "home.html", "index.html",
 )
 DESTINATIONS = (
-    "/", "/downloads", "/playlists", "/playlists?view=isc",
-    "/playlist-generator", "/playlist-intelligence",
-    "/playlists?view=health", "/playlists?view=duplicates",
-    "/playlists?view=newmusic", "/playlists?view=discover",
+    "/", "/downloads", "/playlists",
     "/musical-coherence", "/downloads-audit",
     "/api/library-albums.tsv", "/api/library-export.tsv",
     "/api/playlists-export.yml",
@@ -49,6 +46,7 @@ def test_all_routes_share_one_identical_header_and_theme():
         for target in DESTINATIONS:
             assert f'href="{target}"' in html, (name, target)
         assert 'id="siteNavRecentForm"' in html, name
+        assert html.count('data-nav="') == 3, name
         start = html.index('<header class="workspace-topbar"')
         end = html.index("</header>", start) + len("</header>")
         headers.append(html[start:end])
@@ -78,3 +76,14 @@ def test_all_html_route_templates_are_covered():
     for page in PAGES:
         assert '{% include "_site_navigation.html" %}' in (
             TEMPLATES / page).read_text(encoding="utf-8")
+
+
+def test_workflow_actions_live_in_playlist_workspace():
+    html = rendered_page("index.html")
+    for target in ("/playlist-generator", "/playlist-intelligence",
+                   "/playlists?view=isc", "/playlists?view=health",
+                   "/playlists?view=newmusic", "/playlists?view=duplicates"):
+        assert f'href="{target}"' in html
+    header = rendered_page("home.html")
+    assert 'href="/playlist-generator"' in header
+    assert 'href="/playlist-intelligence"' in header
