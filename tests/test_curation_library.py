@@ -140,3 +140,18 @@ def test_reads_continue_during_long_background_refresh(tmp_path,monkeypatch):
     finally:
         release.set()
         work.join(timeout=4)
+
+
+def test_cached_library_detects_external_worker_snapshot_update(tmp_path,monkeypatch):
+    monkeypatch.setattr(idx,"FILE",tmp_path/"library.json")
+    monkeypatch.setattr(idx,"_CACHED",{})
+    original = idx.get_library(Music())
+    assert len(idx.cached_library()) == 3
+    persisted = json.loads(idx.FILE.read_text())
+    persisted["tracks"]["4"] = {**persisted["tracks"]["1"],
+                                "key":"4","title":"Song 4"}
+    # A different process replaces the complete index atomically.
+    replacement = tmp_path/"replacement.json"
+    replacement.write_text(json.dumps(persisted),encoding="utf-8")
+    replacement.replace(idx.FILE)
+    assert len(idx.cached_library()) == 4
