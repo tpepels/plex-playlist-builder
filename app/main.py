@@ -51,7 +51,8 @@ from .playlist_curator import (
     resolve_items, signature, compute_operations,
 )
 from .curation_apply import find_live, current_items, current_keys, change_plan, apply_approved
-from .curation_library import get_library, metadata as curation_library_metadata
+from .curation_library import (get_library, cached_library,
+                               metadata as curation_library_metadata)
 from .playlist_generation import (parse_prompt, generate as generate_playlist,
                                   diagnose as generation_diagnose, GenerationError,
                                   _constraints, genre_profiles, genre_evidence,
@@ -1165,12 +1166,24 @@ def _generation_origin(request):
         raise HTTPException(status_code=403,detail="Same-origin browser request required.")
 
 
+def _read_generation_catalogue():
+    """Use the last successfully indexed Plex tracks for read-only views.
+
+    Avoid the network on page opening. Initial installations still fetch once
+    through Plex until a complete catalogue has been stored.
+    """
+    library = cached_library()
+    if library is not None:
+        return library
+    _, music = connect()
+    return get_library(music)
+
+
 @app.get("/api/generation/readiness")
 def generation_readiness():
     """Local ID/embedding reconciliation plus optional current upstream task."""
     try:
-        _, music = connect()
-        library = get_library(music)
+        library = _read_generation_catalogue()
         cache, state = cached_features()
         report = audiomuse_readiness(library, cache, state)
         try:
@@ -1185,7 +1198,7 @@ def generation_readiness():
 @app.get("/api/generation/genre-profiles")
 def generation_genre_profiles(genre: str = "jazz", subgenre: str = "hard bop"):
     try:
-        _, library = _generation_context()
+        library = _read_generation_catalogue()
         cache, state = cached_features()
         from .playlist_curator import features_for
         decoded = features_for(cache)
