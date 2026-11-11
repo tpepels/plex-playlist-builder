@@ -8,14 +8,17 @@
 
   const links = Array.from(panel.querySelectorAll("a[href]"));
   const current = new URL(window.location.href);
-  const requestedView = new URLSearchParams(current.search).get("view");
-  let currentRoute = current.pathname + current.search;
-  if (current.pathname === "/open-youtube-album") {
-    currentRoute = "/playlists?view=discover";
-  } else if ((current.pathname === "/" || current.pathname === "/playlists") && requestedView) {
-    currentRoute = requestedView === "playlists"
-      ? "/playlists" : "/playlists?view=" + encodeURIComponent(requestedView);
-  } else if (current.pathname === "/downloads/engine" || current.pathname.startsWith("/downloads/engine/")) {
+  // Secondary workflows are entered from the Playlists & library workspace.
+  // Highlight that parent instead of suggesting a separate top-level section.
+  let currentRoute = current.pathname;
+  if (current.pathname === "/open-youtube-album" ||
+      current.pathname === "/playlist-generator" ||
+      current.pathname === "/playlist-intelligence" ||
+      current.pathname === "/playlists" ||
+      (current.pathname === "/" && new URLSearchParams(current.search).has("view"))) {
+    currentRoute = "/playlists";
+  } else if (current.pathname === "/downloads/engine" ||
+             current.pathname.startsWith("/downloads/engine/")) {
     currentRoute = "/downloads";
   }
   let moreActive = false;
