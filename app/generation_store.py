@@ -92,3 +92,38 @@ def mark_published(identifier,expected_revision,playlist_id,title=None):
             raise DraftConflict("Draft was changed while publishing.")
         db.commit()
         return get(identifier)
+
+
+def genre_feedback(genre: str, subgenre: str, limit: int = 2000) -> dict[str, dict]:
+    """Reuse durable generation drafts as the source of cross-draft genre verdicts.
+
+    Genre-specific accept/reject judgments generalize to subsequent drafts of
+    the SAME requested subgenre. Mood/energy/flow judgments remain contextual.
+    A later verdict takes precedence; no separate review DB is introduced.
+    """
+    if not isinstance(genre, str) or not isinstance(subgenre, str):
+        return {}
+    result={}
+    with LOCK, _connect() as db:
+        rows=db.execute(
+            "SELECT data FROM generation_drafts "
+            "ORDER BY updated_at DESC, rowid DESC LIMIT ?",(limit,)
+        ).fetchall()
+    for (payload,) in rows:
+        try:
+            data=json.loads(payload)
+            criteria=data.get("request",{}).get("criteria",{})
+            if criteria.get("genre")!=genre or (criteria.get("subgenre") or "")!=subgenre:
+                continue
+            for key, review in (data.get("reviews") or {}).items():
+                if key in result or not isinstance(review,dict):
+                    continue
+                verdict=review.get("verdict")
+                if verdict=="accept" or (
+                    verdict=="reject" and review.get("issue")=="genre"
+                ):
+                    result[str(key)]={"verdict":verdict,"issue":review.get("issue"),
+                                      "source":"prior_user_listening_review"}
+        except (TypeError,ValueError,AttributeError):
+            continue
+    return result
