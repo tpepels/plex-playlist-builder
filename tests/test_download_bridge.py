@@ -34,7 +34,7 @@ def test_unavailable_download_engine_keeps_native_workspace_navigation(client, m
     assert "<iframe" not in html
     assert 'id="download-engine"' not in html
     assert "Downloader unavailable" in html
-    assert "Scan Plex for new music" in html
+    assert "reconnects when it comes back" in html
     assert 'href="/playlists"' in html  # Curation now opens from the playlist workspace
     assert 'href="/downloads-audit"' in html
     assert "siteNavigationToggle" in html
