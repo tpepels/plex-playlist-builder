@@ -210,6 +210,10 @@ def readiness(library: dict, cache: dict, state: dict) -> dict:
         cache[k].get("clap_embedding") is not None and decoded[k].get("clap") is None
         for k in matching
     )
+    analyzed = sum(
+        decoded[k].get("musicnn") is not None or decoded[k].get("clap") is not None
+        for k in matching
+    )
     pending = state.get("pending")
     available = state.get("available")
     return {
@@ -217,6 +221,8 @@ def readiness(library: dict, cache: dict, state: dict) -> dict:
         "audiomuse_available": available,
         "cached_tracks": len(indexed),
         "matched_track_ids": len(matching),
+        "audio_analyzed_tracks": analyzed,
+        "missing_embeddings": len(ids)-analyzed,
         "unmatched_plex_tracks": len(ids - indexed),
         "orphan_audio_tracks": len(indexed - ids),
         "musicnn_available": valid_musicnn,
@@ -232,7 +238,8 @@ def readiness(library: dict, cache: dict, state: dict) -> dict:
         "ready": bool(
             ids and available is not None and pending == 0
             and len(matching) == len(ids)
-            and (valid_musicnn + valid_clap) > 0
+            and analyzed == len(ids)
+            and invalid_musicnn == 0 and invalid_clap == 0
         ),
         "basis": "last_successful_local_sync",
         "warning": (
