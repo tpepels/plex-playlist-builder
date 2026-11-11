@@ -189,13 +189,12 @@
       complete ? "Live status · just checked" : "Partial status · some services unavailable";
     if (done === 4) {
       running = false;
-      $("refresh-home").disabled = false;
+
     }
   }
   async function refresh() {
     if (running) return;
     running = true;
-    $("refresh-home").disabled = true;
     const states = {plex:null, playlists:null, downloads:null, maintenance:null};
     // Each request renders on arrival. A slow/down Plex server cannot delay the
     // local playlist counts, maintenance state, or downloader queue.
@@ -211,7 +210,8 @@
     );
     await Promise.allSettled(requests);
   }
-  $("refresh-home").addEventListener("click", refresh);
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function")
+    window.addEventListener("workspace:changed", () => { void refresh(); });
   refresh();
   if (typeof window !== "undefined" && typeof window.setInterval === "function")
     window.setInterval(() => { if (!document.hidden) refresh(); }, 30000);
