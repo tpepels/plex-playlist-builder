@@ -143,6 +143,8 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
     </details>
     <footer>
       <button id="restoreDraft" type="button" hidden>Restore last draft</button>
+      <label for="existingDraftId">Draft ID<input id="existingDraftId" maxlength="128" placeholder="Paste an existing draft ID"></label>
+      <button id="openExistingDraft" type="button">Open existing draft</button>
       <button id="generate" type="submit" class="primary">Generate draft</button>
     </footer>
   </form>
@@ -732,6 +734,11 @@ $('confirmPublish').onclick=async()=>{
       result.sync_state!=='synced');
   }catch(error){notify(error.message,true)}
   finally{working=false;$('confirmPublish').disabled=false}
+};
+$('openExistingDraft').onclick=()=>{
+  const id=$('existingDraftId').value.trim();
+  if(!id){notify('Enter a draft ID.',true);return}
+  loadDraft(id);
 };
 const last=localStorage.getItem('playlistGenerationDraft');
 if(last){
