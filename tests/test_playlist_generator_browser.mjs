@@ -167,7 +167,7 @@ test("Hard bop generator submits authoritative structured controls and reference
 test("Review rejection is versioned and prevents automatic repeated suggestion",async()=>{
   const h=harness();
   await h.get("createForm").onsubmit({preventDefault(){}});
-  await h.get("find").onclick();
+  await settle(); // Candidate list now fills automatically with the created draft.
   const list=h.get("candidateList");
   assert.equal(list.children.length,1, h.get("notice").textContent);
   const reviewButton=list.children[0].children.find(
