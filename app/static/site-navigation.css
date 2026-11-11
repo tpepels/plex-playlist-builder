@@ -273,7 +273,7 @@ input,textarea,select {accent-color:var(--workspace-accent)}
   .workspace-playlists-menu{width:38px!important}
   .workspace-playlists-menu > summary {width:38px!important;min-height:43px}
   .workspace-playlists-menu > .workspace-more-menu {
-    position:static;width:min(100vw - 56px,300px);max-height:none;
+    position:static;width:min(calc(100vw - 56px), 300px);max-height:none;
     margin-top:3px;box-shadow:none;
     transform:translateX(calc(-100% + 38px));
   }
