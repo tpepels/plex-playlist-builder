@@ -28,6 +28,7 @@ function node(tag = "div") {
     prepend(...parts) { this.children.unshift(...parts); },
     replaceChildren(...parts) { this.children = parts; },
     setAttribute() {},
+    listeners,
     addEventListener(type, listener) { listeners[type] = listener; },
     click() { return listeners.click?.(); },
     querySelectorAll(selector) {
@@ -108,7 +109,7 @@ function harness() {
   const connect = () => profile().querySelector("button.vpn-secondary");
   return {
     get, requests, profile, connect,
-    tick(){panel.open=true;timers.at(-1)?.()},
+    openPanel(){panel.open=true;panel.listeners.toggle?.()},
     setStatus(value) {status = value;},
     settleConnect(data, ok = false) {
       assert.equal(typeof resolveConnect, "function");
@@ -127,7 +128,7 @@ test("Connect immediately shows an in-row state and stays locked during a status
   assert.equal(ui.connect().disabled, true);
   assert.match(ui.profile().children.at(-1).textContent, /Contacting Surfshark/);
   // Simulate a background GET while POST is still unresolved.
-  ui.tick();
+  ui.openPanel();
   await flush();
   assert.equal(ui.connect().disabled, true);
   assert.equal(ui.connect().textContent, "Connecting…");
@@ -192,7 +193,7 @@ test("Direct is default and manual Disconnect VPN restores it", async () => {
     active: "a".repeat(32), mode: "vpn", kill_switch: true, tunnel_ready: true,
     test: {running: false, done: true, results: []},
   });
-  ui.tick();
+  ui.openPanel();
   await flush();
   assert.equal(ui.get("vpn-direct-button").disabled, false);
   ui.get("vpn-direct-button").click();
