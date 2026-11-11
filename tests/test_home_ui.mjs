@@ -25,7 +25,7 @@ function flatten(node){
 
 async function makeHarness(sources){
   const ids=[
-    "refresh-home","overview-updated","plex-indicator","plex-value","plex-detail",
+    "overview-updated","plex-indicator","plex-value","plex-detail",
     "playlist-count","playlist-detail","sync-count","sync-detail",
     "download-indicator","download-count","download-detail","maintenance-status","attention-list"
   ];
@@ -45,15 +45,16 @@ async function makeHarness(sources){
     if(!value)return {ok:false,status:503,json:async()=>({})};
     return {ok:true,status:200,json:async()=>value};
   };
-  let interval;
+  let interval;let changeHandler;
   vm.runInNewContext(source,{
     document,fetch,AbortController,setTimeout,clearTimeout,
-    window:{setInterval(callback,intervalMs){
+    window:{addEventListener(type,callback){if(type==="workspace:changed")changeHandler=callback},
+      setInterval(callback,intervalMs){
       assert.equal(intervalMs,30000);interval=callback;
     }}
   });
   await new Promise(resolve=>setTimeout(resolve,20));
-  return {elements,calls,document,sources,interval};
+  return {elements,calls,document,sources,interval,changeHandler};
 }
 
 test("home renders live Plex, playlist, downloader and attention counters",async()=>{
@@ -81,7 +82,7 @@ test("home renders live Plex, playlist, downloader and attention counters",async
   assert.match(message,/2 playlists awaiting sync/);
   assert.match(message,/2 downloads need attention/);
   assert.match(message,/1 release\(s\) awaiting Plex scan/);
-  assert.equal(e["refresh-home"].disabled,false);
+
   assert.equal(h.calls.length,4);
   assert.match(e["maintenance-status"].textContent,/40 cache records queued/);
   assert.equal(e["attention-list"].children[0].children[2]?.href,"/playlists?pending=1");
@@ -103,7 +104,7 @@ test("partial outages report explicit problems and do not invent success",async(
   assert.match(h.elements["overview-updated"].textContent,/Partial status/);
 });
 
-test("manual refresh recovers from failed services without mutating playlists",async()=>{
+test("workspace change notification recovers from failed services without mutating playlists",async()=>{
   const statuses={
     "/api/health":new Error("offline"),
     "/api/config/summary":new Error("storage offline"),
@@ -115,7 +116,8 @@ test("manual refresh recovers from failed services without mutating playlists",a
   statuses["/api/config/summary"]={playlists:[],version:{counts:{total:0,needs_sync:0}}};
   statuses["/api/downloads/bridge/status"]={ok:true,counts:{}};
   statuses["/api/workspace/maintenance"]={enabled:true,jobs:{audio:{pending:0},library:{}}};
-  await h.elements["refresh-home"].listeners.click();
+  h.changeHandler();
+  await new Promise(resolve=>setTimeout(resolve,20));
   assert.equal(h.elements["plex-value"].textContent,"Connected");
   assert.equal(h.elements["playlist-count"].textContent,"0");
   assert.equal(h.elements["download-count"].textContent,"0");
@@ -160,5 +162,5 @@ test("slow Plex response cannot block local playlist counts or maintenance state
   releasePlex({ok:true,server:"Plex",library:"Music"});
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(h.elements["plex-value"].textContent,"Connected");
-  assert.equal(h.elements["refresh-home"].disabled,false);
+
 });
