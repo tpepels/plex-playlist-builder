@@ -206,6 +206,22 @@ def cached_features() -> tuple[dict[str, dict], dict]:
         return tracks, dict(state)
 
 
+
+def decoded_features(cache: dict[str, dict]) -> dict[str, dict]:
+    """Normalize AudioMuse embeddings once per cached SQLite snapshot.
+
+    Cache only the canonical read-only SQLite snapshot, never caller-created
+    mutable dictionaries used by curation or tests.
+    """
+    from .playlist_curator import features_for
+    with _FEATURES_LOCK:
+        if _FEATURES_HOT.get("tracks") is cache:
+            if "decoded" not in _FEATURES_HOT:
+                _FEATURES_HOT["decoded"] = features_for(cache)
+            return _FEATURES_HOT["decoded"]
+    return features_for(cache)
+
+
 def feature_revision(cache: dict[str, dict], manifest_version: str | None = None) -> str:
     """Deterministic revision of evidence consumed by a generation draft.
 
@@ -216,7 +232,7 @@ def feature_revision(cache: dict[str, dict], manifest_version: str | None = None
     return hashlib.sha256(((manifest_version or "") + content).encode()).hexdigest()
 
 
-def readiness(library: dict, cache: dict, state: dict) -> dict:
+def readiness(library: dict, cache: dict, state: dict, decoded: dict | None = None) -> dict:
     """Reconcile the local Plex catalogue and the last observed AudioMuse manifest.
 
     This is a local snapshot: live upstream completion is checked by the Sync
@@ -226,7 +242,9 @@ def readiness(library: dict, cache: dict, state: dict) -> dict:
     ids = set(str(k) for k in library)
     indexed = set(str(k) for k in cache)
     matching = ids & indexed
-    decoded = features_for({k: cache[k] for k in matching})
+    decoded = features_for({k: cache[k] for k in matching}) if decoded is None else {
+        k: decoded[k] for k in matching if k in decoded
+    }
     present = lambda value: value is not None
     valid_musicnn = sum(present(decoded[k].get("musicnn")) for k in matching)
     valid_clap = sum(present(decoded[k].get("clap")) for k in matching)
