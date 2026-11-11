@@ -207,3 +207,33 @@ def test_exact_genre_count_cannot_be_bypassed_by_manual_remove(state):
         main.generation_plan(main.GenerationPlanBody(
             draft_id=identifier,revision=2,name="Incomplete Bop"))
     assert not plex.created
+
+
+def test_genre_rejection_persists_across_new_drafts_without_cross_genre_leak(state):
+    plex,lib,cache,_=state
+    original=main.create_generation(body(),request())
+    rejected=original["data"]["keys"][0]
+    reviewed=main.generation_review(original["id"],main.GenerationReviewBody(
+        revision=1,candidate_id=rejected,verdict="reject",issue="genre",
+        listened=True,candidate_played_seconds=17),request())
+    assert reviewed["revision"]==2
+    next_body=body().model_copy(update={"name":"Another Hard Bop"})
+    second=main.create_generation(next_body,request())
+    assert rejected not in second["data"]["keys"]
+    assert second["data"]["selection"]["prior_genre_reviews"]>=1
+    assert len(second["data"]["keys"])==30
+    # No Plex mutation occurs in genre feedback or new draft ranking.
+    assert not plex.created
+
+
+def test_contextual_energy_rejection_does_not_poison_future_genre_drafts(state):
+    plex,lib,cache,_=state
+    first=main.create_generation(body(),request())
+    target=first["data"]["keys"][0]
+    main.generation_review(first["id"],main.GenerationReviewBody(
+        revision=1,candidate_id=target,verdict="reject",issue="energy",
+        listened=True,candidate_played_seconds=16),request())
+    second=main.create_generation(body().model_copy(
+        update={"name":"Fresh Energy"}),request())
+    assert target in second["data"]["keys"]
+    assert not plex.created
