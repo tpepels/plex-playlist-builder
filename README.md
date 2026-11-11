@@ -87,9 +87,10 @@ Three server workers run independently of the browser:
 - **Plex music catalogue:** refresh the full track/album index every 15 minutes.
   Browsers read the most recent complete snapshot without waiting for a scan.
 - **New-music analysis:** every two minutes, check the durable queue of newly
-  indexed Plex tracks (including new tracks on existing albums). After the first
-  successful library scan establishes a baseline, later additions enqueue their
-  albums. Check upstream AudioMuse task state before submitting a bounded
+  indexed Plex tracks (including new tracks on existing albums). When an existing Plex index is available, it is used as the initial
+  baseline before the next complete scan, so arrivals during downtime are
+  captured. Otherwise the first successful scan establishes the baseline.
+  Later additions enqueue their albums. Check upstream AudioMuse task state before submitting a bounded
   `num_recent_albums` analysis through the **existing** AudioMuse API. Only
   one task may be in flight. Task IDs and pending albums are persisted in
   `/data/workspace-analysis.json`, including across restarts. An analysis that
