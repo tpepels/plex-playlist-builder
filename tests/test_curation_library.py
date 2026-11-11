@@ -96,3 +96,47 @@ def test_album_genres_and_release_year_enrich_tracks_without_n_plus_one_queries(
     persisted=idx.get_library(plex)
     assert persisted["1"]["year"]==1961
     assert plex.track_calls==1
+
+
+def test_stale_snapshot_is_returned_without_blocking_for_plex_network(tmp_path,monkeypatch):
+    import time
+    monkeypatch.setattr(idx,"FILE",tmp_path/"library.json")
+    monkeypatch.setattr(idx,"_CACHED",{})
+    server=Music()
+    original=idx.get_library(server)
+    envelope=json.loads(idx.FILE.read_text())
+    envelope["updated"]=time.time()-86400
+    idx.FILE.write_text(json.dumps(envelope))
+    monkeypatch.setattr(idx,"_CACHED",{})
+    server.fail=True
+    assert idx.get_library(server)==original
+    assert server.calls==1
+    with pytest.raises(RuntimeError,match="Plex disconnected"):
+        idx.get_library(server,refresh=True)
+
+
+def test_reads_continue_during_long_background_refresh(tmp_path,monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    monkeypatch.setattr(idx,"FILE",tmp_path/"library.json")
+    monkeypatch.setattr(idx,"_CACHED",{})
+    idx.get_library(Music())
+    started=threading.Event()
+    release=threading.Event()
+    class SlowMusic(Music):
+        def searchTracks(self,**kwargs):
+            started.set()
+            assert release.wait(4), "Background test stalled"
+            return super().searchTracks(**kwargs)
+    server=SlowMusic()
+    work=threading.Thread(target=lambda:idx.get_library(server,refresh=True))
+    work.start()
+    try:
+        assert started.wait(2)
+        # Old implementation held the cache lock while Plex was scanning.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future=pool.submit(idx.get_library,server)
+            assert len(future.result(timeout=1))==3
+    finally:
+        release.set()
+        work.join(timeout=4)
