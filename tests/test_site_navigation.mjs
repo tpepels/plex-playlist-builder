@@ -8,7 +8,7 @@ const js = fs.readFileSync(new URL("static/site-navigation.js", root), "utf8");
 const css = fs.readFileSync(new URL("static/site-navigation.css", root), "utf8");
 new vm.Script(js, {filename:"site-navigation.js"});
 
-for(const route of ["/", "/downloads", "/playlists", "/musical-coherence", "/downloads-audit",
+for(const route of ["/", "/downloads", "/playlists", "/playlists?work=analysis", "/downloads-audit",
   "/api/library-export.tsv", "/api/playlists-export.yml"])
   assert(html.includes('href="'+route+'"'), "Missing route "+route);
 assert(html.includes('id="workspaceTopbar"'));
