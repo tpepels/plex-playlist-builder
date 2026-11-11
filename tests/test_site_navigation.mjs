@@ -8,13 +8,11 @@ const js = fs.readFileSync(new URL("static/site-navigation.js", root), "utf8");
 const css = fs.readFileSync(new URL("static/site-navigation.css", root), "utf8");
 new vm.Script(js, {filename:"site-navigation.js"});
 
-for(const route of ["/", "/downloads", "/playlists", "/playlists?view=isc",
-  "/playlist-generator", "/playlist-intelligence", "/playlists?view=health",
-  "/playlists?view=duplicates", "/playlists?view=newmusic",
-  "/playlists?view=discover", "/musical-coherence", "/downloads-audit",
+for(const route of ["/", "/downloads", "/playlists", "/musical-coherence", "/downloads-audit",
   "/api/library-export.tsv", "/api/playlists-export.yml"])
   assert(html.includes('href="'+route+'"'), "Missing route "+route);
 assert(html.includes('id="workspaceTopbar"'));
+assert.equal((html.match(/data-nav="/g)||[]).length,3, "Three primary workspaces only");
 assert(html.includes('id="siteNavRecentForm"'));
 assert(css.includes("@media(max-width:800px)"));
 assert(!html.includes("siteNavigationBackdrop"));
@@ -61,11 +59,12 @@ function click(n){assert.equal(typeof n.listeners.click,"function");n.listeners.
 const pages=[
   ["http://media-server:5051/","/"],
   ["http://media-server:5051/downloads","/downloads"],
-  ["http://media-server:5051/playlist-generator","/playlist-generator"],
-  ["http://media-server:5051/playlists?view=health","/playlists?view=health"],
-  ["http://media-server:5051/playlists?view=newmusic","/playlists?view=newmusic"],
-  ["http://media-server:5051/playlists?view=isc","/playlists?view=isc"],
-  ["http://media-server:5051/open-youtube-album?artist=A","/playlists?view=discover"],
+  ["http://media-server:5051/playlist-generator","/playlists"],
+  ["http://media-server:5051/playlist-intelligence","/playlists"],
+  ["http://media-server:5051/playlists?view=health","/playlists"],
+  ["http://media-server:5051/playlists?view=newmusic","/playlists"],
+  ["http://media-server:5051/playlists?view=isc","/playlists"],
+  ["http://media-server:5051/open-youtube-album?artist=A","/playlists"],
   ["http://media-server:5051/downloads/engine/?job=123","/downloads"],
 ];
 for(const [url,expected] of pages){
