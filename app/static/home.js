@@ -50,10 +50,11 @@
     running = true;
     $("refresh-home").disabled = true;
     $("overview-updated").textContent = "Checking services…";
-    const [plex, playlists, downloads] = await Promise.allSettled([
+    const [plex, playlists, downloads, maintenance] = await Promise.allSettled([
       request("/api/health"),
       request("/api/config"),
-      request("/api/downloads/bridge/status")
+      request("/api/downloads/bridge/status"),
+      request("/api/workspace/maintenance")
     ]);
     const items = [];
     let complete = true;
@@ -128,6 +129,45 @@
       items.push({title:"Download engine is offline",detail:"Check the yt-dlp-server container",
         link:"/downloads",action:"View downloads",kind:"error"});
       complete = false;
+    }
+    // Report real background-worker state. Status polling never triggers a sync.
+    const maintenanceLine = $("maintenance-status");
+    if (maintenance.status === "fulfilled") {
+      const data = maintenance.value;
+      if (!data.enabled) {
+        maintenanceLine.textContent = "Automatic AudioMuse and Plex index updates are disabled on the server.";
+      } else {
+        const jobs = data.jobs || {};
+        const audio = jobs.audio || {};
+        const library = jobs.library || {};
+        const formatAge = stamp => {
+          const ms = Date.parse(stamp || "");
+          if (!Number.isFinite(ms)) return "not completed yet";
+          const minutes = Math.max(0, Math.floor((Date.now() - ms) / 60000));
+          return minutes < 1 ? "just now" : minutes < 60 ? minutes + " min ago"
+            : Math.floor(minutes / 60) + " h ago";
+        };
+        maintenanceLine.textContent =
+          "Automatic updates · Audio features " + (audio.running ? "updating" : formatAge(audio.last_success)) +
+          " · Plex music index " + (library.running ? "updating" : formatAge(library.last_success)) +
+          (Number(audio.pending) > 0 ? " · " + audio.pending + " audio records still queued" : "");
+        for (const [job, label, link] of [
+          [audio, "Audio feature cache", "/musical-coherence"],
+          [library, "Plex music index", "/playlists"]
+        ]) {
+          if (job.error) {
+            items.push({title:label + " update failed",
+              detail:String(job.error).slice(0, 150) + " · automatic retry scheduled",
+              link, action:"View update details", kind:"warning"});
+          }
+        }
+      }
+    } else {
+      maintenanceLine.textContent = "Automatic update status is unavailable.";
+      complete = false;
+      items.push({title:"Automatic update status could not be checked",
+        detail:"The application cannot confirm its music-cache jobs are running",
+        link:"/musical-coherence", action:"View diagnostics", kind:"warning"});
     }
     if (!items.length) items.push({
       title:"Nothing requires immediate attention",
