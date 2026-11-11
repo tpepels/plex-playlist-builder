@@ -139,3 +139,26 @@ test("automatic-cache errors are visible but do not alter Plex or playlist state
   assert.equal(h.calls.every(path=>path.startsWith("/api/")),true);
   assert.equal(h.calls.length,4);
 });
+
+
+test("slow Plex response cannot block local playlist counts or maintenance state",async()=>{
+  let releasePlex;
+  const waiting=new Promise(resolve=>{releasePlex=resolve});
+  const h=await makeHarness({
+    "/api/health":waiting,
+    "/api/config/summary":{version:{counts:{total:18,needs_sync:3}}},
+    "/api/downloads/bridge/status":{ok:true,counts:{queued:2}},
+    "/api/workspace/maintenance":{enabled:true,jobs:{audio:{},library:{}},
+      automatic_analysis:{enabled:true,baseline:true,pending:2}}
+  });
+  assert.equal(h.elements["plex-value"].textContent,"—");
+  assert.equal(h.elements["playlist-count"].textContent,"18");
+  assert.equal(h.elements["sync-count"].textContent,"3");
+  assert.equal(h.elements["download-count"].textContent,"2");
+  assert.match(h.elements["maintenance-status"].textContent,/2 albums awaiting analysis/);
+  assert.match(h.elements["overview-updated"].textContent,/3\/4/);
+  releasePlex({ok:true,server:"Plex",library:"Music"});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.elements["plex-value"].textContent,"Connected");
+  assert.equal(h.elements["refresh-home"].disabled,false);
+});
