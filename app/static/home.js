@@ -85,7 +85,7 @@
       if (pending > 0) items.push({
         title:pending + " playlist" + (pending === 1 ? "" : "s") + " awaiting sync",
         detail:"Review the differences before publishing",
-        link:"/playlists?view=health",action:"Review",kind:"warning"
+        link:"/playlists?pending=1",action:"Review changes",kind:"warning"
       });
     } else {
       $("playlist-count").textContent = "—";
