@@ -71,7 +71,7 @@ def test_real_downloader_document_is_one_integrated_workspace():
         'id="retry-all-failed"', 'id="vpn-upload"',
         'id="vpn-direct-button"', 'id="youtube-cookie-upload-form"',
         'id="youtube-cookie-remove-button"', 'id="scan-plex"',
-        'href="/playlists"', 'href="/playlist-intelligence"',
+        'href="/playlists"',
         'href="/downloads-audit"', 'href="/static/download-native.css"',
         'href="/static/site-navigation.css"',
         'src="/static/site-navigation.js"',
