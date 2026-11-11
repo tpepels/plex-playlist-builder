@@ -27,7 +27,7 @@ async function makeHarness(sources){
   const ids=[
     "refresh-home","overview-updated","plex-indicator","plex-value","plex-detail",
     "playlist-count","playlist-detail","sync-count","sync-detail",
-    "download-indicator","download-count","download-detail","attention-list"
+    "download-indicator","download-count","download-detail","maintenance-status","attention-list"
   ];
   const elements=Object.fromEntries(ids.map(id=>[id,makeNode(id)]));
   const calls=[];
@@ -63,7 +63,10 @@ test("home renders live Plex, playlist, downloader and attention counters",async
       version:{counts:{total:4,needs_sync:2}}},
     "/api/downloads/bridge/status":{ok:true,counts:{
       queued:1,running:2,finalizing:0,failed:1,partial:0,needs_metadata:1
-    },plex_sync:{pending:1}}
+    },plex_sync:{pending:1}},
+    "/api/workspace/maintenance":{enabled:true,jobs:{
+      audio:{last_success:"2026-11-11T18:00:00Z",pending:40},
+      library:{last_success:"2026-11-11T18:00:00Z",pending:0}}}
   });
   const e=h.elements;
   assert.equal(e["plex-value"].textContent,"Connected");
@@ -79,14 +82,17 @@ test("home renders live Plex, playlist, downloader and attention counters",async
   assert.match(message,/2 downloads need attention/);
   assert.match(message,/1 release\(s\) awaiting Plex scan/);
   assert.equal(e["refresh-home"].disabled,false);
-  assert.equal(h.calls.length,3);
+  assert.equal(h.calls.length,4);
+  assert.match(e["maintenance-status"].textContent,/40 audio records still queued/);
+  assert.equal(e["attention-list"].children[0].children[2]?.href,"/playlists?pending=1");
 });
 
 test("partial outages report explicit problems and do not invent success",async()=>{
   const h=await makeHarness({
     "/api/health":new Error("Plex offline"),
     "/api/config":{playlists:[],version:{counts:{total:0,needs_sync:0}}},
-    "/api/downloads/bridge/status":new Error("yt-dlp offline")
+    "/api/downloads/bridge/status":new Error("yt-dlp offline"),
+    "/api/workspace/maintenance":{enabled:true,jobs:{audio:{},library:{}}}
   });
   assert.equal(h.elements["plex-value"].textContent,"Offline");
   assert.equal(h.elements["download-count"].textContent,"—");
@@ -101,16 +107,35 @@ test("manual refresh recovers from failed services without mutating playlists",a
   const statuses={
     "/api/health":new Error("offline"),
     "/api/config":new Error("storage offline"),
-    "/api/downloads/bridge/status":new Error("offline")
+    "/api/downloads/bridge/status":new Error("offline"),
+    "/api/workspace/maintenance":new Error("offline")
   };
   const h=await makeHarness(statuses);
   statuses["/api/health"]={ok:true,server:"Plex",library:"Music"};
   statuses["/api/config"]={playlists:[],version:{counts:{total:0,needs_sync:0}}};
   statuses["/api/downloads/bridge/status"]={ok:true,counts:{}};
+  statuses["/api/workspace/maintenance"]={enabled:true,jobs:{audio:{pending:0},library:{}}};
   await h.elements["refresh-home"].listeners.click();
   assert.equal(h.elements["plex-value"].textContent,"Connected");
   assert.equal(h.elements["playlist-count"].textContent,"0");
   assert.equal(h.elements["download-count"].textContent,"0");
   assert.match(flatten(h.elements["attention-list"]),/Nothing requires immediate attention/);
-  assert.equal(h.calls.length,6);
+  assert.equal(h.calls.length,8);
+});
+
+test("automatic-cache errors are visible but do not alter Plex or playlist state",async()=>{
+  const h=await makeHarness({
+    "/api/health":{ok:true,server:"Plex",library:"Music"},
+    "/api/config":{playlists:[],version:{counts:{total:0,needs_sync:0}}},
+    "/api/downloads/bridge/status":{ok:true,counts:{},plex_sync:{}},
+    "/api/workspace/maintenance":{enabled:true,jobs:{
+      audio:{error:"AudioMuse token unavailable",pending:100},
+      library:{last_success:"2026-11-11T18:00:00Z"}
+    }}
+  });
+  assert.match(flatten(h.elements["attention-list"]),/Audio feature cache update failed/);
+  assert.match(flatten(h.elements["attention-list"]),/automatic retry scheduled/);
+  assert.match(h.elements["maintenance-status"].textContent,/100 audio records still queued/);
+  assert.equal(h.calls.every(path=>path.startsWith("/api/")),true);
+  assert.equal(h.calls.length,4);
 });
