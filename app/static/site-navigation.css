@@ -226,3 +226,30 @@ input,textarea,select {accent-color:var(--workspace-accent)}
   .workspace-brand strong {font-size:14px}
   .workspace-brand small {letter-spacing:.07em;font-size:8px}
 }
+
+/* Workflows are panels within the playlist workspace, not separate site navs. */
+.workspace-workflow-tabs {
+  display:flex;flex-wrap:wrap;gap:5px;align-items:center;
+  padding:5px;margin:-12px 0 22px;
+  border:1px solid var(--workspace-line);border-radius:11px;
+  background:var(--workspace-panel);
+}
+.workspace-workflow-tabs a {
+  display:inline-flex;align-items:center;justify-content:center;
+  min-height:36px;padding:8px 13px;border-radius:7px;
+  color:var(--workspace-muted)!important;text-decoration:none!important;
+  font:650 12px/1.35 system-ui,sans-serif!important;
+  border:1px solid transparent;
+}
+.workspace-workflow-tabs a:hover {
+  background:var(--workspace-surface);color:var(--workspace-text)!important;
+}
+.workspace-workflow-tabs a[aria-current="page"] {
+  background:#1c3e3b;border-color:#3e685d;
+  color:var(--workspace-accent)!important;
+}
+@media(max-width:650px) {
+  .workspace-workflow-tabs {display:flex;overflow-x:auto;flex-wrap:nowrap;
+    scrollbar-width:thin;gap:2px;padding:4px;margin-bottom:18px}
+  .workspace-workflow-tabs a {white-space:nowrap;padding:8px 10px;font-size:11px!important}
+}
