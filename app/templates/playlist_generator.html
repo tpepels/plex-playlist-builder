@@ -442,7 +442,7 @@ function metricTable(table,quality){
   const body=table.tagName==='TABLE'&&table.tBodies.length?table.tBodies[0]:table;
   body.replaceChildren();
   for(const [key,label] of Object.entries(descriptions)){
-    const m=quality.metrics[key],r=node('tr');
+    const m=(quality.metrics||quality)[key]||{score:null,coverage:0},r=node('tr');
     r.append(node('td',label),node('td',m.score===null?'Unknown':Math.round(m.score*100)+'%'),
              node('td',Math.round(m.coverage*100)+'%'));
     if(m.score===null)r.title='Insufficient measured features';
