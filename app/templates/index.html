@@ -1140,6 +1140,9 @@ async function showWorkspaceView(view) {
 // so no second tab bar or page-specific router is necessary.
 const requestedView = typeof window === "undefined"
   ? "playlists" : new URLSearchParams(window.location.search).get("view");
+// Links from Home open the actual pending playlist list, not an unrelated report.
+$("onlyPending").checked = typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("pending") === "1";
 void showWorkspaceView(requestedView || "playlists");
 // Refresh only the visible report; never interrupt unsaved edits or an active Plex write.
 if (typeof window !== "undefined" && typeof window.setInterval === "function") window.setInterval(() => {
