@@ -255,7 +255,7 @@ def _score_candidate(key, info, f, keys, lib, ff, intent, target, ctx,
 
 
 def rank_candidates(keys, library, cache, identity, *, target=None, query="",limit=20,
-                    weights=None, feedback=None):
+                    weights=None, feedback=None, genre_signals=None, rejected_ids=None):
     if not 1<=limit<=MAX_CANDIDATES:
         raise ValueError("Limit must be between 1 and 30.")
     if target is not None and target not in keys:
@@ -266,10 +266,13 @@ def rank_candidates(keys, library, cache, identity, *, target=None, query="",lim
     intent=identity["values"] if "values" in identity else identity
     ctx=_profile_context(keys,library,ff,intent,target)
     feedback=feedback or {}
+    rejected_ids=set(rejected_ids or [])
     query_norm=normalize(query)
     pool=[]
     for key,info in library.items():
-        if key in keys:continue
+        if key in keys or key in rejected_ids:continue
+        if genre_signals is not None and not genre_signals.get(key,{}).get("compatible"):
+            continue
         # Concert introductions and applause are in music libraries but are
         # not defensible automatic recommendations for musical playlists.
         if not query_norm and not automatically_rankable(info):
@@ -280,6 +283,9 @@ def rank_candidates(keys, library, cache, identity, *, target=None, query="",lim
         f=ff.get(key,{})
         ranked=_score_candidate(key,info,f,keys,library,ff,intent,target,ctx,
                                 detailed=False,weights=weights)
+        if genre_signals is not None and ranked["match"] is not None:
+            ranked["match"]=round(clamp(.68*genre_signals[key]["fit"]+
+                                          .32*ranked["match"]),4)
         pool.append((key,info,ranked))
     pool.sort(key=lambda x:(
         x[2]["match"] is None,
@@ -291,6 +297,13 @@ def rank_candidates(keys, library, cache, identity, *, target=None, query="",lim
     for key,info,_ in shortlisted:
         item=_score_candidate(key,info,ff.get(key,{}),keys,library,ff,intent,target,ctx,
                               detailed=True,weights=weights)
+        if genre_signals is not None:
+            item["genre_evidence"]=genre_signals[key]
+            item["ranking_components"]={"genre":genre_signals[key]["fit"],
+                                         "playlist_fit":item["match"]}
+            if item["match"] is not None:
+                item["match"]=round(clamp(.68*genre_signals[key]["fit"]+
+                                             .32*item["match"]),4)
         flags=review_track(info)
         item["review_flags"]=flags
         if not automatically_rankable(info):
