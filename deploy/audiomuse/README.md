@@ -141,9 +141,10 @@ and show the active/main-task status:
   routes while the page is open. Analysis runs in AudioMuse's own worker and
   continues if you close the browser.
 - This integration cannot start clustering or touch Plex playlists.
-- Once analysis progresses or completes, Playlist Manager automatically copies completed results into the local feature cache. **Sync AudioMuse analysis** remains available for an immediate manual update. Each sync transfers at most 500 changed
-  tracks per request. One click now continues through successive batches,
-  with visible progress and a Stop-after-current-batch option.
+- Completed analysis is copied to Playlist Manager's local feature cache by a
+  background worker. Each pass transfers at most 500 changed tracks and
+  continues until the current batch is complete. The browser displays
+  analysis progress, feature coverage and coherence without a Sync button.
 - New albums and tracks are analyzed automatically by the Playlist Manager background worker after the Plex catalogue refresh. A durable state file prevents repeat submissions across restarts. The first scan baselines an existing library; subsequent arrivals are queued. Entire-library backfill is still a deliberate action.
 
 Update the existing manager service only after pulling the repository:
@@ -195,11 +196,11 @@ Linux user's home directory is not automatically visible inside Docker.
    sudo docker compose config --quiet
    sudo docker compose up -d --build --no-deps plex-playlist-manager
 
-4. Open http://media-server:5051/musical-coherence. Click
-   **Sync AudioMuse analysis** once. This stores the analyzed tracks (currently
-   about 336) in /srv/plex-playlist-manager/audiomuse-cache.sqlite, in the
-   manager's existing persistent data volume. Refreshes are incremental based
-   on AudioMuse's fingerprint field.
+4. Open http://media-server:5051/playlists?work=analysis. The background
+   worker stores the analyzed tracks in
+   /srv/plex-playlist-manager/audiomuse-cache.sqlite inside the manager's
+   persistent data volume. New analysis and the cached feature coverage
+   appear automatically; updates are incremental by AudioMuse fingerprints.
 
 5. Inspect the page. Each playlist reports analyzed-track coverage. Only
    playlists with at least six embeddings and 60% coverage (and no unresolved
