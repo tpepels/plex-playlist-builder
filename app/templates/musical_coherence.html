@@ -82,9 +82,9 @@ details.method{font-size:12px;color:var(--muted);margin-top:18px}
   <div id="metrics" class="metrics"></div>
 </section>
 <details aria-label="Audio analysis maintenance">
-  <summary>Manual analysis and cache controls</summary>
+  <summary>Manual backfill, retry and cache controls</summary>
   <div class="detail-body">
-    <p>Audio analysis starts CPU-intensive processing in AudioMuse. Copying completed results updates only Playlist Manager's SQLite cache. Neither changes Plex playlists.</p>
+    <p>New recordings are analyzed automatically after Plex indexing. Manual controls can backfill or retry older recordings.  Copying completed results updates only Playlist Manager's SQLite cache. Neither changes Plex playlists.</p>
     <div class="controls">
       <label for="analysisScope">Scope</label>
       <select id="analysisScope" aria-label="Analysis scope">
@@ -273,12 +273,22 @@ async function updateAutomaticStatus() {
   try {
     const data = await request('/api/workspace/maintenance');
     const audio = data.jobs?.audio || {};
-    $('autoMaintenance').textContent = !data.enabled
-      ? 'Automatic cache updates are disabled in server configuration.'
-      : audio.error ? 'Automatic cache update failed: ' + audio.error
-      : 'Automatic cache updates enabled · ' + (audio.running ? 'Updating now' :
-           audio.last_success ? 'Last updated ' + new Date(audio.last_success).toLocaleString()
-                              : 'Initial update scheduled');
+    const analysis = data.automatic_analysis || {};
+    const check = data.jobs?.analysis || {};
+    if (!data.enabled) {
+      $('autoMaintenance').textContent = 'Background maintenance disabled';
+      return;
+    }
+    const cache = audio.error ? 'Error: ' + audio.error : audio.running ? 'Updating' :
+      audio.last_success ? 'Updated ' + new Date(audio.last_success).toLocaleString() :
+      'Initial update scheduled';
+    const queue = !analysis.enabled ? 'Disabled' : analysis.error ? analysis.error :
+      !analysis.baseline ? 'Establishing library baseline' :
+      analysis.inflight ? 'Processing ' + analysis.inflight.albums + ' albums' :
+      analysis.pending ? analysis.pending + ' albums queued' : 'Up to date';
+    $('autoMaintenance').textContent = 'Audio feature cache: ' + cache +
+      ' · New-music analysis: ' + queue +
+      (check.error && !analysis.error ? ' · Check failed: ' + check.error : '');
   } catch (error) {
     $('autoMaintenance').textContent = 'Automatic update status unavailable: ' + error.message;
   }
