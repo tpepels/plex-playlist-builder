@@ -114,3 +114,28 @@ test("playlist selector updates on schedule without manual reload",async()=>{
   assert(h.$("playlist").children.some(x=>x.value==="Gamma"));
   assert.equal(h.$("playlist").value,"Alpha");
 });
+
+test("candidate search reacts to typing without requiring a Search button",async()=>{
+  const h=harness();await flush();await flush();
+  const before=h.calls.filter(x=>x.path.startsWith("/api/curation/candidates?")).length;
+  h.$("candidateSearch").value="Miles";
+  h.$("candidateSearch").oninput();
+  await new Promise(resolve=>setTimeout(resolve,280));
+  await flush();
+  const searches=h.calls.filter(x=>x.path.startsWith("/api/curation/candidates?"));
+  assert.equal(searches.length,before+1);
+  assert.match(searches.at(-1).path,/q=Miles/);
+  assert(!html.includes('id="searchCandidates"'));
+});
+
+test("editing musical identity prevents background data from overwriting inputs",async()=>{
+  const h=harness();await flush();await flush();
+  h.$("intentPurpose").value="My unsaved musical aim";
+  h.$("intentPurpose").listeners.input();
+  h.setVersion("v9");
+  const before=h.playlistReads;
+  h.timers.find(x=>x.ms===90000).cb();
+  await flush();
+  assert.equal(h.playlistReads,before);
+  assert.equal(h.$("intentPurpose").value,"My unsaved musical aim");
+});
