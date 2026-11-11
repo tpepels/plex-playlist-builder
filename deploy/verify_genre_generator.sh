@@ -10,7 +10,7 @@ if ! command -v docker >/dev/null 2>&1; then
   echo "Docker is required on the media server." >&2
   exit 1
 fi
-docker exec -i plex-playlist-manager python - "$@" <<'PY'
+docker exec -e GENRE_POSITIVE_REFS="${GENRE_POSITIVE_REFS:-}" -i plex-playlist-manager python - "$@" <<'PY'
 import json
 import os
 import sys
@@ -55,6 +55,8 @@ try:
     if mode=="--status":
         if not status["ready"]:
             raise RuntimeError("AudioMuse/Plex cache is incomplete. Sync from Create before accepting live generation.")
+        if not chosen.get("available") and len([x for x in os.environ.get("GENRE_POSITIVE_REFS","").split(",") if x.strip()])<2:
+            raise RuntimeError("Genre references are insufficient; select two analyzed positive examples.")
         print("Read-only live readiness check passed. No Plex/YAML changes made.")
     else:
         if not status["ready"]:
@@ -77,7 +79,7 @@ try:
             raise RuntimeError("Draft failed exact 30-track/evidence acceptance.")
         print("Saved unpublished draft:",result["id"],"revision",result["revision"])
         print("Tracks:",len(keys),"evidence:",len(data["genre_evidence"]))
-        print("Open /playlist-generator and Restore last draft to inspect before publication.")
+        print("Open /playlist-generator and paste the draft ID into Open existing draft.")
         print("This script never writes Plex playlists or the playlist YAML.")
 except Exception as exc:
     print("LIVE ACCEPTANCE INCOMPLETE:",exc,file=sys.stderr)
