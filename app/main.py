@@ -1064,7 +1064,7 @@ def refresh_curation_catalogue(request: Request):
 
 # Create-only playlist generation: all edits stay in a durable review draft.
 class GenerationCreateBody(BaseModel):
-    prompt: str
+    prompt: str = ""  # Optional when structured genre controls are supplied.
     name: str
     count: int | None = None
     minutes: int | None = None
