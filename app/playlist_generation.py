@@ -9,10 +9,12 @@ from __future__ import annotations
 from collections import Counter
 import math
 import re
+import hashlib
+import json
 
 from .insights import normalize
 from .playlist_identity import infer, validate, STYLE_CUES
-from .playlist_curator import features_for, cosine
+from .playlist_curator import features_for, cosine, _mean, _centroid
 from .playlist_ranking import _intent_score, _neighbor_score, clamp, _score_candidate, _profile_context
 from .curation_review_rules import automatically_rankable, review_track
 from .curation_impact import measure
@@ -20,7 +22,9 @@ from .curation_impact import measure
 MAX_TRACKS=120
 MIN_TRACKS=1
 MAX_MINUTES=900
-MAX_POOL=500
+SELECTION_POLICY_VERSION=2
+MIN_GENRE_REFERENCES=2
+# Candidate retrieval is complete-catalogue; no arbitrary top-500 truncation.
 
 YEAR_RANGE=re.compile(r"(?<!\d)((?:18|19|20)\d{2})\s*(?:-|–|—|to|through|tot|t\/m)\s*((?:18|19|20)\d{2})(?!\d)",re.I)
 YEAR_DECADE=re.compile(r"\b((?:18|19|20)\d0)s\b",re.I)
@@ -32,6 +36,220 @@ LIVE_CUE=re.compile(r"\b(live|concert|club|vanguard|on stage|in concert)\b",re.I
 EXPLICIT_GENRE=re.compile(r"\b(jazz|soul|ambient|blues|funk|classical|rock|folk|electronic)\b",re.I)
 PERFORMANCE_CUES=("live","concert","vanguard","at the","in person","jazz club","on stage")
 AUDIO_VECTORS=("musicnn","clap")
+
+
+
+# Genre identities are distinct from broad style names. Related labels such as
+# bebop are intentionally *not* synonyms for hard bop.
+GENRE_ALIASES = {
+    "jazz": {"jazz"}, "soul": {"soul"}, "ambient": {"ambient"},
+    "blues": {"blues"}, "funk": {"funk"}, "rock": {"rock"},
+    "classical": {"classical"}, "electronic": {"electronic", "electronica"},
+    "folk": {"folk"}, "hip hop": {"hip hop", "hip-hop"},
+}
+SUBGENRE_ALIASES = {
+    "hard bop": {"hard bop", "hard-bop", "hardbop"},
+    "bebop": {"bebop", "be bop", "be-bop"},
+    "cool jazz": {"cool jazz", "cool-jazz", "west coast jazz"},
+    "modal jazz": {"modal jazz", "modal-jazz"},
+    "swing": {"swing", "big band"},
+    "free jazz": {"free jazz", "avant-garde jazz"},
+    "post bop": {"post bop", "post-bop", "postbop"},
+}
+JAZZ_RELATIVES = {"hard bop", "bebop", "cool jazz", "modal jazz",
+                  "swing", "free jazz", "post bop"}
+
+
+def _style_token(value: str) -> str:
+    if not isinstance(value, str):
+        raise GenerationError("Genre and subgenre must be text.")
+    value = normalize(value.strip().replace("-", " "))
+    value = re.sub(r"\s+", " ", value).strip()
+    if len(value) > 64:
+        raise GenerationError("Genre or subgenre exceeds 64 characters.")
+    for canonical, names in {**GENRE_ALIASES, **SUBGENRE_ALIASES}.items():
+        if value in {normalize(n.replace("-", " ")) for n in names}:
+            return canonical
+    return value
+
+
+def _bounded_ids(value, field: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > 150:
+        raise GenerationError(field + " must contain at most 150 Plex track IDs.")
+    result = []
+    for item in value:
+        key = str(item)
+        if not key.isascii() or not key.isdecimal() or len(key) > 19:
+            raise GenerationError(field + " contains an invalid Plex track ID.")
+        if key not in result:
+            result.append(key)
+    return result
+
+
+def catalogue_revision(library: dict) -> str:
+    rows = [(str(k), str(v.get("artist")), str(v.get("album")),
+             str(v.get("title")), v.get("year"), v.get("duration_ms"),
+             v.get("genres", [])) for k, v in sorted(library.items())]
+    payload = json.dumps(rows, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _tags(info):
+    return {_style_token(t) for t in (info.get("genres") or []) if t}
+
+
+def _evidence_tags(info, genre, subgenre):
+    genres = _tags(info)
+    exact = bool(subgenre and subgenre in genres)
+    broad = genre in genres if genre else False
+    other = bool(subgenre and genres & (JAZZ_RELATIVES - {subgenre}))
+    if exact:
+        return "verified_subgenre"
+    if broad:
+        return "broad_genre"
+    if other:
+        return "related_subgenre"
+    if genres:
+        return "unrelated_metadata"
+    return "missing_metadata"
+
+
+def _audio_overlap(a, b):
+    if not a or not b:
+        return None
+    return cosine(a, b)
+
+
+def _audio_affinity(candidate, references):
+    """Only comparable measured spaces contribute; values are similarities."""
+    result = {}
+    for field in ("musicnn", "clap"):
+        vector = candidate.get(field)
+        values = [(_audio_overlap(vector, item.get(field)) + 1) / 2
+                  for item in references
+                  if vector is not None and item.get(field) is not None
+                  and _audio_overlap(vector, item.get(field)) is not None]
+        result[field] = _mean(sorted(values, reverse=True)[:min(5, len(values))])
+    return result
+
+
+def genre_profiles(library: dict, decoded: dict, *, genre: str,
+                   subgenre: str = "", reference_track_ids=None,
+                   negative_reference_track_ids=None):
+    """Only explicit genre labels and user-confirmed references seed profiles.
+
+    No artist/title guessing and no self-training from the proposed playlist.
+    """
+    genre = _style_token(genre) if genre else ""
+    subgenre = _style_token(subgenre) if subgenre else ""
+    positives = _bounded_ids(reference_track_ids, "reference_track_ids")
+    negatives = _bounded_ids(negative_reference_track_ids, "negative_reference_track_ids")
+    for key in positives + negatives:
+        if key not in library:
+            raise GenerationError("Reference Plex track not found: " + key)
+        if key not in decoded or not any(decoded[key].get(x) is not None
+                                         for x in ("musicnn", "clap")):
+            raise GenerationError("Reference track lacks a valid AudioMuse embedding: " + key)
+    if set(positives) & set(negatives):
+        raise GenerationError("A reference track cannot be both positive and negative.")
+    positive_set = set(positives)
+    negative_set = set(negatives)
+    verified = []
+    contrast = []
+    for key, info in sorted(library.items()):
+        measured = decoded.get(key, {})
+        if not any(measured.get(x) is not None for x in ("musicnn", "clap")):
+            continue
+        tags = _tags(info)
+        if (subgenre and subgenre in tags) or (not subgenre and genre in tags):
+            verified.append(key)
+        elif subgenre and tags & (JAZZ_RELATIVES - {subgenre}):
+            contrast.append(key)
+    positive_set.update(verified)
+    positive_set.difference_update(negative_set)
+    # A user-confirmed positive always overrides a conflicting metadata label.
+    negative_set.update(k for k in contrast if k not in positive_set)
+    if subgenre and len(positive_set) < MIN_GENRE_REFERENCES:
+        raise GenerationError(
+            "Insufficient verified " + subgenre + " references: "
+            "select at least two analyzed positive tracks or tag verified examples."
+        )
+    if genre and not subgenre and len(positive_set) < MIN_GENRE_REFERENCES:
+        raise GenerationError(
+            "Insufficient analyzed " + genre + " references; select at least two positive tracks."
+        )
+    return {
+        "genre": genre, "subgenre": subgenre,
+        "positive_ids": sorted(positive_set),
+        "negative_ids": sorted(negative_set),
+        "verified_metadata_count": len(verified),
+        "manual_positive_count": len(positives),
+        "manual_negative_count": len(negatives),
+        "available": len(positive_set) >= MIN_GENRE_REFERENCES,
+        "method": "explicit_subgenre_or_user_confirmed_audio_references",
+    }
+
+
+def genre_evidence(key, info, decoded, profile, *, reviews=None):
+    """Evidence-backed retrieval; acoustic compatibility is NOT genre probability."""
+    genre = profile["genre"]
+    subgenre = profile["subgenre"]
+    support = _evidence_tags(info, genre, subgenre)
+    f = decoded.get(key, {})
+    pos = [decoded[k] for k in profile["positive_ids"] if k != key and k in decoded]
+    neg = [decoded[k] for k in profile["negative_ids"] if k != key and k in decoded]
+    scores = _audio_affinity(f, pos)
+    contrasts = _audio_affinity(f, neg)
+    available = [(scores[x], w) for x,w in (("musicnn", .65), ("clap", .35))
+                 if scores[x] is not None]
+    positive = sum(v*w for v,w in available)/sum(w for _,w in available) if available else None
+    compared = [(contrasts[x],w) for x,w in (("musicnn", .65), ("clap", .35))
+                if contrasts[x] is not None]
+    negative = sum(v*w for v,w in compared)/sum(w for _,w in compared) if compared else None
+    margin = positive - negative if positive is not None and negative is not None else None
+    labeled = support == "verified_subgenre" or (not subgenre and support == "broad_genre")
+    approved_reference = key in profile["positive_ids"]
+    if labeled or approved_reference:
+        compatible = True
+        basis = "verified_metadata_or_reference"
+    else:
+        # When unrelated metadata conflicts, require positive contrast too.
+        compatible = positive is not None and positive >= .72 and (
+            margin is None or margin >= .025
+        ) and (support != "unrelated_metadata" or margin is not None and margin >= .055)
+        basis = "acoustic_reference_comparison" if compatible else "insufficient_genre_evidence"
+    # Missing a measured modality is NOT secretly restored to full confidence.
+    coverage = sum(1 for name in ("musicnn", "clap") if scores[name] is not None)/2
+    fit = max(.0, min(1., positive or .0)) * (.75 + .25*coverage)
+    if labeled:
+        fit = max(fit, .79)
+    if margin is not None:
+        fit = max(0., min(1., fit + min(.08, max(-.12, margin * .3))))
+    review = (reviews or {}).get(key) or {}
+    if review.get("verdict") == "reject":
+        compatible = False
+        basis = "rejected_by_listener"
+    elif review.get("verdict") == "accept":
+        compatible = True
+        basis = "accepted_by_listener"
+    return {
+        "genre": genre, "subgenre": subgenre,
+        "evidence": {
+            "plex_genre": list(info.get("genres") or []),
+            "metadata_support": support,
+            "musicnn_similarity": round(scores["musicnn"], 4) if scores["musicnn"] is not None else None,
+            "clap_similarity": round(scores["clap"], 4) if scores["clap"] is not None else None,
+            "subgenre_contrast": round(margin, 4) if margin is not None else None,
+            "reference_support": basis,
+            "review_status": review.get("verdict", "unreviewed"),
+            "audio_coverage": coverage,
+            "measured_genre_probability": None,
+        },
+        "fit": round(fit, 4),
+        "compatible": compatible,
+    }
 
 
 class GenerationError(ValueError):
@@ -72,12 +290,31 @@ def _style_evidence(info,style):
 
 
 def parse_prompt(prompt: str, *, count: int | None=None, minutes: int | None=None,
-                 overrides: dict | None=None):
+                 overrides: dict | None=None, genre: str | None=None,
+                 subgenre: str | None=None, reference_track_ids=None,
+                 negative_reference_track_ids=None, excluded_track_ids=None):
     if not isinstance(prompt,str) or not 8<=len(prompt.strip())<=400:
         raise GenerationError("Describe the music in 8–400 characters.")
     prompt=prompt.strip()
     inferred,evidence=infer(prompt,prompt,[],{}, {})
-    intent=validate(inferred if overrides is None else {**inferred,**overrides})
+    structured_genre=_style_token(genre) if genre else ""
+    structured_subgenre=_style_token(subgenre) if subgenre else ""
+    if structured_subgenre and not structured_genre:
+        raise GenerationError("Select a broad genre for the requested subgenre.")
+    if structured_subgenre and structured_subgenre not in SUBGENRE_ALIASES:
+        raise GenerationError("Unsupported subgenre: " + structured_subgenre)
+    if structured_genre and structured_genre not in GENRE_ALIASES:
+        raise GenerationError("Unsupported genre: " + structured_genre)
+    if structured_subgenre and structured_genre != "jazz":
+        raise GenerationError("The selected subgenre does not belong to this broad genre.")
+    inferred_styles = list(inferred["styles"])
+    if structured_genre and structured_genre not in inferred_styles:
+        inferred_styles.append(structured_genre)
+    inferred["styles"] = inferred_styles
+    options={**inferred, **(overrides or {})}
+    if structured_genre and structured_genre not in options["styles"]:
+        options["styles"] = list(options["styles"]) + [structured_genre]
+    intent=validate(options)
     years=YEAR_RANGE.findall(prompt)
     decades=YEAR_DECADE.findall(prompt)
     if len(years)>1:
@@ -121,6 +358,12 @@ def parse_prompt(prompt: str, *, count: int | None=None, minutes: int | None=Non
         "years":year_range, "live_required":live_required,
         "minimum_duration_ms":min_duration,
         "count":n,"target_minutes":duration,
+        "genre":structured_genre,"subgenre":structured_subgenre,
+        "reference_track_ids":_bounded_ids(reference_track_ids,"reference_track_ids"),
+        "negative_reference_track_ids":_bounded_ids(negative_reference_track_ids,"negative_reference_track_ids"),
+        "excluded_track_ids":_bounded_ids(excluded_track_ids,"excluded_track_ids"),
+        "require_exact_count":bool(structured_genre),
+        "selection_policy_version":SELECTION_POLICY_VERSION,
     }
     uncertain=[]
     if year_range:
@@ -140,6 +383,8 @@ def parse_prompt(prompt: str, *, count: int | None=None, minutes: int | None=Non
 
 def _constraints(info,request):
     criteria=request["criteria"]
+    if str(info.get("key") or "") in criteria.get("excluded_track_ids", []):
+        return "user_excluded"
     if not automatically_rankable(info):return "spoken_or_applause"
     if criteria["years"]:
         year=_year(info)
@@ -211,15 +456,28 @@ def _sequence(keys,lib,ff,intent):
     def transition(first,second,pos):
         f1,f2=ff.get(first,{}),ff.get(second,{})
         adjacent=_neighbor_score(f1,f2)
-        energy=f2.get("energy")
-        gradient=clamp(1-abs(energy-arc_target(pos))/.7) if energy is not None else None
+        energy1,energy2=f1.get("energy"),f2.get("energy")
+        smooth_energy=(1-abs(energy1-energy2)) if energy1 is not None and energy2 is not None else None
+        tempo1,tempo2=f1.get("tempo"),f2.get("tempo")
+        tempo_match=(clamp(1-min(abs(math.log2((tempo1*m)/tempo2)) for m in (.5,1,2)))
+                     if tempo1 and tempo2 and tempo1>0 and tempo2>0 else None)
+        shared=set(f1.get("mood") or {})&set(f2.get("mood") or {})
+        mood_match=(clamp(1-_mean([abs(f1["mood"][k]-f2["mood"][k]) for k in shared]))
+                    if shared else None)
+        pairs=[(v,w) for v,w in ((adjacent,.70),(smooth_energy,.14),
+                                 (tempo_match,.10),(mood_match,.06)) if v is not None]
+        continuity=sum(v*w for v,w in pairs)/sum(w for _,w in pairs) if pairs else .5
+        # Penalize adjacent duplicates of the same recording session.
+        if lib[first]["album_key"]==lib[second]["album_key"]:
+            continuity-=.06
+        elif lib[first]["artist"]==lib[second]["artist"]:
+            continuity-=.025
         if intent["flow"]=="arc":
-            return (.55*(adjacent if adjacent is not None else .5)+
-                    .45*(gradient if gradient is not None else .5))
-        if adjacent is None:return .5
+            gradient=clamp(1-abs(energy2-arc_target(pos))/.7) if energy2 is not None else .5
+            return clamp(.65*continuity+.35*gradient)
         if intent["flow"]=="varied":
-            return clamp(1-abs(adjacent-.74)/.7)
-        return adjacent
+            return clamp(1-abs(continuity-.74)/.7)
+        return clamp(continuity)
     def head(k):
         en=ff.get(k,{}).get("energy")
         if en is None:return 0
@@ -282,47 +540,57 @@ def diagnose(keys,library,feature_cache,intent,request=None):
 
 
 def generate(request,library,feature_cache):
-    """Select candidates from the full catalogue and sequence the complete draft."""
+    """Select and sequence across the entire catalogue using observed evidence."""
     identity=request["identity"]
+    criteria=request["criteria"]
     excluded=Counter()
-    pool=[]
-    for key,info in library.items():
+    ff=features_for(feature_cache)
+    genre=criteria.get("genre") or ""
+    subgenre=criteria.get("subgenre") or ""
+    profile=(genre_profiles(library,ff,genre=genre,subgenre=subgenre,
+                           reference_track_ids=criteria.get("reference_track_ids",[]),
+                           negative_reference_track_ids=criteria.get("negative_reference_track_ids",[]))
+             if genre else None)
+    base={}
+    evidence={}
+    for key,info in sorted(library.items()):
         reason=_constraints(info,request)
         if reason:
             excluded[reason]+=1
             continue
-        pool.append(key)
-    ff=features_for({key:feature_cache[key] for key in pool if key in feature_cache})
-    base={}
-    for key in pool:
-        value=_initial_value(library[key],ff.get(key,{}),identity)
-        if value is not None:base[key]=value
-        else:excluded["style_unverified"]+=1
+        if profile:
+            signal=genre_evidence(key,info,ff,profile)
+            if not signal["compatible"]:
+                excluded["genre_evidence_insufficient"]+=1
+                continue
+            evidence[key]=signal
+            intrinsic,_ = _intent_score(ff.get(key,{}),info,identity,None)
+            value=.76*signal["fit"]+.24*(intrinsic if intrinsic is not None else .5)
+            base[key]=round(value,6)
+        else:
+            value=_initial_value(info,ff.get(key,{}),identity)
+            if value is not None:base[key]=value
+            else:excluded["style_unverified"]+=1
     if not base:
         raise GenerationError("No tracks satisfy the explicit criteria. Broaden the date, live or style requirements.")
     ranked=sorted(base,key=lambda k:(-base[k],normalize(library[k]["artist"]),
                                      normalize(library[k]["title"]),k))
-    rank_index={key:i for i,key in enumerate(ranked)}
-    # Preserve cross-genre candidate representation: the initial shortlist is
-    # not allowed to collapse into a single popular subgenre.
-    shortlist=ranked[:MAX_POOL]
-    if len(ranked)>MAX_POOL and len(identity["styles"])>1:
-        chosen=set(shortlist)
-        for style in identity["styles"]:
-            stylistic=[k for k in ranked if _style_evidence(library[k],style)[0] is not None]
-            for key in stylistic[:max(20,MAX_POOL//(3*len(identity["styles"])))]:
-                if key not in chosen:
-                    shortlist.append(key);chosen.add(key)
-    wanted=request["criteria"]["count"]
-    minutes_target=request["criteria"]["target_minutes"]
+    # Do NOT truncate this list. Every eligible Plex track is a candidate.
+    wanted=criteria["count"]
+    minutes_target=criteria["target_minutes"]
+    if criteria.get("require_exact_count") and len(ranked)<wanted:
+        raise GenerationError(
+            f"Only {len(ranked)} of {wanted} tracks have defensible genre evidence. "
+            "Select verified references or relax the genre constraints."
+        )
     selected=[]
     elapsed=0
-    remaining=set(shortlist)
+    remaining=set(ranked)
+    rank_index={key:i for i,key in enumerate(ranked)}
     while remaining and len(selected)<wanted:
         last=selected[-1] if selected else None
-        best=max(remaining,key=lambda k:(
-            _intrinsic(k,selected,library,ff,identity,last,base),
-            -rank_index[k]))
+        best=max(sorted(remaining),key=lambda k:(
+            _intrinsic(k,selected,library,ff,identity,last,base),-rank_index[k]))
         duration=_duration(library[best])
         if minutes_target and elapsed>=minutes_target*60000 and selected:
             break
@@ -330,24 +598,47 @@ def generate(request,library,feature_cache):
         remaining.remove(best)
         elapsed+=duration
     if not selected:raise GenerationError("No eligible music remains after filtering.")
+    if criteria.get("require_exact_count") and len(selected)<wanted:
+        raise GenerationError(
+            f"Duration constraints produced only {len(selected)} of {wanted} tracks. "
+            "Increase target minutes or remove the duration cap."
+        )
     ordered=_sequence(selected,library,ff,identity)
     diagnostics=diagnose(ordered,library,feature_cache,identity,request)
+    transitions=[]
+    for i,k in enumerate(ordered):
+        if not i:continue
+        prev=ordered[i-1]
+        transition=_neighbor_score(ff.get(prev,{}),ff.get(k,{}))
+        e1,e2=ff.get(prev,{}).get("energy"),ff.get(k,{}).get("energy")
+        jump=abs(e2-e1) if e1 is not None and e2 is not None else None
+        transitions.append({"from_id":prev,"to_id":k,
+            "audio_similarity":round(transition,4) if transition is not None else None,
+            "energy_jump":round(jump,4) if jump is not None else None,
+            "warning": bool((transition is not None and transition<.57)
+                            or (jump is not None and jump>.35))})
+    diagnostics["transitions"]=transitions
     warnings=list(request["interpretation"]["warnings"])
     if len(ordered)<wanted and not minutes_target:
         warnings.append(f"Only {len(ordered)} of {wanted} tracks meet the verified criteria.")
     if minutes_target and elapsed<minutes_target*60000:
         warnings.append("The requested duration could not be reached with eligible tracks.")
     if diagnostics["unmeasured_tracks"]:
-        warnings.append("Some track placements depend on metadata because AudioMuse measurements are unavailable.")
+        warnings.append("Some placements lack AudioMuse measurements; see evidence for each track.")
     tracks=[{"id":key,"artist":library[key]["artist"],"album":library[key]["album"],
              "title":library[key]["title"],"year":_year(library[key]),
              "duration_ms":_duration(library[key]),"genres":library[key].get("genres",[]),
              "audio_analyzed":key in ff and any(ff[key].get(v) is not None for v in AUDIO_VECTORS),
              "live_title_evidence":_has_live_evidence(library[key]),
-             "review_flags":review_track(library[key])} for key in ordered]
+             "review_flags":review_track(library[key]),
+             "genre_evidence":evidence.get(key)} for key in ordered]
+    selection={"catalogue":len(library),"initial_candidates":len(library)-sum(
+                   count for reason,count in excluded.items()
+                   if reason not in ("genre_evidence_insufficient","style_unverified")),
+               "eligible":len(base),"shortlisted":len(ranked),
+               "evaluated":len(ranked),"excluded":dict(excluded),
+               "target":wanted,"target_minutes":minutes_target,
+               "selection_policy_version":SELECTION_POLICY_VERSION}
     return {"keys":ordered,"tracks":tracks,"diagnostics":diagnostics,
-            "selection":{"catalogue":len(library),"initial_candidates":len(pool),
-                         "eligible":len(base),"shortlisted":len(shortlist),
-                         "excluded":dict(excluded),"target":wanted,
-                         "target_minutes":minutes_target},
-            "warnings":warnings}
+            "genre_evidence":{key:evidence[key] for key in ordered if key in evidence},
+            "genre_profile":profile,"selection":selection,"warnings":warnings}
