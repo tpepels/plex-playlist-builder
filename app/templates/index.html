@@ -1142,7 +1142,7 @@ const requestedView = typeof window === "undefined"
   ? "playlists" : new URLSearchParams(window.location.search).get("view");
 void showWorkspaceView(requestedView || "playlists");
 // Refresh only the visible report; never interrupt unsaved edits or an active Plex write.
-window.setInterval(() => {
+if (typeof window !== "undefined" && typeof window.setInterval === "function") window.setInterval(() => {
   if (document.hidden || syncing || coverUploading || editorDirty) return;
   void checkHealth();
   if (activeView === "health" || activeView === "newmusic") void loadInsights();
