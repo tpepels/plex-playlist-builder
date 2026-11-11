@@ -67,6 +67,7 @@ from .playlist_identity import (
 from .playlist_ranking import rank_candidates
 from .curation_impact import compare as compare_curations
 from .curation_validation import (
+    ISSUES as VALIDATION_ISSUES,
     categories as validation_categories, portfolio as validation_portfolio,
     summary as validation_summary,
     reviews as validation_reviews, record as record_validation,
@@ -1396,20 +1397,39 @@ def generation_review(draft_id: str, body: GenerationReviewBody, request: Reques
             raise DraftConflict("Review references an unknown Plex track or draft target.")
         if not isinstance(body.note,str) or len(body.note)>2000:
             raise DraftConflict("Review note exceeds 2000 characters.")
-        if len(body.issue)>48:
-            raise DraftConflict("Review issue exceeds 48 characters.")
+        if body.issue not in VALIDATION_ISSUES:
+            raise DraftConflict("Unsupported review issue.")
+        if not 0<=body.candidate_played_seconds<=7200 or not 0<=body.original_played_seconds<=7200:
+            raise DraftConflict("Invalid listening duration.")
         if body.verdict in ("accept","reject") and (
                 not body.listened or body.candidate_played_seconds<15 or
                 (target and body.original_played_seconds<15)):
             raise DraftConflict("Review requires listening to both tracks for at least 15 seconds.")
         data=dict(draft["data"])
+        source=data.get("source_revisions") or {}
+        if source.get("library") and source["library"]!=catalogue_revision(library):
+            raise DraftConflict("Catalogue changed since generation. Regenerate before reviewing.")
+        cache,_=cached_features()
+        if source.get("audio") and source["audio"]!=feature_revision(cache):
+            raise DraftConflict("AudioMuse changed since generation. Regenerate before reviewing.")
+        review_evidence=None
+        criteria=data["request"]["criteria"]
+        if criteria.get("genre"):
+            from .playlist_curator import features_for
+            decoded=features_for(cache)
+            profile=genre_profiles(library,decoded,
+                genre=criteria["genre"],subgenre=criteria.get("subgenre") or "",
+                reference_track_ids=criteria.get("reference_track_ids",[]),
+                negative_reference_track_ids=criteria.get("negative_reference_track_ids",[]),
+                evidence_threshold=criteria.get("evidence_threshold","balanced"))
+            review_evidence=genre_evidence(candidate,library[candidate],decoded,profile)
         reviews=dict(data.get("reviews") or {})
         reviews[candidate]={
             "verdict":body.verdict,"issue":body.issue,"note":body.note,
             "target_id":target, "listened":body.listened,
             "candidate_played_seconds":body.candidate_played_seconds,
             "original_played_seconds":body.original_played_seconds,
-            "evidence_at_review":data.get("genre_evidence",{}).get(candidate),
+            "evidence_at_review":review_evidence,
         }
         data["reviews"]=reviews
         if candidate in data.get("genre_evidence",{}):
