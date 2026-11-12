@@ -255,6 +255,8 @@ input{min-width:180px;flex:1}
     document.addEventListener("visibilitychange",()=>{
       if(!document.hidden&&!loading)void load(false);
     });
+  $("disk-tab").setAttribute("aria-selected", String(tab === "disk"));
+  $("history-tab").setAttribute("aria-selected", String(tab === "history"));
   options();load(false);
 })();
 </script>
