@@ -27,9 +27,7 @@ _ACTIONS = """<div class="workspace-page-heading">
   <a href="/downloads-audit" class="download-reconciliation-link">Find albums missing from Plex</a>
   <a href="/downloads-audit?tab=history">Download history and errors</a>
   <a href="/downloads/engine/chrome-extension.zip" download>Chrome extension</a>
-</div>
-<div id="engine-status" class="download-native-status" role="status" aria-live="polite">Checking the download queue…</div>
-<div id="scan-result" class="download-native-result" role="status" aria-live="polite"></div>"""
+</div>"""
 
 _ASSETS = """<link rel="stylesheet" href="/static/site-navigation.css">
 <link rel="stylesheet" href="/static/download-native.css">"""
