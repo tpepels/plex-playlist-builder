@@ -75,6 +75,7 @@ jobs:
         run: |
           node tests/test_site_navigation.mjs
           node --test tests/test_download_portal_autorecovery.mjs
+          node --test tests/test_download_diagnostics_ui.mjs
       - name: Validate coordinated root Compose
         run: |
           docker compose -f compose.yaml config --quiet
