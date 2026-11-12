@@ -177,6 +177,21 @@ small{color:var(--muted)}
   </div>
 </section>
 <div id="notice" class="notice" role="status" hidden></div>
+<section id="yamlImportReview" class="panel" aria-label="Review YAML import before saving or changing Plex" hidden>
+  <div class="section-title"><h2>Review YAML import</h2>
+    <small id="yamlImportSummary" role="status">No import selected</small></div>
+  <p class="album-meta">No YAML or Plex changes occur until you explicitly approve this review.
+    Only the playlists changed by this file can be synchronized as part of this import.
+    Other pending playlists remain untouched.</p>
+  <div id="yamlImportDiff" class="cover-import-details"></div>
+  <label class="row"><input type="checkbox" id="yamlImportConfirmed">
+    I reviewed these exact playlist changes and approve saving them and syncing only these playlists.</label>
+  <div class="row">
+    <button type="button" class="primary" id="yamlImportApprove" disabled>Approve import and apply changed playlists</button>
+    <button type="button" id="yamlImportCancel">Cancel</button>
+  </div>
+  <p id="yamlImportStatus" role="status" aria-live="polite"></p>
+</section>
 <section id="collabReview" class="panel" aria-label="Review playlist proposals" hidden>
   <div class="section-title"><h2>Review playlist proposal</h2><small id="collabSummary" role="status">No proposal selected</small></div>
   <p class="album-meta">Review the exact Plex track IDs and order. Existing playlists retain their Plex identity and artwork. Unlisted playlists are untouched. Nothing changes until approval.</p>
@@ -545,10 +560,12 @@ $("stopSync").onclick = () => {
   $("stopSync").disabled = true;
   $("bulkCurrent").textContent += " · Stop requested; finishing current playlist.";
 };
-async function syncPendingPlaylists({fromImport=false, filename=""}={}) {
+async function syncPendingPlaylists({fromImport=false, filename="", names=null}={}) {
   if ((!fromImport && syncing) || editorDirty || !config) return;
-  const names = pendingWork();
-  if (!names.length) {
+  const selected = names === null ? pendingWork() :
+    [...new Set(names)].filter(name=>config.definitions[name] &&
+      config.version.sync_statuses[name] === "needs_sync");
+  if (!selected.length) {
     if (fromImport) {
       syncing = false;
       updateActions();
@@ -563,7 +580,7 @@ async function syncPendingPlaylists({fromImport=false, filename=""}={}) {
   $("bulkProgress").hidden = false;
   $("stopSync").disabled = false;
   $("stopSync").hidden = false;
-  $("bulkBar").max = names.length;
+  $("bulkBar").max = selected.length;
   $("bulkBar").value = 0;
   $("bulkErrors").textContent = "";
   clearNotice();
@@ -572,9 +589,9 @@ async function syncPendingPlaylists({fromImport=false, filename=""}={}) {
   let done = 0;
   let skipped = 0;
   let processed = 0;
-  for (const name of names) {
+  for (const name of selected) {
     if (stopRequested) break;
-    $("bulkCurrent").textContent = `Syncing ${processed + 1} / ${names.length}: ${name}`;
+    $("bulkCurrent").textContent = `Syncing ${processed + 1} / ${selected.length}: ${name}`;
     try {
       const data = await api("/api/sync-pending/" + encodeURIComponent(name), {
         method:"POST", headers:{"Content-Type":"application/json"},
@@ -596,10 +613,10 @@ async function syncPendingPlaylists({fromImport=false, filename=""}={}) {
     }
     processed++;
     $("bulkBar").value = processed;
-    $("bulkCurrent").textContent = `${processed} / ${names.length} processed · ${done} synced · ${failures.length} warnings/errors`;
+    $("bulkCurrent").textContent = `${processed} / ${selected.length} processed · ${done} synced · ${failures.length} warnings/errors`;
     $("bulkErrors").textContent = failures.join("\n");
   }
-  const stopped = processed < names.length;
+  const stopped = processed < selected.length;
   $("stopSync").disabled = true;
   $("stopSync").hidden = true;
   try {
@@ -610,7 +627,7 @@ async function syncPendingPlaylists({fromImport=false, filename=""}={}) {
     syncing = false;
     updateActions();
   }
-  $("bulkCurrent").textContent = `${done} synced · ${skipped} skipped · ${failures.length} warnings/errors${stopped ? ` · Stopped after ${processed} of ${names.length}` : ""}`;
+  $("bulkCurrent").textContent = `${done} synced · ${skipped} skipped · ${failures.length} warnings/errors${stopped ? ` · Stopped after ${processed} of ${selected.length}` : ""}`;
   $("bulkErrors").textContent = failures.join("\n");
   $("bulkProgress").hidden = failures.length === 0 && !stopped;
   updateActions();
@@ -632,53 +649,103 @@ $("save").onclick = async () => {
 };
 $("reload").onclick = () => loadConfig().catch(e => $("saveState").textContent = "Error: " + e.message);
 
-$("importPack").onclick = () => {
-  if (syncing || coverUploading) return;
-  if (editorDirty) {
-    showNotice("Save or discard your unsaved YAML editor changes before importing another version.", true);
+// YAML import is a separate reviewed transaction. Merely choosing a file
+// only previews; only the corresponding approved revision may be persisted.
+let yamlImportPlan=null;
+function cancelYamlImport(){
+  yamlImportPlan=null;
+  $("yamlImportReview").hidden=true;
+  $("yamlImportConfirmed").checked=false;
+  $("yamlImportApprove").disabled=true;
+  $("yamlImportDiff").replaceChildren();
+  $("yamlImportStatus").textContent="";
+}
+$("importPack").onclick=()=>{
+  if(syncing||coverUploading||editorDirty||yamlImportPlan){
+    showNotice("Finish existing changes or cancel the open import review first.",true);
     return;
   }
   $("packFile").click();
 };
-$("packFile").onchange = async () => {
-  const file = $("packFile").files[0];
-  if (!file) return;
-  // An import is one transaction from the user's perspective: validate,
-  // persist the pack, and sync changed playlists. Lock the editor throughout.
-  if (syncing || coverUploading || editorDirty) {
-    $("packFile").value = "";
-    showNotice("Finish the current operation or save editor changes before importing.", true);
-    return;
+$("packFile").onchange=async()=>{
+  const file=$("packFile").files?.[0];
+  if(!file)return;
+  cancelYamlImport();
+  if(syncing||coverUploading||editorDirty){
+    showNotice("Finish the active operation or save unsaved edits before importing.",true);
+    $("packFile").value="";return;
   }
-  syncing = true;
-  updateActions();
-  let imported = false;
-  try {
-    showNotice(`Validating "${file.name}"…`);
-    const text = await file.text();
-    await api("/api/inspect-config", {
-      method:"POST", headers:{"Content-Type":"application/json"},
+  $("yamlImportReview").hidden=false;
+  $("yamlImportSummary").textContent="Previewing "+file.name+"…";
+  try{
+    const text=await file.text();
+    const comparison=await api("/api/inspect-config",{
+      method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({text})
     });
-    // A failed validation never reaches this write operation.
-    showNotice(`Importing "${file.name}"…`);
-    const result = await api("/api/import-config", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({text,filename:file.name})
+    const changes=comparison.changes||[];
+    yamlImportPlan={text,filename:file.name,comparison};
+    $("yamlImportSummary").textContent=changes.length+" changed · "+
+      (comparison.new?.length||0)+" new · "+(comparison.updated?.length||0)+
+      " updated · "+(comparison.retained?.length||0)+" retained";
+    const wrap=$("yamlImportDiff");
+    wrap.replaceChildren();
+    for(const change of changes){
+      const item=document.createElement("details");
+      item.open=true;
+      const header=document.createElement("summary");
+      header.textContent=change.name+" · "+change.action+" · "+
+        change.before_count+" → "+change.after_count+" items";
+      const before=document.createElement("pre");
+      before.textContent="Before:\n"+JSON.stringify(change.before,null,2);
+      const after=document.createElement("pre");
+      after.textContent="After:\n"+JSON.stringify(change.after,null,2);
+      item.append(header,before,after);wrap.append(item);
+    }
+    if(!changes.length)wrap.textContent="No new or updated playlists. No Plex changes required.";
+    $("yamlImportStatus").textContent="Nothing has been saved; inspect all differences before approval.";
+  }catch(error){
+    yamlImportPlan=null;
+    $("yamlImportSummary").textContent="Import rejected";
+    $("yamlImportStatus").textContent="Invalid YAML or failed preview: "+error.message;
+  }finally{$("packFile").value=""}
+};
+$("yamlImportConfirmed").onchange=()=>{
+  $("yamlImportApprove").disabled=!yamlImportPlan ||
+    !$("yamlImportConfirmed").checked||syncing||editorDirty||coverUploading;
+};
+$("yamlImportCancel").onclick=cancelYamlImport;
+$("yamlImportApprove").onclick=async()=>{
+  if(!yamlImportPlan||!$("yamlImportConfirmed").checked||
+    syncing||editorDirty||coverUploading)return;
+  const {text,filename,comparison}=yamlImportPlan;
+  syncing=true;updateActions();
+  $("yamlImportApprove").disabled=true;
+  $("yamlImportCancel").disabled=true;
+  let imported=false;
+  try{
+    const result=await api("/api/import-config",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text,filename,approved:true,
+        review_token:comparison.review_token})
     });
-    imported = true;
+    imported=true;
     await loadConfig();
-    showNotice(`Imported "${file.name}" · ${result.comparison.new.length} new · ${result.comparison.updated.length} updated. Syncing…`);
-    await syncPendingPlaylists({fromImport:true,filename:file.name});
-  } catch(e) {
-    showNotice(imported
-      ? `"${file.name}" was imported, but could not finish Plex syncing: ${e.message}. Use the sync button to retry.`
-      : `Import rejected: ${e.message}. Saved playlists were not changed.`, true);
-  } finally {
-    // Allow the same file to be picked again for retry.
-    $("packFile").value = "";
-    syncing = false;
-    updateActions();
+    cancelYamlImport();
+    $("yamlImportReview").hidden=false;
+    $("yamlImportSummary").textContent=filename+" · saved with review approval";
+    $("yamlImportStatus").textContent="Only imported changes are eligible for synchronization.";
+    syncing=false;updateActions();
+    await syncPendingPlaylists({fromImport:true,filename,names:result.changed});
+    $("yamlImportStatus").textContent="Import finished. Other pending playlists were not synchronized.";
+  }catch(error){
+    $("yamlImportStatus").textContent=imported
+      ? "YAML saved, but Plex synchronization failed: "+error.message
+      : "Import was not saved: "+error.message;
+    showNotice($("yamlImportStatus").textContent,true);
+  }finally{
+    syncing=false;$("yamlImportCancel").disabled=false;updateActions();
+    yamlImportPlan=null;
   }
 };
 
