@@ -90,7 +90,7 @@ from .disk_reconciliation import reconcile_inventory
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .downloader_bridge import router as downloader_router
 from .download_page import DownloadPageError, fetch_native_page
-from . import download_plex_sync, background_maintenance, collaboration, album_verification, playlist_drift, music_snapshot
+from . import download_plex_sync, background_maintenance, collaboration, album_verification, playlist_drift, music_snapshot, access_control
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
     connect,
@@ -105,6 +105,16 @@ app = FastAPI(title="Plex Playlist Manager", version="1.5.0")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 app.include_router(downloader_router)
+
+
+@app.middleware("http")
+async def private_workspace_network(request: Request, call_next):
+    """Enforce trusted socket peers; never trust spoofable forwarded headers."""
+    host=request.client.host if request.client else ""
+    if not access_control.allowed(host):
+        return JSONResponse({"error":"Music workspace requires a trusted LAN or VPN connection"},
+                            status_code=403)
+    return await call_next(request)
 
 
 @app.on_event("startup")
