@@ -63,6 +63,12 @@ def test_real_downloader_document_is_one_integrated_workspace():
     assert "<iframe" not in html.lower()
     assert html.count('id="siteNavigationPanel"') == 1
     assert html.count('id="siteNavigationToggle"') == 1
+    assert 'src="/static/download-portal.js"' not in html, (
+        "The recovery script must never reload a successfully composed native page."
+    )
+    assert 'href="/downloads-audit?tab=history"' in html
+    assert "Find albums missing from Plex" in html
+    assert 'id="scan-plex"' not in html
     assert html.count('id="download-form"') == 1
     assert html.count('id="vpn-panel"') == 1
     assert html.count('id="youtube-cookie-panel"') == 1
@@ -75,7 +81,6 @@ def test_real_downloader_document_is_one_integrated_workspace():
         'href="/downloads-audit"', 'href="/static/download-native.css"',
         'href="/static/site-navigation.css"',
         'src="/static/site-navigation.js"',
-        'src="/static/download-portal.js"',
         '/downloads/engine/static/vpn-manager.js',
         '/downloads/engine/static/youtube-cookies.js',
         'action="/downloads/engine/download"',
