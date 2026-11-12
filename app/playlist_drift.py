@@ -18,6 +18,7 @@ from .plex_client import connect, resolve_playlist, _is_hidden_audio_playlist
 
 FILE=Path(os.getenv("PLAYLIST_DRIFT_FILE","/data/playlist-drift.json"))
 INTERVAL_SECONDS=5*60
+_LAST_ERROR=""
 
 
 def _now():
@@ -49,10 +50,13 @@ def snapshot():
     if not isinstance(report,dict) or not isinstance(report.get("playlists"),dict):
         return {"ok":False,"checked_at":None,"playlists":{},
                 "counts":{},"error":"Invalid live playlist snapshot","status":"error"}
+    if _LAST_ERROR:
+        return {**report,"ok":False,"error":_LAST_ERROR}
     return report
 
 
 def refresh():
+    global _LAST_ERROR
     definitions=load().get("playlists",{})
     plex,music=connect()
     live=list(plex.playlists(playlistType="audio"))
@@ -104,6 +108,7 @@ def refresh():
             "playlists":results,
             "counts":dict(Counter(e["state"] for e in results.values()))}
     _write(report)
+    _LAST_ERROR=""
     return report
 
 
@@ -116,7 +121,8 @@ async def loop():
             await asyncio.to_thread(refresh)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            # Preserve the last successful comparison for diagnostics. A
-            # stale timestamp makes the confidence limitation explicit.
-            pass
+        except Exception as exc:
+            global _LAST_ERROR
+            # Preserve the last successful snapshot but show the stale/error
+            # state, rather than silently treating an old comparison as fresh.
+            _LAST_ERROR=str(exc)[:240]
