@@ -66,6 +66,9 @@ def test_real_downloader_document_is_one_integrated_workspace():
     assert 'src="/static/download-portal.js"' not in html, (
         "The recovery script must never reload a successfully composed native page."
     )
+    assert 'id="engine-status"' not in html, (
+        "Only the offline fallback may run automatic reconnect checks."
+    )
     assert 'href="/downloads-audit?tab=history"' in html
     assert "Find albums missing from Plex" in html
     assert 'id="scan-plex"' not in html
@@ -116,7 +119,9 @@ def test_native_download_route_uses_engine_html_directly(monkeypatch):
     assert page.status_code == 200
     assert 'id="download-form"' in page.text
     assert 'id="siteNavigationPanel"' in page.text
-    assert 'id="engine-status"' in page.text
+    assert 'id="engine-status"' not in page.text
+    assert 'src="/static/download-portal.js"' not in page.text
+    assert 'href="/downloads-audit"' in page.text
     assert 'id="vpn-panel"' in page.text
     assert "<iframe" not in page.text.lower()
     assert len(received) == 1
