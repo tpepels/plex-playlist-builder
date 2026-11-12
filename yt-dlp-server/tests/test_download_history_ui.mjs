@@ -34,6 +34,7 @@ function attempt(i, status) {
 }
 function runUI(attempts, activeJobs=[]) {
   const nodes = new Map(), calls = [];
+  let historyPoll=null;
   const script = scriptTemplate.replace("{{ jobs | tojson }}", JSON.stringify(activeJobs));
   const get = id => {
     if (!nodes.has(id)) nodes.set(id, element());
@@ -64,10 +65,11 @@ function runUI(attempts, activeJobs=[]) {
   vm.runInNewContext(script, {
     document, window: {location: {search: ""}, confirm() {return true;}},
     fetch, URLSearchParams, Date,
-    setInterval() {}, setTimeout() {}, requestAnimationFrame() {},
+    setInterval(cb,ms) { if(ms===30000)historyPoll=cb; },
+    setTimeout() {}, requestAnimationFrame() {},
     AbortController: class {},
   }, {timeout: 2500});
-  return {get, calls};
+  return {get,calls,pollHistory(){historyPoll?.()}};
 }
 async function flush() {
   for (let i=0; i<15; i++) await new Promise(resolve => setImmediate(resolve));
@@ -161,4 +163,21 @@ test("an active retry suppresses the old failed result to avoid duplicate album 
   assert.equal(ui.get("jobs").children.length, 1);
   assert.equal(ui.get("history-results").children.length, 1);
   assert.match(rowText(ui.get("history-results").children[0]), /No completed or failed results yet/);
+});
+
+test("unchanged history polling does not replace album cards or reset their state",async()=>{
+  const attempts=[attempt(1,"failed")];
+  const ui=runUI(attempts);
+  await flush();
+  const first=ui.get("history-results").children[1];
+  assert(first);
+  ui.pollHistory();
+  await flush();
+  assert.equal(ui.get("history-results").children[1],first,
+    "Unchanged polling must not rebuild the history DOM");
+  attempts.push(attempt(2,"succeeded"));
+  ui.pollHistory();
+  await flush();
+  assert.notEqual(ui.get("history-results").children[1],first);
+  assert.match(ui.get("history-summary").textContent,/1 failed attempt · 1 succeeded attempt|1 failed attempts · 1 succeeded attempts/);
 });
