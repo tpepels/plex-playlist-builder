@@ -20,8 +20,9 @@ import yaml
 import httpx
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.background import BackgroundTask
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -88,7 +89,7 @@ from .disk_reconciliation import reconcile_inventory
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .downloader_bridge import router as downloader_router
 from .download_page import DownloadPageError, fetch_native_page
-from . import download_plex_sync, background_maintenance
+from . import download_plex_sync, background_maintenance, collaboration
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
     connect,
@@ -504,6 +505,86 @@ def export_library():
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def _proposal_bytes(request: Request) -> bytes:
+    total = 0
+    chunks = []
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > collaboration.MAX_PROPOSAL_BYTES:
+            raise HTTPException(status_code=413, detail="Proposal exceeds 2 MiB.")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@app.get("/api/collaboration/export.zip")
+def collaboration_export():
+    """Download all indexed Plex metadata and complete cached AudioMuse evidence."""
+    from .curation_library import metadata
+    tracks = cached_library()
+    if tracks is None:
+        try:
+            _, music = connect()
+            tracks = get_library(music)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Complete Plex catalogue unavailable.") from exc
+    try:
+        features, state = cached_features()
+        definitions = load().get("playlists", {})
+        path, manifest = collaboration.build_export_zip(
+            tracks, features, definitions,
+            catalogue_updated=metadata().get("updated"),
+            cache_state=state,
+        )
+        return FileResponse(
+            path, media_type="application/zip",
+            filename="plex-music-collaboration.zip",
+            background=BackgroundTask(path.unlink, missing_ok=True),
+            headers={"X-Plex-Track-Count": str(manifest["counts"]["plex_tracks"]),
+                     "X-Audio-Analysis-Coverage": str(
+                         manifest["counts"]["complete_embeddings"])},
+        )
+    except collaboration.CollaborationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/collaboration/proposals/preview")
+async def collaboration_proposal_preview(request: Request):
+    """Validate a proposal.json or ZIP and preview exact live Plex changes."""
+    body = await _proposal_bytes(request)
+    try:
+        proposal = collaboration.decode_proposal(body, request.headers.get("content-type",""))
+        plex, library = _generation_context()
+        definitions = load().get("playlists", {})
+        return await run_in_threadpool(
+            collaboration.preview_proposal,proposal,library,definitions,plex)
+    except (collaboration.CollaborationError,ValueError,CurationConflict) as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503,detail="Cannot preview proposals against Plex.") from exc
+
+
+@app.post("/api/collaboration/proposals/apply")
+async def collaboration_proposal_apply(request: Request):
+    """Explicit browser approval; existing playlists are edited in place."""
+    origin=request.headers.get("origin")
+    if not origin or origin.rstrip("/") != str(request.base_url).rstrip("/"):
+        raise HTTPException(status_code=403, detail="Same-origin approval required.")
+    body = await _proposal_bytes(request)
+    try:
+        data = __import__("json").loads(body)
+        if not isinstance(data,dict) or set(data)!={"proposal","review_token","approved"}:
+            raise collaboration.CollaborationError("Invalid approval body.")
+        proposal=collaboration.normalize_proposal(data["proposal"])
+        plex,library=_generation_context()
+        return await run_in_threadpool(
+            collaboration.apply_proposal,proposal,data["review_token"],
+            library,plex,approved=data["approved"])
+    except (collaboration.CollaborationError,ValueError,CurationConflict) as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503,detail="Cannot apply playlist proposal.") from exc
 
 
 @app.get("/downloads", response_class=HTMLResponse)
