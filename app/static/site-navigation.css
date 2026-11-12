@@ -278,3 +278,194 @@ input,textarea,select {accent-color:var(--workspace-accent)}
     transform:translateX(calc(-100% + 38px));
   }
 }
+
+
+/* TERMINAL / Hacker Green — third selectable appearance.
+   Explicitly scoped: the existing Cyber and Slate themes remain unchanged.
+   The syntax and layout stay functional; only visual design changes. */
+html[data-signal-theme="terminal"] {
+  color-scheme:dark;
+  --workspace-bg:#040a06;
+  --workspace-panel:#0a160e;
+  --workspace-surface:#102219;
+  --workspace-line:#284934;
+  --workspace-text:#d7ffe0;
+  --workspace-muted:#9cbea5;
+  --workspace-accent:#7cff9f;
+  --signal-bg:#040a06;
+  --signal-panel:#0a160e;
+  --signal-surface:#102219;
+  --signal-line:#284934;
+  --signal-text:#d7ffe0;
+  --signal-muted:#9cbea5;
+  --signal-accent:#7cff9f;
+  --signal-cyan:#a3ffb7;
+  --signal-glow:rgba(91,255,133,.18);
+  --bg:#040a06;--panel:#0a160e;--panel2:#102219;
+  --surface:#102219;--line:#284934;
+  --text:#d7ffe0;--muted:#9cbea5;--accent:#7cff9f;
+  --good:#7cff9f;--bad:#ff8d91;--warning:#ffd48a;--wait:#ffd48a;
+  --red:#ff8d91;--amber:#ffd48a;
+}
+html[data-signal-theme="terminal"] body {
+  color:var(--workspace-text)!important;
+  background-color:var(--workspace-bg)!important;
+  background-image:
+    repeating-linear-gradient(0deg,transparent 0 3px,rgba(71,128,78,.038) 3px 4px),
+    radial-gradient(ellipse at 50% -30%,rgba(37,97,53,.20),transparent 58%)!important;
+  font-family:ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",monospace!important;
+}
+html[data-signal-theme="terminal"] body::before {
+  opacity:.11;mask-image:linear-gradient(#000,transparent 100vh);
+  background-image:linear-gradient(rgba(69,174,93,.12) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(69,174,93,.12) 1px,transparent 1px);
+  background-size:35px 35px;
+}
+/* Keep system messages readable, and avoid decorative animation / strobing. */
+html[data-signal-theme="terminal"] h1,
+html[data-signal-theme="terminal"] h2,
+html[data-signal-theme="terminal"] h3,
+html[data-signal-theme="terminal"] .signal-wordmark,
+html[data-signal-theme="terminal"] .workspace-page-heading h1,
+html[data-signal-theme="terminal"] .home-intro h1 {
+  font-family:ui-monospace,"SFMono-Regular",Consolas,"Liberation Mono",monospace!important;
+  letter-spacing:-.035em!important;
+}
+html[data-signal-theme="terminal"] .workspace-brand strong {
+  font:800 14px/1.3 ui-monospace,Consolas,monospace!important;
+  letter-spacing:.045em;
+  color:var(--workspace-accent);
+}
+html[data-signal-theme="terminal"] .workspace-brand small,
+html[data-signal-theme="terminal"] .workspace-page-label,
+html[data-signal-theme="terminal"] .home-eyebrow,
+html[data-signal-theme="terminal"] .home-step,
+html[data-signal-theme="terminal"] .workspace-menu-heading,
+html[data-signal-theme="terminal"] .collection-label {
+  color:var(--workspace-accent)!important;
+}
+html[data-signal-theme="terminal"] .signal-mark {
+  filter:grayscale(1) sepia(1) hue-rotate(66deg) saturate(3)
+         drop-shadow(0 0 6px rgba(104,255,140,.25));
+}
+html[data-signal-theme="terminal"] .workspace-topbar {
+  border-bottom:1px solid var(--workspace-accent)!important;
+  box-shadow:0 1px 14px rgba(70,255,113,.09);
+}
+html[data-signal-theme="terminal"] .workspace-navigation > a,
+html[data-signal-theme="terminal"] .workspace-playlists-control > a,
+html[data-signal-theme="terminal"] .workspace-more > summary,
+html[data-signal-theme="terminal"] .workspace-playlists-menu > summary {
+  font-family:ui-monospace,Consolas,monospace!important;
+  border-radius:2px!important;
+}
+html[data-signal-theme="terminal"] .workspace-navigation > a[aria-current="page"],
+html[data-signal-theme="terminal"] .workspace-playlists-control > a[aria-current="page"],
+html[data-signal-theme="terminal"] .workspace-more > summary[aria-current="page"],
+html[data-signal-theme="terminal"] .workspace-more-menu > a[aria-current="page"] {
+  color:#b8ffcb!important;
+  background:#123221!important;
+  border-color:#367d50!important;
+  box-shadow:inset 3px 0 0 var(--workspace-accent);
+}
+html[data-signal-theme="terminal"] .workspace-more-menu {
+  background:#07130b!important;
+  border-color:var(--workspace-line)!important;
+  border-radius:2px!important;
+  box-shadow:0 18px 38px rgba(0,0,0,.7),0 0 0 1px rgba(90,250,130,.08)!important;
+}
+html[data-signal-theme="terminal"] .workspace-theme-button {
+  border-color:var(--workspace-accent)!important;
+  color:var(--workspace-accent)!important;
+  background:#102219!important;
+  font:700 12px/1.4 ui-monospace,Consolas,monospace!important;
+  padding:9px 11px;
+}
+/* Stronger component styling; overrides page-specific hard-coded surfaces. */
+html[data-signal-theme="terminal"] .panel,
+html[data-signal-theme="terminal"] .card,
+html[data-signal-theme="terminal"] .playlist,
+html[data-signal-theme="terminal"] .job,
+html[data-signal-theme="terminal"] .history-entry,
+html[data-signal-theme="terminal"] .album-card,
+html[data-signal-theme="terminal"] .discovery-record,
+html[data-signal-theme="terminal"] .metric,
+html[data-signal-theme="terminal"] .compare,
+html[data-signal-theme="terminal"] .tool-card,
+html[data-signal-theme="terminal"] .overview-card,
+html[data-signal-theme="terminal"] .home-task,
+html[data-signal-theme="terminal"] .home-import-preview,
+html[data-signal-theme="terminal"] .engine-offline,
+html[data-signal-theme="terminal"] details.advanced {
+  background:#0a160e!important;
+  background-image:linear-gradient(130deg,rgba(40,88,53,.08),transparent 55%)!important;
+  border:1px solid var(--workspace-line)!important;
+  border-radius:3px!important;
+  box-shadow:inset 0 1px 0 rgba(146,255,159,.055)!important;
+}
+html[data-signal-theme="terminal"] .home-file-picker,
+html[data-signal-theme="terminal"] .home-preview-metrics span,
+html[data-signal-theme="terminal"] .workspace-menu-settings,
+html[data-signal-theme="terminal"] .workspace-recent-export {
+  background:#0b1a10!important;
+  border-color:var(--workspace-line)!important;
+  border-radius:2px!important;
+}
+html[data-signal-theme="terminal"] button,
+html[data-signal-theme="terminal"] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+html[data-signal-theme="terminal"] textarea,
+html[data-signal-theme="terminal"] select {
+  font-family:ui-monospace,Consolas,monospace!important;
+  border-radius:2px!important;
+  border-color:#385a42!important;
+  color:var(--workspace-text)!important;
+  background-color:#102019!important;
+}
+html[data-signal-theme="terminal"] button.primary,
+html[data-signal-theme="terminal"] button[type="submit"]:not(.vpn-secondary),
+html[data-signal-theme="terminal"] #download-button,
+html[data-signal-theme="terminal"] .home-primary-button,
+html[data-signal-theme="terminal"] .action-primary {
+  background:var(--workspace-accent)!important;
+  border-color:var(--workspace-accent)!important;
+  color:#041009!important;
+  font-weight:800!important;
+  box-shadow:none!important;
+}
+html[data-signal-theme="terminal"] button:hover:not(:disabled),
+html[data-signal-theme="terminal"] a:hover {
+  text-shadow:0 0 5px rgba(124,255,159,.25);
+}
+html[data-signal-theme="terminal"] .workspace-navigation > a:focus-visible,
+html[data-signal-theme="terminal"] button:focus-visible,
+html[data-signal-theme="terminal"] a:focus-visible,
+html[data-signal-theme="terminal"] input:focus-visible,
+html[data-signal-theme="terminal"] select:focus-visible,
+html[data-signal-theme="terminal"] textarea:focus-visible {
+  outline:2px solid var(--workspace-accent)!important;
+  outline-offset:3px;
+}
+html[data-signal-theme="terminal"] .view-tabs,
+html[data-signal-theme="terminal"] .view-tab.active,
+html[data-signal-theme="terminal"] .view-tab[aria-selected="true"] {
+  background:#102219!important;
+  border-color:#367d50!important;
+  border-radius:2px!important;
+}
+html[data-signal-theme="terminal"] .signal-badge::before {
+  animation:none!important;box-shadow:0 0 5px var(--workspace-accent);
+}
+html[data-signal-theme="terminal"] .signal-transition {
+  animation:none!important;
+}
+html[data-signal-theme="terminal"] progress {
+  accent-color:var(--workspace-accent)!important;
+}
+@media(prefers-reduced-motion:reduce) {
+  html[data-signal-theme="terminal"] *,
+  html[data-signal-theme="terminal"] *::before,
+  html[data-signal-theme="terminal"] *::after {
+    animation:none!important;transition:none!important;
+    scroll-behavior:auto!important;
+  }
+}
