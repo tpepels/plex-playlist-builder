@@ -799,7 +799,12 @@ API: GET /api/discover/isc?refresh=false.
 
 ## All-album disk-first reconciliation and failed download history
 
-Open `/downloads-audit` from **Downloadcontrole**. This page no longer
+Open **Missing from Plex** directly from the main navigation or use
+**Find albums missing from Plex** on the Downloads page.
+The same screen is at `/downloads-audit`; it automatically checks disk
+against Plex when opened without requiring a separate Refresh button.
+Search for an artist, album or filename, or follow a job's **Check Plex import**
+link to `/downloads-audit?tab=history&q=<job-id>`. This page no longer
 depends on yt-dlp jobs existing: `GET /api/disk-reconciliation` reads all
 actual audio album folders from the downloader's `MUSIC_ROOT` using
 `GET /api/disk-inventory` and compares complete disk-relative file paths
@@ -813,10 +818,13 @@ Outcomes are **On disk / missing from Plex**, **Partially indexed**,
 **Indexed**, and **Ambiguous path**. Scans explicitly report whether they
 were complete. Plex labels are shown for matches, even when a Beethoven
 recording is indexed under a pianist rather than the composer. The separate
-staging count identifies files not yet published. Pressing **Plex-scan
-aanvragen** requests, but does not guarantee completion of, a Plex scan.
+staging count identifies files not yet published. If music is confirmed
+on disk and the Plex library mounts that folder, expand **Album files
+are on disk but missing from Plex?** and use **Request Plex Music scan**.
+This sends an explicit Plex scan request and schedules another read-only
+comparison; it does not imply the scan has finished or the album was indexed.
 
-The **Downloadgeschiedenis en fouten** tab uses the downloader's permanent
+The **Download history and errors** tab uses the downloader's permanent
 `/api/download-history` endpoint, independent of disk content. Search by
 album/title/job ID or by HTTP 403 errors; filters include failed/partial,
 incomplete, and published jobs. There is also a history panel within the
@@ -830,11 +838,20 @@ requires examination of the Plex library's configured roots, folder scanning,
 permissions, and file support. Neither scan silently edits audio tags, files,
 or metadata.
 
+The full native Downloads page no longer loads the offline fallback
+reconnect script; doing so previously caused an unconditional browser reload
+on every status probe. Its queue polling now updates cards only when job
+data changes, and the retained download history avoids rebuilding itself
+on unchanged background polls. The offline fallback alone checks whether
+the native downloader has recovered and transitions to it once.
+
 Both containers must be updated for the new endpoints.
 
 ## Legacy job-based download audit (API only)
 
-The toolbar's **Downloadcontrole** link opens `/downloads-audit?q=Beethoven`.
+The main navigation's **Missing from Plex** link opens
+`/downloads-audit?q=Beethoven` for an artist/album search; the old
+job-based API remains available separately.
 The read-only `GET /api/download-audit?q=...` compares all retained yt-dlp
 jobs with both `GET /api/import-audit` (actual presence of published and
 staged files on the downloader's disk) and a fresh Plex Music index
