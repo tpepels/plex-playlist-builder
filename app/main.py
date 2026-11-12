@@ -90,7 +90,7 @@ from .disk_reconciliation import reconcile_inventory
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .downloader_bridge import router as downloader_router
 from .download_page import DownloadPageError, fetch_native_page
-from . import download_plex_sync, background_maintenance, collaboration, album_verification
+from . import download_plex_sync, background_maintenance, collaboration, album_verification, playlist_drift
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
     connect,
@@ -110,6 +110,9 @@ app.include_router(downloader_router)
 @app.on_event("startup")
 async def start_downloader_library_sync():
     background_maintenance.start_tasks(app)
+    if background_maintenance.enabled():
+        app.state.playlist_drift_task=asyncio.create_task(
+            playlist_drift.loop(),name="playlist-drift")
     if os.getenv("DOWNLOAD_BRIDGE_SCAN_ENABLED", "0") == "1":
         app.state.downloader_sync_task = asyncio.create_task(
             download_plex_sync.sync_loop(), name="download-plex-sync",
@@ -123,7 +126,8 @@ async def start_downloader_library_sync():
 async def stop_downloader_library_sync():
     await background_maintenance.stop_tasks(app)
     for task in (getattr(app.state, "downloader_sync_task", None),
-                 getattr(app.state, "album_verification_task", None)):
+                 getattr(app.state, "album_verification_task", None),
+                 getattr(app.state, "playlist_drift_task", None)):
         if task is not None:
             task.cancel()
             try:
@@ -230,6 +234,7 @@ def _config_payload(data: dict | None = None) -> dict:
         "definitions": ordered,
         "pending": pending,
         "version": version,
+        "live_verification": playlist_drift.snapshot(),
         "hidden_playlists": sorted(name for name in definitions if name in hidden),
     }
 
@@ -306,12 +311,18 @@ def get_config():
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/playlist-drift")
+def live_playlist_drift():
+    """Last verified Plex identities and ordering; no Plex network call."""
+    return playlist_drift.snapshot()
+
+
 @app.get("/api/config/status")
 def config_status():
     """Small read-only revision check for automatic playlist-view updates."""
     try:
         version = _config_payload(load())["version"]
-        return {"version": version}
+        return {"version": version, "live_verification": playlist_drift.snapshot()}
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Playlist state unavailable.") from exc
 
