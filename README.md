@@ -1268,8 +1268,14 @@ modifying Compose, builds both services, waits for downloader health and
 smoke-tests the Home, playlist, genre-generation, Downloads and diagnostics
 pages and the status APIs. By default the verified backups are retained
 under `~/media-stack/private-state-backups/` (up to seven versions). This
-requires read access to `/srv/plex-playlist-manager` and
-`/srv/yt-dlp-server/state`; inability to back them up blocks deployment.
+uses the existing playlist-manager Docker image as an **isolated backup
+reader**. The container has no network, both state volumes are mounted
+read-only, and its only writable bind mount is the private backup directory.
+This resolves host-user permission failures on root-owned state files (for
+example, `album-verification.json`) without `chmod` or `chown` on the
+live volume. The backup archives are mode `0600` and owned by the deploy
+user; the directory is mode `0700`. Missing Docker images, inaccessible
+state or an incomplete archive stop deployment before any rebuild.
 Archives include sensitive downloader state and must stay on private,
 encrypted storage.
 
@@ -1284,6 +1290,11 @@ python3 deploy/backup_music_workspace.py \
 ```
 
 Only add `--apply` after checking the plan and stopping services.
+For a restore that writes root-owned state files, use the command under
+`sudo` after reviewing the read-only plan; the deployment script itself
+must **not** be run under `sudo`. No blanket ownership or permission
+changes to `/srv` are needed. The restore script rejects running
+`plex-playlist-manager` or `yt-dlp-server` containers.
 Existing files receive a `.pre-restore` backup; the tool will not silently
 overwrite an existing rollback copy. SQLite files are exported via the
 SQLite backup API, including when the application is running.
