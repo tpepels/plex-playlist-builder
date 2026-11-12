@@ -373,7 +373,23 @@ def compute_operations(before: list[str], operations: list[dict], library: dict)
         kind=op.get("type")
         key=str(op.get("track_id") or "")
         replacement=str(op.get("candidate_id") or "")
-        if kind == "add":
+        if kind == "set_order":
+            # Authoritative full-order proposal. Route through the existing
+            # in-place, identity-preserving curation transaction.
+            if len(operations) != 1:
+                raise CurationConflict("Full-order proposals cannot mix with other edits.")
+            proposed = op.get("rating_keys")
+            if (not isinstance(proposed, list) or not 1 <= len(proposed) <= 1000
+                or any(not isinstance(k, str) or not k.isascii() or not k.isdecimal()
+                       or not k or k == "0" for k in proposed)
+                or len(set(proposed)) != len(proposed)):
+                raise CurationConflict("Full-order proposal needs 1–1000 unique Plex track IDs.")
+            missing = [key for key in proposed if key not in library]
+            if missing:
+                raise CurationConflict("Proposed Plex track IDs absent from library: "
+                                       + ", ".join(missing[:10]))
+            result = list(proposed)
+        elif kind == "add":
             if replacement not in library or replacement in result:
                 raise CurationConflict("Candidate missing or already in playlist: "+replacement)
             if "after_id" not in op:
