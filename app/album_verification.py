@@ -23,6 +23,8 @@ from .plex_client import connect
 
 STATE_FILE = Path(os.getenv("ALBUM_VERIFICATION_STATE_FILE", "/data/album-verification.json"))
 RECHECK_SECONDS = 3 * 60
+ACTIVE_RECHECK_SECONDS = 45
+_WAKE_EVENT = None
 RETRY_SECONDS = 10 * 60
 MAX_RESCAN_ATTEMPTS = 3
 _LAST_ERROR = ""
@@ -286,17 +288,41 @@ def snapshot() -> dict:
             "total":len(data["items"])}
 
 
+def request_check() -> None:
+    """Wake the verifier when the downloader requests a Plex library scan.
+
+    The caller is the downloader bridge coroutine on the application's event
+    loop. The verifier also polls independently, including after a restart.
+    """
+    if _WAKE_EVENT is not None:
+        _WAKE_EVENT.set()
+
+
 async def loop():
     import asyncio
+    global _WAKE_EVENT, _LAST_ERROR
+    _WAKE_EVENT=asyncio.Event()
     delay=15
-    while True:
-        await asyncio.sleep(delay)
-        delay=RECHECK_SECONDS
-        try:
-            await asyncio.to_thread(refresh)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            global _LAST_ERROR
-            # Surface failed background checks while preserving last-good data.
-            _LAST_ERROR=str(exc)[:240]
+    try:
+        while True:
+            try:
+                await asyncio.wait_for(_WAKE_EVENT.wait(), timeout=delay)
+            except asyncio.TimeoutError:
+                pass
+            _WAKE_EVENT.clear()
+            try:
+                result=await asyncio.to_thread(refresh)
+                outstanding=sum(result["counts"].get(stage,0) for stage in (
+                    "downloading","awaiting_index","scan_requested",
+                    "scan_failed","metadata_required"
+                ))
+                delay=ACTIVE_RECHECK_SECONDS if outstanding else RECHECK_SECONDS
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                # A failed check must not suppress the next retry or hide a
+                # persistent queued handoff; use the active retry interval.
+                _LAST_ERROR=str(exc)[:240]
+                delay=ACTIVE_RECHECK_SECONDS
+    finally:
+        _WAKE_EVENT=None
