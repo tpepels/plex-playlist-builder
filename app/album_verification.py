@@ -166,6 +166,8 @@ def refresh(*, now=None) -> dict:
             _write(data)
             try:
                 music.update()
+                from .music_snapshot import invalidate
+                invalidate()
                 for key in scan_jobs:
                     next_items[key]["reason"] = (
                         "Plex accepted one batched scan request; indexing remains unverified")
