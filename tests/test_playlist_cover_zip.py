@@ -163,11 +163,14 @@ def test_plex_offline_keeps_files_for_future_retry(tmp_path):
 def test_restore_after_sync_reapplies_saved_cover_and_preserves_track_status(tmp_path, monkeypatch):
     (tmp_path / "Jazz.jpg").write_bytes(JPEG_ONE)
     monkeypatch.setattr(covers, "covers_directory", lambda: tmp_path)
+    sample = SimpleNamespace(ratingKey=441, TYPE="track")
     monkeypatch.setattr(plex_client, "resolve_playlist", lambda plex, music, spec:
-                        ([object()], [SimpleNamespace(status="matched", dict=lambda: {"status":"matched"})]))
+                        ([sample], [SimpleNamespace(status="matched", dict=lambda: {"status":"matched"})]))
     class Plex(FakePlex):
         def createPlaylist(self, title, items):
-            return playlist(title, 333)
+            created = playlist(title, 333)
+            created.items = lambda: list(items)
+            return created
     plex = Plex()
     result = plex_client.sync_playlist(plex, None, "Jazz", {"strict":True, "items":[{}]})
     assert result["status"] == "synced"
