@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 
-from . import audiomuse_analysis
+from . import audiomuse_analysis, audiomuse_client
 
 STATE_FILE = Path(os.getenv("WORKSPACE_ANALYSIS_STATE_FILE", "/data/workspace-analysis.json"))
 MAX_ALBUMS = 995
@@ -37,7 +37,7 @@ def _now() -> str:
 def _initial() -> dict:
     return {"version": 1, "known_tracks": [], "pending_albums": [],
             "inflight": None, "last_completed": None, "error": None,
-            "attempts": {}}
+            "attempts": {}, "album_tracks": {}, "incomplete_albums": []}
 
 
 @contextmanager
@@ -92,11 +92,16 @@ def observe(library: dict) -> dict:
               if isinstance(row, dict) and row.get("album_key")}
     if not tracks:
         raise RuntimeError("Refusing to initialize analysis from an empty Plex catalogue")
+    by_album = {}
+    for key, album in tracks.items():
+        by_album.setdefault(album, []).append(key)
+    by_album = {key: sorted(ids) for key, ids in by_album.items()}
     with _serialized():
         state = _read()
         if state is None:
             state = _initial()
             state["known_tracks"] = sorted(tracks)
+            state["album_tracks"] = by_album
             _write(state)
             return {"new_tracks": 0, "new_albums": 0, "baseline": True}
         new_tracks = set(tracks) - set(state["known_tracks"])
@@ -106,7 +111,8 @@ def observe(library: dict) -> dict:
         additions = sorted(added_albums - inflight - queued)
         state["pending_albums"].extend(additions)
         state["known_tracks"] = sorted(set(state["known_tracks"]) | set(tracks))
-        if new_tracks:
+        if state.get("album_tracks") != by_album or new_tracks:
+            state["album_tracks"] = by_album
             _write(state)
         return {"new_tracks": len(new_tracks), "new_albums": len(additions),
                 "pending": len(state["pending_albums"])}
@@ -125,7 +131,42 @@ def snapshot() -> dict:
     return {"enabled": True, "baseline": True, "pending": len(state["pending_albums"]),
             "inflight": {"task_id": task["task_id"], "albums": len(task["albums"]),
                          "submitted_at": task["submitted_at"]} if task else None,
-            "last_completed": state.get("last_completed"), "error": state.get("error")}
+            "last_completed": state.get("last_completed"),
+            "last_coverage": state.get("last_coverage"),
+            "incomplete_albums": state.get("incomplete_albums", []),
+            "error": state.get("error")}
+
+
+def _verify_covered_albums(state: dict, albums: list[str]) -> dict:
+    """Check every expected track, not merely the AudioMuse task's final state.
+
+    The provider currently accepts only a recent-album count. Because that
+    selection can shift, never claim completion until the intended exact
+    Plex track IDs have both non-empty audio embeddings.
+    """
+    from .collaboration import _coverage
+    raw_features, cache_state = audiomuse_client.cached_features()
+    album_tracks = state.get("album_tracks") or {}
+    missing = {}
+    total = 0
+    covered = 0
+    for album in albums:
+        keys = album_tracks.get(album) or []
+        if not keys:
+            missing[album] = ["catalogue-tracks-unavailable"]
+            continue
+        missing_ids = []
+        for key in keys:
+            total += 1
+            status, _m, _c = _coverage(raw_features.get(key))
+            if status == "complete_embeddings":
+                covered += 1
+            else:
+                missing_ids.append(key)
+        if missing_ids:
+            missing[album] = missing_ids
+    return {"expected_tracks": total, "covered_tracks": covered,
+            "missing_albums": missing, "audio_cache_pending": cache_state.get("pending")}
 
 
 def run_once() -> dict:
@@ -162,8 +203,59 @@ def run_once() -> dict:
                 return {"pending": len(state["pending_albums"]), "uncertain": True}
             status = str(last.get("state") or "").lower()
             if status in COMPLETE:
+                # Refresh the provider's raw audio cache before making a
+                # coverage decision. Bounded background sync may need more
+                # than one pass to ingest all newly processed tracks.
+                try:
+                    synced = audiomuse_client.synchronize()
+                except Exception as exc:
+                    state["error"] = "AudioMuse completed but feature sync failed: " + str(exc)[:180]
+                    _write(state)
+                    return {"pending": len(state["pending_albums"]), "verifying": True}
+                if synced.get("pending", 0):
+                    state["error"] = "Waiting for AudioMuse feature cache synchronization"
+                    _write(state)
+                    return {"pending": len(state["pending_albums"]), "verifying": True}
+                checked = _verify_covered_albums(state, inflight["albums"])
+                missing = checked["missing_albums"]
+                if missing:
+                    completed = [a for a in inflight["albums"] if a not in missing]
+                    for album in completed:
+                        state["attempts"].pop(album, None)
+                    exhausted = [a for a in missing if state["attempts"].get(a, 0) >= MAX_RETRIES]
+                    retry = [a for a in missing if a not in exhausted]
+                    state["pending_albums"] = list(dict.fromkeys(retry + state["pending_albums"]))
+                    state["incomplete_albums"] = sorted(exhausted)
+                    state["last_coverage"] = {
+                        "task_id": inflight["task_id"], "checked_at": _now(),
+                        "expected_tracks": checked["expected_tracks"],
+                        "covered_tracks": checked["covered_tracks"],
+                        "missing_track_ids": {
+                            album: ids[:30] for album, ids in missing.items()
+                        },
+                        "provider_selection": "recent_album_window_not_exact_ids",
+                    }
+                    state["inflight"] = None
+                    state["error"] = (
+                        "AudioMuse task ended but " +
+                        str(sum(len(ids) for ids in missing.values())) +
+                        " intended tracks lack complete MusicNN/CLAP embeddings." +
+                        (" Manual review required after 3 attempts." if exhausted else " Retrying.")
+                    )
+                    _write(state)
+                    return {"pending": len(state["pending_albums"]),
+                            "coverage_incomplete": len(missing),
+                            "blocked": len(exhausted)}
                 state["last_completed"] = {"task_id": inflight["task_id"],
-                                           "albums": len(inflight["albums"]), "at": _now()}
+                                           "albums": len(inflight["albums"]), "at": _now(),
+                                           "verified_tracks": checked["covered_tracks"]}
+                state["incomplete_albums"] = []
+                state["last_coverage"] = {
+                    "task_id": inflight["task_id"], "checked_at": _now(),
+                    "expected_tracks": checked["expected_tracks"],
+                    "covered_tracks": checked["covered_tracks"],
+                    "missing_track_ids": {},
+                }
                 for album in inflight["albums"]:
                     state["attempts"].pop(album, None)
                 state["inflight"] = None
