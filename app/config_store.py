@@ -197,6 +197,15 @@ def inspect_import(text: str) -> dict[str, Any]:
         "incoming_id": fingerprint(incoming),
         "result_id": fingerprint(merged),
         "result_count": len(merged),
+        "changes": [
+            {"name": name,
+             "action": "create" if name not in current else "update",
+             "before": current.get(name),
+             "after": incoming[name],
+             "before_count": len((current.get(name) or {}).get("items", [])),
+             "after_count": len(incoming[name].get("items", []))}
+            for name in new + updated
+        ],
     }
 
 
@@ -224,9 +233,12 @@ def save_text(text: str) -> dict[str, Any]:
     return data
 
 
-def merge_text(text: str, source_filename: str | None = None) -> dict[str, Any]:
+def merge_text(text: str, source_filename: str | None = None,
+               *, expected_revision: str | None = None) -> dict[str, Any]:
     incoming = parse_text(text)
     current = load()
+    if expected_revision is not None and fingerprint(current.get("playlists", {})) != expected_revision:
+        raise ValueError("Saved playlists changed after import review; preview again.")
 
     current_playlists = current.get("playlists", {})
     incoming_playlists = incoming.get("playlists", {})
