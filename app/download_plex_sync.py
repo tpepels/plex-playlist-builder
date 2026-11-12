@@ -193,6 +193,10 @@ async def poll_once(*, state_file=None):
         state["pending"] = []
         state["last_scan"] = time.time()
         _save(state, path)
+        # Plex accepted a scan request. Ask the existing verifier to check
+        # promptly and enqueue analysis only after file indexing is proven.
+        from . import album_verification
+        album_verification.request_check()
 
     _sync_error = ""
     last_snapshot = {"pending": 0, "last_scan": state.get("last_scan"),
