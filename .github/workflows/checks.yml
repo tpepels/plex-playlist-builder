@@ -74,6 +74,7 @@ jobs:
         if: ${{ always() }}
         run: |
           node tests/test_site_navigation.mjs
+          node --test tests/test_signal_theme.mjs
           node --test tests/test_download_portal_autorecovery.mjs
           node --test tests/test_download_diagnostics_ui.mjs
       - name: Validate coordinated root Compose
