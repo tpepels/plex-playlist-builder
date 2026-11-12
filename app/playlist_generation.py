@@ -625,7 +625,9 @@ def diagnose(keys,library,feature_cache,intent,request=None):
     if request and request["criteria"]["live_required"]:
         flags.append("Live checks rely on album/track title metadata")
     total_minutes=round(sum(_duration(library[k]) for k in keys)/60000,1)
+    from .playlist_quality import evaluate
     return {"metrics":metrics,"flags":flags,
+            "composition":evaluate(keys,library,feature_cache),
             "transitions":transition_diagnostics(keys,features),
             "tracks":len(keys),"duration_minutes":total_minutes,
             "unique_artists":len(artist_counts),
