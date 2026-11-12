@@ -155,3 +155,33 @@ def test_cached_library_detects_external_worker_snapshot_update(tmp_path,monkeyp
     replacement.write_text(json.dumps(persisted),encoding="utf-8")
     replacement.replace(idx.FILE)
     assert len(idx.cached_library()) == 4
+
+
+def test_plex_raw_track_and_media_metadata_survive_persistent_catalogue(
+    tmp_path,monkeypatch
+):
+    from xml.etree.ElementTree import fromstring
+    monkeypatch.setattr(idx,"FILE",tmp_path/"library.json")
+    monkeypatch.setattr(idx,"_CACHED",{})
+    class WithRichMetadata(Music):
+        def searchTracks(self,**kwargs):
+            rows=super().searchTracks(**kwargs)
+            rows[0]._data=fromstring('''<Track ratingKey="1" playCount="7" addedAt="1700000000">
+              <Genre tag="Jazz"/><Mood tag="Relaxed"/>
+              <Media bitrate="931" audioCodec="flac" container="flac">
+                <Part file="/private/music/song.flac" size="55000">
+                  <Stream codec="flac" bitrate="931" channels="2"/>
+                </Part>
+              </Media>
+            </Track>''')
+            return rows
+    stored=idx.get_library(WithRichMetadata(),refresh=True)
+    extra=stored["1"]["plex_metadata"]
+    assert extra["track_attributes"]["playCount"]=="7"
+    assert extra["tags"]["Mood"][0]["tag"]=="Relaxed"
+    assert extra["media"][0]["attributes"]["audioCodec"]=="flac"
+    assert extra["media"][0]["streams"][0]["channels"]=="2"
+    assert "file" not in extra["media"][0]["parts"][0]
+    assert "music/song.flac" not in json.dumps(extra)
+    monkeypatch.setattr(idx,"_CACHED",{})
+    assert idx.cached_library()["1"]["plex_metadata"]==extra
