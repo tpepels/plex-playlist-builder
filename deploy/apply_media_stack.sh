@@ -83,6 +83,13 @@ if [ "$?" -ne 0 ]; then
     error "Playlist JavaScript would fail initialization; no container changes made"
 fi
 
+step "Verified private backup of both persistent state volumes"
+python3 "$MANAGER/deploy/backup_music_workspace.py" \
+    --manager-data /srv/plex-playlist-manager \
+    --downloader-state /srv/yt-dlp-server/state \
+    --backup-dir "$STACK/private-state-backups" ||
+    error "Persistent state backup failed; refusing to rebuild containers"
+
 step "Validate proposed Compose build paths and VPN override"
 python3 "$MANAGER/deploy/merge_media_stack.py" --stack "$STACK" ||
     error "Dry run failed; containers were not changed"
@@ -148,6 +155,7 @@ checks = (
     ("/playlists", b'id="viewPlaylists"'),
     ("/playlist-generator", b'id="genre"'),
     ("/downloads", b'id="download-form"'),
+    ("/downloads-audit", b'id="disk-tab"'),
 )
 for attempt in range(15):
     try:
@@ -167,8 +175,13 @@ for attempt in range(15):
                 b'id="generatorReviewDialog"' not in page or
                 b'id="publishApproval"' not in page):
                 raise ValueError("Genre-aware generation and review are missing")
-            if path == "/downloads" and b"<iframe" in page.lower():
-                raise ValueError("Downloads still contains a nested iframe")
+            if path == "/downloads":
+                if b"<iframe" in page.lower():
+                    raise ValueError("Downloads still contains a nested iframe")
+                if b'src="/static/download-portal.js"' in page:
+                    raise ValueError("Working Downloads page still runs auto-reload recovery script")
+                if b'href="/downloads-audit"' not in page:
+                    raise ValueError("Missing-album diagnostics not linked from Downloads")
         with urlopen(base + "/api/config", timeout=8) as response:
             config = json.load(response)
         if not isinstance(config.get("definitions"), dict):
@@ -179,7 +192,16 @@ for attempt in range(15):
             state = json.load(response)
         if not state.get("ok"):
             raise ValueError("Download engine is not reachable through Playlist Manager")
-        print("Home, Playlists, genre generator, native Downloads and downloader bridge: OK")
+        for path,keys in (
+            ("/api/workspace/maintenance",("album_verification","playlist_drift","audio_coverage")),
+            ("/api/album-verification",("items","counts")),
+            ("/api/playlist-drift",("playlists","counts")),
+        ):
+            with urlopen(base+path,timeout=5) as response:
+                info=json.load(response)
+            if any(key not in info for key in keys):
+                raise ValueError("Operational verification endpoint incomplete: "+path)
+        print("Home, Playlists, generator, native Downloads, diagnostics and operational state: OK")
         sys.exit(0)
     except (OSError, ValueError, HTTPError, URLError) as exc:
         if attempt == 14:
