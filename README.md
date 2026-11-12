@@ -1272,8 +1272,10 @@ cd ~/media-stack/plex-playlist-manager
 bash deploy/apply_media_stack.sh
 ```
 
-It refuses active downloads, fast-forwards `main`, verifies frontend
-contracts, creates a **checksum-verified private state backup** before
+It refuses active downloads, fast-forwards `main`, and **re-executes the
+newly pulled deployment script** if Git changed it (preventing stale Bash
+logic from executing the newer backup code). It verifies frontend
+contracts and creates a **checksum-verified private state backup** before
 modifying Compose, builds both services, waits for downloader health and
 smoke-tests the Home, playlist, genre-generation, Downloads and diagnostics
 pages and the status APIs. By default the verified backups are retained
