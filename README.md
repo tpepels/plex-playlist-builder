@@ -72,6 +72,16 @@ The YAML configuration API does not require Plex connectivity. If Plex or
 the downloader is unavailable, their status is shown independently; the
 other tools and saved playlist definitions remain accessible.
 
+## Appearance: Cyber, Slate, and Terminal
+
+Use **Tools & exports → Appearance** in the single site navigation to choose
+**Cyber** (original mint neon), **Slate** (muted dark), or **Terminal**
+(hacker-green text, dark CRT-style grid, squared panels and monospace
+headings). The selection applies across Home, Playlists, Downloads, album
+diagnostics and analysis pages and persists in this browser. Terminal uses
+a static brand mark and has a reduced-motion override. Changing themes
+does not reload data or restart the downloader.
+
 ## Automatic workspace maintenance and faster loading
 
 The application has one global navigation (**Home**, **Downloads**, **Playlists & library**).
@@ -1273,7 +1283,9 @@ reader**. The container has no network, both state volumes are mounted
 read-only, and its only writable bind mount is the private backup directory.
 This resolves host-user permission failures on root-owned state files (for
 example, `album-verification.json`) without `chmod` or `chown` on the
-live volume. The backup archives are mode `0600` and owned by the deploy
+live volume. A host-side invocation of `backup_music_workspace.py` also
+falls back to the isolated reader after a `PermissionError`; the reader
+passes explicit owner IDs to prevent recursive fallback. The backup archives are mode `0600` and owned by the deploy
 user; the directory is mode `0700`. Missing Docker images, inaccessible
 state or an incomplete archive stop deployment before any rebuild.
 Archives include sensitive downloader state and must stay on private,
