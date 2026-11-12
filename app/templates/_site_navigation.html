@@ -45,8 +45,13 @@
           <button type="submit">Download TSV</button>
         </form>
         <div class="workspace-menu-settings">
-          <button id="signal-theme-toggle" type="button" class="workspace-theme-button"
-                  aria-pressed="true">CYBER: ON</button>
+          <label for="signal-theme-toggle" class="workspace-menu-heading">Appearance</label>
+          <select id="signal-theme-toggle" class="workspace-theme-button"
+                  aria-label="Workspace theme">
+            <option value="cyber">Cyber · neon mint</option>
+            <option value="slate">Slate · muted dark</option>
+            <option value="terminal">Terminal · hacker green</option>
+          </select>
         </div>
       </div>
     </details>
