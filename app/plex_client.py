@@ -303,35 +303,107 @@ def export_audio_playlists(plex) -> dict[str, dict[str, Any]]:
 
 
 def sync_playlist(plex, music, name: str, spec: dict[str, Any]):
+    """Synchronize exact track order without deleting an existing Plex playlist.
+
+    All legacy endpoints use the same identity-preserving write and rollback
+    machinery as the approved curation workflow. An ambiguous name, smart
+    playlist, failed Plex mutation or unexpected order is never treated as a
+    completed sync. In particular a failed create cannot remove old content.
+    """
+    from .curation_apply import _WRITE_LOCK, _apply_in_place, current_keys
+    from .generation_publish import PUBLISH_LOCK
+
     tracks, matches = resolve_playlist(plex, music, spec)
     problems = [m for m in matches if m.status != "matched"]
     strict = bool(spec.get("strict", True))
-
     result = {
-        "name": name,
-        "strict": strict,
-        "track_count": len(tracks),
-        "matches": [m.dict() for m in matches],
-        "changed": False,
+        "name": name, "strict": strict, "track_count": len(tracks),
+        "matches": [m.dict() for m in matches], "changed": False,
     }
-
     if strict and problems:
-        result["status"] = "blocked"
-        result["message"] = "Strict mode: playlist was not changed because some items did not match."
+        result.update(status="blocked",
+                      message="Strict mode: missing tracks; playlist was not changed.")
         return result
-
     if not tracks:
-        result["status"] = "blocked"
-        result["message"] = "No tracks matched; playlist was not changed."
+        result.update(status="blocked", message="No matching tracks; playlist was not changed.")
+        return result
+    if name in DEFAULT_HIDDEN_PLAYLIST_TITLES:
+        result.update(status="blocked", message="Protected system playlist.")
         return result
 
-    existing = [p for p in plex.playlists(playlistType="audio") if p.title == name]
-    for playlist in existing:
-        playlist.delete()
+    target = [str(item.ratingKey) for item in tracks]
+    if len(target) != len(set(target)):
+        result.update(status="blocked",
+                      message="Duplicate Plex track IDs; cannot safely synchronize.")
+        return result
+    # Keep the lock order consistent with collaboration imports and generation
+    # publications. Refuse concurrent writes to the same playlist identity.
+    with PUBLISH_LOCK, _WRITE_LOCK:
+        existing = [p for p in plex.playlists(playlistType="audio")
+                    if str(getattr(p, "title", "")).casefold() == name.casefold()]
+        if len(existing) > 1:
+            result.update(status="blocked", message="Ambiguous Plex playlist names; no changes made.")
+            return result
+        if existing and _is_hidden_audio_playlist(existing[0]):
+            result.update(status="blocked", message="Cannot modify Plex smart/radio playlists.")
+            return result
+        if not existing:
+            created = None
+            try:
+                created = plex.createPlaylist(title=name, items=tracks)
+                if not getattr(created, "ratingKey", None):
+                    raise RuntimeError("Plex creation returned no playlist identity.")
+                if current_keys(created) != target:
+                    raise RuntimeError("Plex created an unexpected track order.")
+                result["cover"] = restore_after_sync(plex, created)
+            except Exception as exc:
+                # Only a newly created playlist may be removed by rollback.
+                if created is not None and getattr(created, "ratingKey", None):
+                    try:
+                        created.delete()
+                    except Exception as rollback_error:
+                        raise RuntimeError(
+                            "New-playlist creation failed and cleanup failed; manual "
+                            "reconciliation required: " + str(rollback_error)
+                        ) from exc
+                raise RuntimeError("New-playlist creation failed; existing playlists are intact. "
+                                   + str(exc)) from exc
+            result.update(status="synced", changed=True,
+                          playlist_id=str(created.ratingKey),
+                          message="Created a new Plex playlist with verified ordering.")
+            return result
 
-    created = plex.createPlaylist(title=name, items=tracks)
-    result["cover"] = restore_after_sync(plex, created)
-    result["status"] = "synced"
-    result["changed"] = True
-    result["message"] = f"Created '{name}' with {len(tracks)} tracks."
-    return result
+        playlist = existing[0]
+        if not getattr(playlist, "ratingKey", None):
+            result.update(status="blocked", message="Existing Plex playlist has no stable identity.")
+            return result
+        before = current_keys(playlist)
+        if len(before) != len(set(before)):
+            result.update(status="blocked",
+                          message="Existing playlist contains duplicate tracks; manual review required.")
+            return result
+        result["playlist_id"] = str(playlist.ratingKey)
+        if before == target:
+            result.update(status="synced", message="Existing Plex track order already matches.")
+            return result
+        objects = {str(item.ratingKey): item for item in tracks if str(item.ratingKey) not in before}
+        try:
+            _apply_in_place(playlist, target, objects)
+        except Exception as exc:
+            errors = []
+            try:
+                remaining = set(current_keys(playlist))
+                restore = {key: plex.fetchItem(int(key))
+                           for key in before if key not in remaining}
+                _apply_in_place(playlist, before, restore)
+            except Exception as rollback_error:
+                errors.append(str(rollback_error))
+            if errors:
+                raise RuntimeError(
+                    "Plex sync failed; rollback unsuccessful and manual reconciliation "
+                    "is required: " + "; ".join(errors)
+                ) from exc
+            raise RuntimeError("Plex sync failed; original playlist order was restored.") from exc
+        result.update(status="synced", changed=True,
+                      message="Updated the original Plex playlist in place.")
+        return result
