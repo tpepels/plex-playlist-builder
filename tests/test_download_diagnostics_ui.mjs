@@ -21,15 +21,19 @@ function element(id=""){
   };
 }
 function harness(search="?tab=history&q=job-123"){
-  const nodes=new Map(), calls=[],history=[];
+  const nodes=new Map(), calls=[],history=[],scheduled=[];
   const get=id=>{if(!nodes.has(id))nodes.set(id,element(id));return nodes.get(id)};
   const document={
     hidden:false,getElementById:get,createElement:tag=>element(tag),
     addEventListener(k,cb){this[k]=cb}
   };
   const location={search};
-  const fetch=async(url)=>{
+  const fetch=async(url,options={})=>{
     const path=String(url);calls.push(path);
+    if(path==="/api/download-audit/scan"){
+      assert.equal(options.method,"POST");
+      return {ok:true,json:async()=>({ok:true,status:"scan_requested"})};
+    }
     if(path.startsWith("/api/download-history?"))return {ok:true,json:async()=>({
       total:1,items:[{job_id:"job-123",artist:"Bill Evans",title:"Waltz for Debby",
         status:"failed",completed_items:2,total_items:4,reason:"HTTP 403",
@@ -52,9 +56,11 @@ function harness(search="?tab=history&q=job-123"){
   const window={setInterval(){}};
   const context={document,window,location,history:{replaceState(_s,_t,url){
     history.push(String(url));
-  }},fetch,URLSearchParams,encodeURIComponent,setTimeout,clearTimeout};
+  }},fetch,URLSearchParams,encodeURIComponent,
+    setTimeout(fn,ms){scheduled.push({fn,ms});return scheduled.length},
+    clearTimeout(){}};
   vm.runInNewContext(script,context,{timeout:2000});
-  return {get,calls,history};
+  return {get,calls,history,scheduled};
 }
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 
@@ -78,4 +84,17 @@ test("missing album page loads disk comparison on entry without a button",async(
   assert.match(template,/Albums missing from Plex/);
   assert.match(template,/Search artist, album, job ID or file/);
   assert(!template.includes('id="check"'));
+});
+
+test("Plex rescan is optional, explicit and never declared complete on acceptance",async()=>{
+  const h=harness("?q=Waltz");
+  await flush();
+  assert(!h.calls.some(x=>x==="/api/download-audit/scan"),
+    "Loading diagnostics must never automatically trigger a Plex rescan");
+  await h.get("request-plex-scan").listeners.click();
+  assert.equal(h.calls.at(-1),"/api/download-audit/scan");
+  assert.match(h.get("plex-scan-status").textContent,/not yet verified/);
+  assert.equal(h.get("request-plex-scan").disabled,false);
+  assert(h.scheduled.some(x=>x.ms===15000),
+    "Accepted scan requests should schedule a subsequent read-only check");
 });
