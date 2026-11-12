@@ -40,7 +40,8 @@ def _mount(source: Path, target: str, *, readonly: bool = False) -> str:
 
 def backup(stack: Path, manager_checkout: Path, *,
            manager_data: Path = Path("/srv/plex-playlist-manager"),
-           downloader_state: Path = Path("/srv/yt-dlp-server/state")) -> Path:
+           downloader_state: Path = Path("/srv/yt-dlp-server/state"),
+           backup_dir: Path | None = None) -> Path:
     stack = Path(stack).resolve(strict=True)
     manager_checkout = Path(manager_checkout).resolve(strict=True)
     backup_script = manager_checkout / "deploy" / "backup_music_workspace.py"
@@ -54,7 +55,9 @@ def backup(stack: Path, manager_checkout: Path, *,
         if not location.is_absolute():
             raise BackupPreflightError("Persistent state mounts must be absolute paths.")
 
-    output = stack / "private-state-backups"
+    output = backup_dir if backup_dir is not None else stack / "private-state-backups"
+    if not output.is_absolute():
+        raise BackupPreflightError("Private backup output must be an absolute path.")
     if output.is_symlink():
         raise BackupPreflightError("Refusing a symlinked private backup directory.")
     output.mkdir(mode=0o700, exist_ok=True)
@@ -140,11 +143,14 @@ def main(argv=None) -> int:
                         default=Path("/srv/plex-playlist-manager"))
     parser.add_argument("--downloader-state", type=Path,
                         default=Path("/srv/yt-dlp-server/state"))
+    parser.add_argument("--backup-dir", type=Path,
+                        help="An existing/private directory owned by the deploy user")
     args = parser.parse_args(argv)
     try:
         backup(args.stack, args.manager,
                manager_data=args.manager_data,
-               downloader_state=args.downloader_state)
+               downloader_state=args.downloader_state,
+               backup_dir=args.backup_dir)
     except (BackupPreflightError, OSError, ValueError) as exc:
         print("ERROR:", exc, file=sys.stderr)
         return 1
