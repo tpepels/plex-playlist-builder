@@ -549,6 +549,13 @@
       sourceLink.title = job.url;
       identity.appendChild(sourceLink);
 
+      const plexLink = document.createElement("a");
+      plexLink.className = "job-source-link";
+      plexLink.href = "/downloads-audit?tab=history&q=" + encodeURIComponent(job.id);
+      plexLink.textContent = "Check Plex import";
+      plexLink.title = "Inspect this download's publication and indexing history";
+      identity.appendChild(plexLink);
+
       release.appendChild(identity);
 
       const status = document.createElement("div");
@@ -1119,6 +1126,7 @@
   });
 
   renderJobs(initialJobs);
+  let lastJobsSnapshot = JSON.stringify(initialJobs);
 
   async function refreshJobs(force = false) {
     if (!force && document.activeElement && document.activeElement.matches("#jobs input")) return;
@@ -1132,7 +1140,14 @@
         const activeChanged = changedToTerminal ||
           [...active].some(id => !previousActiveIds.has(id));
         previousActiveIds = active;
-        renderJobs(jobs);
+        const snapshot = JSON.stringify(jobs);
+        // Poll the queue without rebuilding the entire DOM when nothing
+        // changed. Rebuilding removes focus/selection and looks like a
+        // constantly refreshing page.
+        if (force || snapshot !== lastJobsSnapshot) {
+          lastJobsSnapshot = snapshot;
+          renderJobs(jobs);
+        }
         if (activeChanged) {
           // Keep the results and live cards mutually exclusive even while
           // their separate API snapshots are updating.
@@ -1281,6 +1296,10 @@
         const detail = historyNode("a", "", "Details");
         detail.href = downloaderPath("/?job=") + encodeURIComponent(item.job_id);
         links.append(detail);
+        const plexCheck = historyNode("a", "", "Check Plex import");
+        plexCheck.href = "/downloads-audit?tab=history&q=" +
+          encodeURIComponent(item.job_id);
+        links.append(plexCheck);
       }
       if (item.url) {
         const source = historyNode("a", "", "Open source");
