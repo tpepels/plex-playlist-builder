@@ -1221,7 +1221,7 @@ energy jumps, missing embedding coverage and exact-ID overlap with existing
 collections. These are relative metrics with explicit denominators, **not**
 validated probabilities of musical quality or invented missing measurements.
 
-### Deploy with an authenticated restore point
+### Deploy with a verified recovery snapshot
 
 Use the canonical deployment script from the existing checkout:
 
