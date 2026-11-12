@@ -18,6 +18,16 @@ def state(tmp_path, monkeypatch):
         calls.append(recent_albums)
         return {"task_id": "task-" + str(len(calls))}
     monkeypatch.setattr(auto.audiomuse_analysis, "start_analysis", start_analysis)
+    monkeypatch.setattr(auto.audiomuse_client, "synchronize", lambda: {"pending":0})
+    import base64,struct
+    packed=base64.b64encode(struct.pack("<4f",.1,.2,.3,.4)).decode()
+    def features():
+        state=auto._read() or {}
+        keys={key for values in (state.get("album_tracks") or {}).values()
+              for key in values}
+        return {key: {"embedding":packed,"clap_embedding":packed}
+                for key in keys}, {"pending":0}
+    monkeypatch.setattr(auto.audiomuse_client, "cached_features", features)
     return calls, upstream
 
 
@@ -138,3 +148,51 @@ def test_parallel_checks_do_not_submit_same_batch_twice(state):
         results = list(pool.map(lambda _: auto.run_once(), range(3)))
     assert sum("started" in result for result in results) == 1
     assert calls == [6]
+
+
+def test_finished_task_with_missing_embeddings_is_not_marked_complete(state, monkeypatch):
+    calls,upstream=state
+    auto.observe(library(("1","A")))
+    auto.observe(library(("1","A"),("2","B")))
+    auto.run_once()
+    monkeypatch.setattr(auto.audiomuse_client,"cached_features",
+                        lambda: ({"2":{"embedding":"missing","clap_embedding":None}},
+                                 {"pending":0}))
+    upstream["last_analysis"]={"task_id":"task-1","state":"completed"}
+    result=auto.run_once()
+    assert result["coverage_incomplete"]==1 and result["pending"]==1
+    snap=auto.snapshot()
+    assert snap["last_completed"] is None
+    assert snap["last_coverage"]["missing_track_ids"] == {"B":["2"]}
+    assert "lack complete" in snap["error"]
+    assert auto.run_once()["started"]=="task-2"
+
+
+def test_coverage_waits_until_feature_cache_is_synchronized(state,monkeypatch):
+    calls,upstream=state
+    auto.observe(library(("1","A")))
+    auto.observe(library(("1","A"),("2","B")))
+    auto.run_once()
+    upstream["last_analysis"]={"task_id":"task-1","state":"completed"}
+    monkeypatch.setattr(auto.audiomuse_client,"synchronize",lambda:{"pending":10})
+    result=auto.run_once()
+    assert result["verifying"]
+    assert auto.snapshot()["inflight"]["task_id"]=="task-1"
+    assert auto.snapshot()["last_completed"] is None
+
+
+def test_repeated_task_success_without_target_coverage_blocks_after_three_tries(state,monkeypatch):
+    calls,upstream=state
+    auto.observe(library(("1","A")))
+    auto.observe(library(("1","A"),("2","B")))
+    monkeypatch.setattr(auto.audiomuse_client,"cached_features",
+                        lambda: ({},{"pending":0}))
+    for i in range(1,4):
+        assert auto.run_once()["started"]==f"task-{i}"
+        upstream["last_analysis"]={"task_id":f"task-{i}","state":"completed"}
+        res=auto.run_once()
+        assert res["coverage_incomplete"]==1
+    assert res["blocked"]==1
+    assert auto.snapshot()["pending"]==0
+    assert auto.snapshot()["incomplete_albums"]==["B"]
+    assert "Manual review" in auto.snapshot()["error"]
