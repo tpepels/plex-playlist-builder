@@ -201,9 +201,28 @@ def main():
         print(json.dumps(restore(args.restore,args.manager_data,args.downloader_state,
                                  apply=args.apply),indent=2))
     else:
-        archive=create(args.manager_data,args.downloader_state,args.backup_dir,
-                       backup_owner_uid=args.backup_owner_uid,
-                       backup_owner_gid=args.backup_owner_gid)
+        try:
+            archive=create(args.manager_data,args.downloader_state,args.backup_dir,
+                           backup_owner_uid=args.backup_owner_uid,
+                           backup_owner_gid=args.backup_owner_gid)
+        except PermissionError:
+            # Older deployment scripts, or operators invoking this CLI
+            # directly, run as the ordinary host user. Docker containers
+            # create root-owned 0600 state files. Recover by using the
+            # isolated, read-only Docker reader. Never chmod/chown live
+            # source files. A privileged reader calling this script supplies
+            # --backup-owner-uid, which prevents recursive fallbacks.
+            if args.backup_owner_uid is not None:
+                raise
+            from privileged_state_backup import backup as privileged_backup
+            checkout=Path(__file__).resolve().parents[1]
+            stack=checkout.parent
+            print("Host cannot read protected state; switching to isolated Docker backup reader.",
+                  flush=True)
+            archive=privileged_backup(
+                stack,checkout,manager_data=args.manager_data,
+                downloader_state=args.downloader_state,
+                backup_dir=args.backup_dir.resolve())
         print("Verified private backup:",archive)
 
 
