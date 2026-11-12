@@ -253,7 +253,7 @@ def test_json_and_zip_proposals_decode_losslessly(env):
     with zipfile.ZipFile(compressed,"w") as archive:
         archive.writestr("proposal.json",raw)
     assert c.decode_proposal(compressed.getvalue(),"application/zip")==c.normalize_proposal(payload)
-    with pytest.raises(c.CollaborationError,match="proposal.json"):
+    with pytest.raises(c.CollaborationError,match="Invalid ZIP"):
         c.decode_proposal(b"PK\x03\x04INVALID","application/zip")
     with pytest.raises(c.CollaborationError):
         c.normalize_proposal({"format":"wrong","source":{},"playlists":[]})
