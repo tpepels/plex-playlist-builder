@@ -532,10 +532,19 @@ def collaboration_export():
     try:
         features, state = cached_features()
         definitions = load().get("playlists", {})
+        # A complete saved YAML export does not necessarily reflect live Plex
+        # order. Include actual live user-managed playlists when available,
+        # and explicitly disclose a missing live snapshot in the manifest.
+        try:
+            plex, _ = connect()
+            live_playlists = export_audio_playlists(plex)
+        except Exception:
+            live_playlists = None
         path, manifest = collaboration.build_export_zip(
             tracks, features, definitions,
             catalogue_updated=metadata().get("updated"),
             cache_state=state,
+            live_playlists=live_playlists,
         )
         return FileResponse(
             path, media_type="application/zip",
