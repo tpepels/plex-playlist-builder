@@ -20,6 +20,40 @@ _REFRESH_LOCK = threading.Lock()  # only one full Plex scan may publish
 _CACHED = {}
 
 
+def _plex_metadata(track):
+    """Capture available Plex Track XML attributes and structured music tags.
+
+    Preserve unknown future Plex metadata without serializing PlexAPI's
+    connection/session objects. Filesystem paths and bearer tokens are
+    excluded; media codec/bitrate attributes remain available.
+    """
+    element=getattr(track,"_data",None)
+    if element is None or not hasattr(element,"attrib"):
+        return {}
+    hidden={"file","token","x-plex-token","X-Plex-Token","authToken"}
+    def safe(attrs):
+        return {str(k):str(v) for k,v in attrs.items()
+                if str(k).casefold() not in hidden}
+    data={"track_attributes":safe(element.attrib),"tags":{},"media":[]}
+    for child in element:
+        tag=str(child.tag)
+        if tag=="Media":
+            media={"attributes":safe(child.attrib)}
+            streams=[]
+            for part in child:
+                if part.tag=="Part":
+                    media.setdefault("parts",[]).append(safe(part.attrib))
+                    for stream in part:
+                        if stream.tag=="Stream":
+                            streams.append(safe(stream.attrib))
+            if streams:
+                media["streams"]=streams
+            data["media"].append(media)
+        else:
+            data["tags"].setdefault(tag,[]).append(safe(child.attrib))
+    return data
+
+
 def _valid(value):
     return isinstance(value,dict) and bool(value) and all(
         isinstance(key,str) and isinstance(row,dict)
@@ -46,7 +80,8 @@ def _write(tracks):
         "key","album_key","artist","album","title","disc","index"
     )},"genres":list(row.get("genres") or [])[:16],
        "duration_ms":row.get("duration_ms"),
-       "year":row.get("year")} for k,row in tracks.items()}
+       "year":row.get("year"),
+       "plex_metadata":row.get("plex_metadata") or {}} for k,row in tracks.items()}
     envelope={"updated":time.time(),"tracks":cleaned}
     temp=FILE.with_suffix(FILE.suffix+".tmp")
     temp.write_text(json.dumps(envelope,ensure_ascii=False,separators=(",",":")),encoding="utf-8")
@@ -93,6 +128,10 @@ def get_library(music, refresh=False):
         # when all search pages succeeded, otherwise retain the prior snapshot.
         all_tracks=music.searchTracks(container_size=200)
         tracks=catalogue(all_tracks)
+        for source in all_tracks:
+            key=str(getattr(source,"ratingKey","") or "")
+            if key in tracks:
+                tracks[key]["plex_metadata"]=_plex_metadata(source)
         # Plex track objects often omit the genre/year stored on their album.
         # Enrich by parentRatingKey using one bulk album search (not one
         # network request per track). A failed album search leaves unknowns
