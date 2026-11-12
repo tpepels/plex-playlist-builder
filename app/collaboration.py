@@ -119,7 +119,8 @@ def _moods(raw: dict | None):
 
 
 def build_export_zip(library: dict, features: dict, definitions: dict,
-                     *, catalogue_updated=None, cache_state: dict | None = None):
+                     *, catalogue_updated=None, cache_state: dict | None = None,
+                     live_playlists: dict | None = None):
     """Write a ZIP on disk without retaining duplicate giant embeddings in RAM.
 
     Returns (temporary_path, manifest); caller owns unlinking the file.
@@ -210,9 +211,13 @@ def build_export_zip(library: dict, features: dict, definitions: dict,
                             "clap_base64": (raw or {}).get("clap_embedding"),
                             "audio_analysis_raw": raw,
                         }) + "\n")
+            # Saved YAML and live Plex are distinct sources. Both appear
+            # alongside one another so proposals can use the actual current
+            # order rather than assuming the YAML was last synchronized.
             archive.writestr("playlists.yml", yaml.safe_dump(
-                {"playlists": definitions}, sort_keys=False,
-                allow_unicode=True, default_flow_style=False))
+                {"playlists": definitions,
+                 "live_plex_playlists": live_playlists or {}},
+                sort_keys=False, allow_unicode=True, default_flow_style=False))
             manifest = {
                 "format": "plex-music-collaboration-export",
                 "schema_version": EXPORT_VERSION,
@@ -223,6 +228,12 @@ def build_export_zip(library: dict, features: dict, definitions: dict,
                 "library_revision": catalogue_revision(library),
                 "playlist_revision": fingerprint(definitions),
                 "audio_revision": feature_revision(features,cache_state.get("manifest_version")),
+                "live_plex_playlists": {
+                    "status": "included" if live_playlists is not None else "unavailable",
+                    "count": len(live_playlists or {}),
+                    "note": "Live Plex playlists were unavailable at export time" if live_playlists is None else
+                            "Current Plex playlist order, not necessarily synchronized with saved YAML",
+                },
                 "files": ["tracks.csv", "embeddings.jsonl", "playlists.yml", "manifest.json"],
                 "counts": counts,
                 "coverage_definition": {
@@ -239,7 +250,8 @@ def build_export_zip(library: dict, features: dict, definitions: dict,
                     "AudioMuse raw values and original base64 embeddings are preserved exactly",
                     "Decoded embedding arrays are full-length unnormalized float32 measurements",
                     "Extra cached AudioMuse records not in the Plex catalogue are retained in embeddings.jsonl",
-                    "Playlists are saved YAML definitions, not guaranteed to equal live Plex state",
+                    "playlists.yml has both saved definitions and live_plex_playlists when reachable",
+                    "An unavailable live Plex snapshot is explicitly identified in the manifest",
                     "No audio, Plex tokens, filesystem paths or server credentials are exported",
                 ],
             }
