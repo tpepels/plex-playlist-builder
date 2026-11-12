@@ -69,6 +69,10 @@ def prepare(plex,draft,title,library):
     defs=current.get("playlists",{})
     if any(name.casefold()==title.casefold() for name in defs) or _lookup(plex,title):
         raise DraftConflict("A playlist with this name already exists in Plex or YAML.")
+    from .audiomuse_client import cached_features
+    from .playlist_quality import evaluate
+    feature_cache,_=cached_features()
+    composition=evaluate(keys,library,feature_cache,defs)
     version=fingerprint(defs)
     token=_fingerprint(draft["id"],draft["revision"],title,keys,version)
     return {"draft_id":draft["id"],"revision":draft["revision"],
@@ -76,6 +80,7 @@ def prepare(plex,draft,title,library):
             "minutes":round(sum(int(library[k].get("duration_ms") or 0) for k in keys)/60000,1),
             "yaml_version":version,"plan_id":token,
             "quality":draft["data"]["diagnostics"],
+            "composition":composition,
             "warnings":draft["data"]["warnings"],
             "genre":draft["data"]["request"]["criteria"].get("genre"),
             "subgenre":draft["data"]["request"]["criteria"].get("subgenre"),
