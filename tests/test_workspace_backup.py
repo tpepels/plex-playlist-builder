@@ -83,7 +83,7 @@ def test_cli_restore_refuses_running_containers(monkeypatch):
     calls=[]
     def inspect(args,**kwargs):
         calls.append(args[-1])
-        return SimpleNamespace(returncode=0,stdout="true\\n",stderr="")
+        return SimpleNamespace(returncode=0,stdout="true",stderr="")
     monkeypatch.setattr(backup.subprocess,"run",inspect)
     with pytest.raises(RuntimeError,match="Stop plex-playlist-manager"):
         backup.require_stopped_containers()
@@ -95,7 +95,7 @@ def test_cli_restore_accepts_only_confirmed_stopped_containers(monkeypatch):
     calls=[]
     def inspect(args,**kwargs):
         calls.append(args[-1])
-        return SimpleNamespace(returncode=0,stdout="false\\n",stderr="")
+        return SimpleNamespace(returncode=0,stdout="false",stderr="")
     monkeypatch.setattr(backup.subprocess,"run",inspect)
     backup.require_stopped_containers()
     assert calls==["plex-playlist-manager","yt-dlp-server"]
