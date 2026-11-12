@@ -118,6 +118,87 @@ def observe(library: dict) -> dict:
                 "pending": len(state["pending_albums"])}
 
 
+def observe_verified_downloads(downloads: dict[str, dict[str, str]],
+                               all_tracks: dict[str, str]) -> dict:
+    """Admit a Plex-verified downloader job into the *existing* analysis queue.
+
+    The caller supplies exact Plex rating keys and album IDs obtained from
+    indexed file paths. It does not use title matching or initiate any Plex
+    calls. File-locked job IDs prevent duplicate submissions after restarts or
+    retries, while the normal catalogue observer remains the fallback for
+    music imported by any other route.
+
+    On a fresh installation, baseline the complete supplied Plex snapshot,
+    but explicitly enqueue the newly verified job: this must not accidentally
+    backfill every pre-existing album.
+    """
+    if not enabled():
+        return {"disabled": True, "queued_albums": 0, "acknowledged_jobs": []}
+    if not downloads:
+        return {"queued_albums": 0, "acknowledged_jobs": []}
+    if (not isinstance(all_tracks, dict) or not all_tracks
+            or any(not str(key).strip() or not str(album).strip()
+                   for key, album in all_tracks.items())):
+        raise ValueError("Verified download handoff requires a valid complete Plex track snapshot.")
+    for job_id, matched in downloads.items():
+        if (not isinstance(job_id, str) or not job_id
+                or not isinstance(matched, dict) or not matched
+                or any(not isinstance(key, str) or not key
+                       or not isinstance(album, str) or not album
+                       or all_tracks.get(key) != album
+                       for key, album in matched.items())):
+            raise ValueError("Download job has no unambiguous indexed Plex track identities.")
+
+    grouped = {}
+    for track_id, album in all_tracks.items():
+        grouped.setdefault(album, []).append(track_id)
+    with _serialized():
+        state = _read()
+        new_baseline = state is None
+        if new_baseline:
+            state = _initial()
+            state["known_tracks"] = sorted(all_tracks)
+            state["album_tracks"] = {
+                album: sorted(keys) for album, keys in grouped.items()
+            }
+        acknowledged = set(state.get("verified_download_jobs") or [])
+        known = set(state["known_tracks"])
+        inflight = set((state.get("inflight") or {}).get("albums", []))
+        queued = set(state["pending_albums"])
+        admitted = []
+        new_album_ids = []
+        for job_id, matched in sorted(downloads.items()):
+            if job_id in acknowledged:
+                continue
+            new_keys = set(matched) - known
+            # The event itself is new on a freshly initialized state, even
+            # though its Plex tracks were included in the baseline.
+            album_ids = set(matched.values()) if new_baseline else {
+                matched[key] for key in new_keys
+            }
+            for album in sorted(album_ids):
+                if album not in queued and album not in inflight:
+                    state["pending_albums"].append(album)
+                    queued.add(album)
+                    new_album_ids.append(album)
+            for album in set(matched.values()):
+                complete = grouped.get(album)
+                if not complete:
+                    raise ValueError("Verified album is missing from Plex track snapshot.")
+                state.setdefault("album_tracks", {})[album] = sorted(complete)
+            known.update(matched)
+            acknowledged.add(job_id)
+            admitted.append(job_id)
+        if new_baseline or admitted:
+            state["known_tracks"] = sorted(known)
+            state["verified_download_jobs"] = sorted(acknowledged)
+            _write(state)
+        return {"queued_albums": len(new_album_ids),
+                "acknowledged_jobs": admitted,
+                "pending": len(state["pending_albums"]),
+                "baseline": new_baseline}
+
+
 def snapshot() -> dict:
     if not enabled():
         return {"enabled": False, "pending": 0, "inflight": None, "error": None}
