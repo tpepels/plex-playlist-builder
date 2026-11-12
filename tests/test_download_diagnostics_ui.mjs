@@ -37,7 +37,7 @@ function harness(search="?tab=history&q=job-123"){
     if(path.startsWith("/api/download-history?"))return {ok:true,json:async()=>({
       total:1,items:[{job_id:"job-123",artist:"Bill Evans",title:"Waltz for Debby",
         status:"failed",completed_items:2,total_items:4,reason:"HTTP 403",
-        final_dir:"",url:"",removed_from_queue:false,deleted:false}],
+        final_dir:"/music/Bill Evans/Waltz for Debby",url:"",removed_from_queue:false,deleted:false}],
       limitation:""
     })};
     if(path.startsWith("/api/disk-reconciliation?"))return {ok:true,json:async()=>({
@@ -97,4 +97,20 @@ test("Plex rescan is optional, explicit and never declared complete on acceptanc
   assert.equal(h.get("request-plex-scan").disabled,false);
   assert(h.scheduled.some(x=>x.ms===15000),
     "Accepted scan requests should schedule a subsequent read-only check");
+});
+
+test("from a published download, one click compares its exact album folder with Plex",async()=>{
+  const h=harness("?tab=history&q=job-123");
+  await flush();
+  const card=h.get("records").children[0];
+  const button=card.children.flatMap(x=>x.children||[])
+    .find(x=>x.textContent==="Compare album files with Plex");
+  assert(button,"Published jobs must expose a disk comparison action");
+  button.listeners.click();
+  await flush();
+  const call=h.calls.at(-1);
+  assert(call.startsWith("/api/disk-reconciliation?"),call);
+  assert(call.includes("q=Waltz+for+Debby"),call);
+  assert.equal(h.get("disk-tab").attrs["aria-selected"],"true");
+  assert(h.history.at(-1).includes("q=Waltz+for+Debby"));
 });
