@@ -167,6 +167,7 @@ def observe_verified_downloads(downloads: dict[str, dict[str, str]],
         queued = set(state["pending_albums"])
         admitted = []
         new_album_ids = []
+        feature_cache = None
         for job_id, matched in sorted(downloads.items()):
             if job_id in acknowledged:
                 continue
@@ -176,6 +177,21 @@ def observe_verified_downloads(downloads: dict[str, dict[str, str]],
             album_ids = set(matched.values()) if new_baseline else {
                 matched[key] for key in new_keys
             }
+            if not album_ids:
+                # The periodic catalogue observer might have established its
+                # first baseline after this download reached Plex. Its track
+                # keys are then "known" without ever being analyzed. Check
+                # actual embedding coverage instead of silently dropping the
+                # explicit download event. The feature cache is consulted
+                # only in this ambiguous case.
+                from .collaboration import _coverage
+                if feature_cache is None:
+                    feature_cache, _ = audiomuse_client.cached_features()
+                album_ids = {
+                    album for album in set(matched.values())
+                    if any(_coverage(feature_cache.get(key))[0] != "complete_embeddings"
+                           for key in grouped[album])
+                }
             for album in sorted(album_ids):
                 if album not in queued and album not in inflight:
                     state["pending_albums"].append(album)
