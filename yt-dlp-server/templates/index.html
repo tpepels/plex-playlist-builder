@@ -1165,6 +1165,7 @@
   // Load all retained attempts immediately. Filters are client-side, so all
   // titles remain available for Ctrl+F without a search or disclosure click.
   let historyRows = [];
+  let lastHistorySnapshot = null;
   let historyLoadVersion = 0;
   let historyGlobalCounts = {};
   let historyGlobalTotal = 0;
@@ -1360,7 +1361,9 @@
   async function refreshHistory() {
     const version = ++historyLoadVersion;
     const status = document.getElementById("history-status");
-    status.textContent = "Loading all download attempts, including failures…";
+    const initialLoad = lastHistorySnapshot === null;
+    if (initialLoad)
+      status.textContent = "Loading all download attempts, including failures…";
     const nextRows = [];
     let nextCounts = {};
     let nextTotal = 0;
@@ -1379,13 +1382,26 @@
         nextCounts = data.all_status_counts || {};
         nextTotal = data.all_attempts ?? data.total ?? nextRows.length;
         offset += data.items.length;
-        historyRows = nextRows.slice();
+        if (initialLoad) {
+          // First visit populates incrementally. Later background polls must
+          // not replace a complete list with a partial first page.
+          historyRows = nextRows.slice();
+          historyGlobalCounts = nextCounts;
+          historyGlobalTotal = nextTotal;
+          renderHistory();
+        }
+        if (offset >= data.total || data.items.length === 0) break;
+        if (initialLoad)
+          status.textContent = "Loading attempt " + offset + " of " + data.total + "…";
+      }
+      const snapshot = JSON.stringify([nextRows, nextCounts, nextTotal]);
+      if (!initialLoad && snapshot !== lastHistorySnapshot) {
+        historyRows = nextRows;
         historyGlobalCounts = nextCounts;
         historyGlobalTotal = nextTotal;
         renderHistory();
-        if (offset >= data.total || data.items.length === 0) break;
-        status.textContent = "Loading attempt " + offset + " of " + data.total + "…";
       }
+      lastHistorySnapshot = snapshot;
     } catch (error) {
       if (version === historyLoadVersion) {
         status.textContent = "History could not be completely loaded: " + error.message +
