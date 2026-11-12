@@ -150,6 +150,9 @@ small{color:var(--muted)}
     <h2 id="activeSectionTitle" tabindex="-1">Playlists</h2>
   </div>
   <div class="workspace-primary-action">
+    <a id="collabExport" href="/api/collaboration/export.zip" download="plex-music-collaboration.zip" class="primary" title="Download all Plex metadata, raw AudioMuse measurements, full embeddings and saved playlists">Export for ChatGPT (ZIP)</a>
+    <button id="importProposal" type="button" title="Review ChatGPT's proposed Plex track orders before changing anything">Import playlist proposal</button>
+    <input id="proposalFile" type="file" accept=".json,.zip,application/json,application/zip" hidden>
     <button id="importPack" class="primary" title="Validate YAML, import and sync changes to Plex">Import YAML and update Plex</button>
     <input id="packFile" type="file" accept=".yml,.yaml,text/yaml,text/plain" hidden>
     <button id="importCoverZip" type="button" title="Upload covers by ZIP filename">Upload playlist covers (ZIP)</button>
@@ -174,6 +177,18 @@ small{color:var(--muted)}
   </div>
 </section>
 <div id="notice" class="notice" role="status" hidden></div>
+<section id="collabReview" class="panel" aria-label="Review playlist proposals" hidden>
+  <div class="section-title"><h2>Review playlist proposal</h2><small id="collabSummary" role="status">No proposal selected</small></div>
+  <p class="album-meta">Review the exact Plex track IDs and order. Existing playlists retain their Plex identity and artwork. Unlisted playlists are untouched. Nothing changes until approval.</p>
+  <div id="collabPreview" role="region" aria-label="Proposed playlist differences"></div>
+  <label class="row" style="margin:12px 0"><input id="collabConfirmed" type="checkbox"> I reviewed the playlist differences and approve the indicated Plex changes.</label>
+  <div class="row">
+    <button id="collabApprove" type="button" class="primary" disabled>Approve and apply proposed changes</button>
+    <button id="collabCancel" type="button">Cancel</button>
+  </div>
+  <p id="collabStatus" role="status" aria-live="polite"></p>
+</section>
+
 <section id="coverImportResult" class="panel" aria-label="Cover ZIP import results" hidden>
   <div class="section-title"><h2>Playlist covers</h2><small id="coverImportTotals"></small></div>
   <p class="album-meta">Image filename = exact Plex playlist name. Re-uploading a name replaces its previous cover. Covers are restored after playlist sync.</p>
@@ -391,6 +406,7 @@ function updateActions() {
   $("bulkPanel").hidden = !syncing && names.length === 0 && $("bulkErrors").textContent === "";
   for (const id of ["save", "reload", "importPack"]) $(id).disabled = syncing || coverUploading;
   $("importCoverZip").disabled = syncing || coverUploading;
+  $("importProposal").disabled = syncing || coverUploading;
   $("yaml").disabled = syncing;
   document.querySelectorAll(".build").forEach(button => {
     button.disabled = syncing || button.closest(".playlist")?.dataset.disabled === "true";
@@ -666,6 +682,115 @@ $("packFile").onchange = async () => {
   }
 };
 
+
+// ChatGPT exchange. Preview is strictly read-only; applying uses the same
+// protected in-place curation and generation-publication transactions as the UI.
+let reviewedCollaboration=null;
+function clearProposalReview(){
+  reviewedCollaboration=null;
+  $("collabReview").hidden=true;
+  $("collabConfirmed").checked=false;
+  $("collabApprove").disabled=true;
+  $("collabPreview").replaceChildren();
+  $("collabStatus").textContent="";
+}
+$("importProposal").onclick=()=>{
+  if(syncing||coverUploading||editorDirty){
+    showNotice("Save or discard unsaved edits before reviewing a proposal.",true);
+    return;
+  }
+  $("proposalFile").click();
+};
+$("proposalFile").onchange=async()=>{
+  const file=$("proposalFile").files?.[0];
+  if(!file)return;
+  clearProposalReview();
+  $("collabReview").hidden=false;
+  $("collabSummary").textContent="Validating "+file.name+" against Plex…";
+  if(syncing||coverUploading||editorDirty){
+    $("collabStatus").textContent="Finish the current operation or save editor changes first.";
+    $("proposalFile").value="";return;
+  }
+  try{
+    if(!/\.(json|zip)$/i.test(file.name)||!file.size||file.size>2*1024*1024)
+      throw Error("Select a proposal.json or ZIP containing proposal.json (maximum 2 MiB).");
+    const response=await api("/api/collaboration/proposals/preview",{
+      method:"POST",
+      headers:{"Content-Type":file.name.toLowerCase().endsWith(".zip")?
+        "application/zip":"application/json"},
+      body:file
+    });
+    reviewedCollaboration={
+      proposal:response.proposal,review_token:response.review_token,
+      changes:response.changes
+    };
+    $("collabSummary").textContent=response.previews.length+" proposed playlist(s) · "+
+      response.changes+" change(s) · "+response.untouched_playlists+
+      " saved playlists untouched";
+    $("collabPreview").innerHTML=response.previews.map(p=>
+      '<details open class="album-card"><summary><strong>'+esc(p.name)+
+      '</strong> · '+esc(p.action)+' · '+esc(p.status)+
+      ' · '+p.before_count+' → '+p.after_count+' tracks</summary>'+
+      '<div class="album-body"><p>Added '+p.added+' · Removed '+p.removed+
+      ' · Moved '+p.moved+(p.playlist_id?' · Existing Plex ID '+esc(p.playlist_id):
+      ' · New Plex playlist')+'</p>'+
+      (p.notes?'<p>Proposal notes: '+esc(p.notes)+'</p>':'')+
+      '<ol>'+p.track_order.map((t,i)=>'<li>'+esc(t.artist)+' — '+esc(t.title)+
+        ' · '+esc(t.album)+' · Plex ID '+esc(t.id)+'</li>').join('')+'</ol></div></details>'
+    ).join("");
+    $("collabStatus").textContent=response.changes?
+      "No changes saved. Review all tracks, check the approval box, then apply.":
+      "All proposed playlists already match Plex; no writes needed.";
+    $("collabApprove").disabled=true;
+  }catch(error){
+    reviewedCollaboration=null;
+    $("collabSummary").textContent="Proposal rejected";
+    $("collabStatus").textContent=error.message+
+      ". Plex and saved playlists were not modified.";
+  }finally{$("proposalFile").value=""}
+};
+$("collabConfirmed").onchange=()=>{
+  $("collabApprove").disabled=!reviewedCollaboration||
+    !reviewedCollaboration.changes||!$("collabConfirmed").checked||
+    syncing||coverUploading||editorDirty;
+};
+$("collabCancel").onclick=clearProposalReview;
+$("collabApprove").onclick=async()=>{
+  if(!reviewedCollaboration||!$("collabConfirmed").checked||
+     syncing||coverUploading||editorDirty)return;
+  syncing=true;updateActions();
+  $("collabApprove").disabled=true;
+  $("collabCancel").disabled=true;
+  $("collabStatus").textContent="Applying approved playlist proposal to Plex…";
+  try{
+    const result=await api("/api/collaboration/proposals/apply",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({...reviewedCollaboration,approved:true})
+    });
+    const applied=result.results||[];
+    const report=applied.map(x=>x.name+": "+(x.sync_state||x.status)).join("; ");
+    const failure=result.failed?result.failed.name+": "+result.failed.reason:
+      result.error||"";
+    const remaining=result.not_attempted?.length?
+      " Not attempted: "+result.not_attempted.join(", ")+".":"";
+    $("collabStatus").textContent=(result.ok?"Applied: ":"Partial outcome: ")+
+      report+(failure?" · Failure: "+failure:"")+remaining;
+    reviewedCollaboration=null;
+    $("collabConfirmed").checked=false;
+    await loadConfig();
+    showNotice(result.ok?"Proposal applied using existing Plex workflows.":
+      "Proposal partially applied. See the detailed result; re-export and review before retrying.",
+      !result.ok);
+  }catch(error){
+    $("collabStatus").textContent="Proposal not applied: "+error.message+
+      ". Review again if the source library or playlists changed.";
+    reviewedCollaboration=null;
+    $("collabConfirmed").checked=false;
+    showNotice("Proposal approval failed: "+error.message,true);
+  }finally{
+    syncing=false;$("collabCancel").disabled=false;updateActions();
+  }
+};
 
 $("importCoverZip").onclick = () => {
   if (syncing || coverUploading) {
