@@ -91,7 +91,7 @@ def test_root_owned_state_is_backed_up_in_readonly_isolated_container(
     assert cmd[cmd.index("--network")+1] == "none"
     assert cmd[cmd.index("--user")+1] == "0:0"
     assert cmd[cmd.index("--cap-drop")+1] == "ALL"
-    for capability in ("DAC_READ_SEARCH","FOWNER","CHOWN"):
+    for capability in ("DAC_READ_SEARCH","DAC_OVERRIDE","FOWNER","CHOWN"):
         assert capability in [
             cmd[i+1] for i,v in enumerate(cmd[:-1]) if v == "--cap-add"
         ]
