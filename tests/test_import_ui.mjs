@@ -76,6 +76,7 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
   let imported = false;
   let synced = false;
   let externalChanged = false;
+  let proposalApplied = false;
   const timers = [];
   const calls = [];
   const requests = [];
@@ -195,6 +196,32 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
         ],
         skipped_files:[{file:"manifest.csv",reason:"Not a top-level JPG/PNG file"}]
       };
+    } else if (url === "/api/collaboration/proposals/preview") {
+      body = {
+        proposal: {
+          format:"plex-playlist-proposal-v1",
+          source:{library_revision:"a".repeat(64),playlist_revision:"b".repeat(12)},
+          playlists:[{name:"New Hard Bop",action:"create",
+            rating_keys:["5","7"],description:"Smooth hard bop",notes:"Two selected tracks"}]
+        },
+        review_token:"signed-approval-token",
+        changes:1,untouched_playlists:1,
+        previews:[{name:"New Hard Bop",action:"create",status:"changed",
+          playlist_id:null,before_count:0,after_count:2,added:2,removed:0,
+          moved:0,notes:"Two selected tracks",
+          track_order:[
+            {id:"5",artist:"John Coltrane",album:"Blue Train",title:"Blue Train"},
+            {id:"7",artist:"Art Blakey",album:"Moanin'",title:"Moanin'"}
+          ]}]
+      };
+    } else if (url === "/api/collaboration/proposals/apply") {
+      const sent=JSON.parse(options.body||"{}");
+      if(!sent.approved||sent.review_token!=="signed-approval-token"||
+         Object.keys(sent).some(k=>!["approved","review_token","proposal"].includes(k)))
+        throw Error("Unsafe proposal approval payload");
+      proposalApplied=true;
+      body={ok:true,not_attempted:[],results:[
+        {name:"New Hard Bop",status:"published",sync_state:"synced"}]};
     } else if (url === "/api/inspect-config") {
       if (invalid) {
         status = 400;
@@ -243,7 +270,8 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     externalUpdate(){externalChanged=true},
     showWorkspaceView: view => context.__switchView(view),
     loadDuplicates: ()=>context.__loadDuplicates(),loadIsc: ()=>context.__loadIsc(),
-    filename, get imported() { return imported; }, get synced() { return synced; } };
+    filename, get imported() { return imported; }, get synced() { return synced; },
+    get proposalApplied(){return proposalApplied;} };
 }
 
 test("valid file immediately imports and syncs new playlists", async () => {
@@ -591,4 +619,55 @@ test("passive revision updates never overwrite an unsaved YAML edit",async()=>{
   assert.equal(h.calls.length,before,"Editing must suppress background network refresh");
   assert.equal(h.$("yaml").value,"playlists:\n  My changes: []");
   assert.equal(h.$("cards").querySelectorAll(".playlist").length,1);
+});
+
+test("collaboration export is accessible and proposal is previewed without Plex writes", async()=>{
+  const h=makeHarness();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.match(html,/id="collabExport" href="\/api\/collaboration\/export.zip"/);
+  assert.match(html,/id="proposalFile"[^>]*accept="\.json,\.zip/);
+  h.$("proposalFile").files=[{name:"proposal.json",size:534}];
+  await h.$("proposalFile").onchange();
+  assert.equal(h.$("collabReview").hidden,false);
+  assert.match(h.$("collabSummary").textContent,/1 change/);
+  assert.match(h.$("collabPreview").innerHTML,/John Coltrane/);
+  assert.match(h.$("collabPreview").innerHTML,/Plex ID 5/);
+  assert.match(h.$("collabPreview").innerHTML,/Art Blakey/);
+  assert.equal(h.$("collabApprove").disabled,true);
+  assert.equal(h.proposalApplied,false);
+  assert(h.calls.includes("/api/collaboration/proposals/preview"));
+  assert(!h.calls.includes("/api/collaboration/proposals/apply"));
+  assert(!h.calls.some(x=>x.startsWith("/api/sync-pending/")));
+});
+
+test("proposal publishing requires checked approval and exact signed payload",async()=>{
+  const h=makeHarness();
+  await new Promise(resolve=>setImmediate(resolve));
+  h.$("proposalFile").files=[{name:"proposal.json",size:234}];
+  await h.$("proposalFile").onchange();
+  await h.$("collabApprove").onclick();
+  assert.equal(h.proposalApplied,false);
+  h.$("collabConfirmed").checked=true;
+  h.$("collabConfirmed").onchange();
+  assert.equal(h.$("collabApprove").disabled,false);
+  await h.$("collabApprove").onclick();
+  assert.equal(h.proposalApplied,true);
+  const call=h.requests.find(x=>x.url==="/api/collaboration/proposals/apply");
+  assert(call);
+  const payload=JSON.parse(call.options.body);
+  assert.equal(payload.approved,true);
+  assert.equal(payload.review_token,"signed-approval-token");
+  assert.deepEqual(Object.keys(payload).sort(),["approved","proposal","review_token"]);
+  assert.match(h.$("collabStatus").textContent,/New Hard Bop: synced/);
+});
+
+test("invalid proposal file is refused without contacting Plex or modifying YAML",async()=>{
+  const h=makeHarness();
+  await new Promise(resolve=>setImmediate(resolve));
+  h.$("proposalFile").files=[{name:"something.csv",size:100}];
+  await h.$("proposalFile").onchange();
+  assert.match(h.$("collabStatus").textContent,/Select a proposal.json or ZIP/);
+  assert.equal(h.$("collabApprove").disabled,true);
+  assert(!h.calls.some(x=>x.startsWith("/api/collaboration/")));
+  assert.equal(h.proposalApplied,false);
 });
