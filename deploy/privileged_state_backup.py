@@ -47,8 +47,12 @@ def backup(stack: Path, manager_checkout: Path, *,
     if not backup_script.is_file():
         raise BackupPreflightError("Missing verified workspace backup implementation.")
     for location in (manager_data, downloader_state):
-        if not location.is_dir():
-            raise BackupPreflightError("Missing persistent state volume: " + str(location))
+        # The host user may not even have search permission on a parent of
+        # the Docker-owned state directory. Do not call is_dir()/resolve()
+        # here: Docker's --mount (not -v) checks existence as the daemon,
+        # and will fail rather than create a missing bind-source directory.
+        if not location.is_absolute():
+            raise BackupPreflightError("Persistent state mounts must be absolute paths.")
 
     output = stack / "private-state-backups"
     if output.is_symlink():
