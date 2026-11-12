@@ -2,7 +2,7 @@
 <html lang="nl">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Muziekcontrole · Plex Playlist Manager</title>
+<title>Missing albums in Plex · Music workspace</title>
 <style>
 :root{color-scheme:dark;font:14px/1.5 system-ui,sans-serif;background:#111315;color:#f0f1f3}
 body{margin:0}main{max-width:1100px;margin:28px auto;padding:0 18px 50px}
@@ -38,35 +38,37 @@ input{min-width:180px;flex:1}
 <body><main class="signal-shell">
 {% include "_site_navigation.html" %}
 
-<h1>Bestanden op schijf die ontbreken in Plex</h1>
-<p>Dit overzicht begint bij de bestanden op je muziekvolume, ook als yt-dlp geen enkele downloadjob meer heeft. Standaard zie je uitsluitend albumfolders waarvan één of meer audiobestanden niet in Plex staan. Mislukte downloads kun je afzonderlijk bekijken via Downloadgeschiedenis.</p>
-<div class="tabs" role="tablist" aria-label="Soort controle">
-  <button id="disk-tab" role="tab" aria-selected="true" type="button">Op schijf, niet in Plex</button>
-  <button id="history-tab" role="tab" aria-selected="false" type="button">Downloadgeschiedenis en fouten</button>
+<h1>Albums missing from Plex</h1>
+<p>Search for an artist, album, file or download job ID. This compares actual music files with Plex's indexed files, even if download history is gone. Missing and partially indexed albums appear automatically. Use Download history to inspect failures.</p>
+<div class="tabs" role="tablist" aria-label="Diagnostic view">
+  <button id="disk-tab" role="tab" aria-selected="true" type="button">On disk, missing from Plex</button>
+  <button id="history-tab" role="tab" aria-selected="false" type="button">Download history and errors</button>
 </div>
 <form id="filter-form" class="toolbar">
-  <input id="query" aria-label="Zoek album, bestand of fout" placeholder="Beethoven, artiest, album, job-ID of 403">
+  <input id="query" aria-label="Search album, artist, file, job ID or error" placeholder="Search artist, album, job ID or file">
   <select id="filter" aria-label="Filterstatus"></select>
-  <span class="detail">Automatisch bijgewerkt</span>
+  <span class="detail">Updated automatically</span>
 </form>
-<p id="status-text" role="status" aria-live="polite">Schijf en Plex worden vergeleken…</p>
+<p id="status-text" role="status" aria-live="polite">Comparing disk files with Plex…</p>
 <div id="summary" class="summary"></div>
 <div id="warning"></div>
 <section id="records" aria-live="polite"></section>
-<button id="load-more" type="button" hidden>Meer laden</button>
+<button id="load-more" type="button" hidden>Load more</button>
 <div id="limitations" class="detail"></div>
 <script>
 (() => {
   "use strict";
   const $ = id => document.getElementById(id);
   const downloader = {{ downloader_url | tojson }};
-  let tab = "disk", offset = 0, total = 0, loading = false, requestSerial = 0;
+  const initialParams = new URLSearchParams(location.search);
+  let tab = initialParams.get("tab") === "history" ? "history" : "disk";
+  let offset = 0, total = 0, loading = false, requestSerial = 0;
   const limit = 100;
   const opts = {
-    disk: [["unindexed","Niet in Plex (ook gedeeltelijk)"],["missing","Hele album niet in Plex"],["partial","Gedeeltelijk in Plex"],["ambiguous","Onzekere match"],["all","Alle albumfolders"],["indexed","Volledig in Plex"]],
-    history: [["all","Alle pogingen"],["failed","Mislukt / gedeeltelijk"],["incomplete","Niet voltooid"],["published","Gepubliceerd"]],
+    disk: [["unindexed","Not in Plex (including partial)"],["missing","Entire album missing"],["partial","Partially indexed"],["ambiguous","Uncertain match"],["all","All album folders"],["indexed","Fully indexed"]],
+    history: [["all","All attempts"],["failed","Failed or partial"],["incomplete","Incomplete"],["published","Published"]],
   };
-  $("query").value = new URLSearchParams(location.search).get("q") || "";
+  $("query").value = initialParams.get("q") || "";
   function el(tag, cls, value) {
     const node = document.createElement(tag);
     if (cls) node.className = cls;
@@ -87,8 +89,18 @@ input{min-width:180px;flex:1}
       $("filter").append(option);
     }
   }
+  function saveUrl() {
+    if (typeof history === "undefined" || !history.replaceState) return;
+    const params = new URLSearchParams();
+    if (tab === "history") params.set("tab", "history");
+    const query = $("query").value.trim();
+    if (query) params.set("q", query);
+    history.replaceState(null, "", "/downloads-audit" +
+      (params.toString() ? "?" + params.toString() : ""));
+  }
   function setTab(next) {
     tab = next; offset = 0; total = 0;
+    saveUrl();
     $("disk-tab").setAttribute("aria-selected", String(next === "disk"));
     $("history-tab").setAttribute("aria-selected", String(next === "history"));
     options(); load(false);
@@ -99,43 +111,43 @@ input{min-width:180px;flex:1}
   function renderDisk(data, append) {
     if (!append) {
       $("summary").replaceChildren();
-      addCount("Alle gescande albumfolders", data.disk_album_folders);
-      addCount("Alle audiobestanden op schijf", data.disk_audio_files);
-      addCount("Bestanden niet in Plex", data.not_in_plex_audio_files);
-      addCount("Betrokken albumfolders", data.not_in_plex_album_folders);
-      addCount("Geheel afwezig", data.disk_status_counts.missing || 0);
-      addCount("Gedeeltelijk geïndexeerd", data.disk_status_counts.partial || 0);
-      addCount("Nog in staging", data.staging.audio_files || 0);
+      addCount("Album folders scanned", data.disk_album_folders);
+      addCount("Audio files on disk", data.disk_audio_files);
+      addCount("Files missing from Plex", data.not_in_plex_audio_files);
+      addCount("Affected albums", data.not_in_plex_album_folders);
+      addCount("Entirely missing", data.disk_status_counts.missing || 0);
+      addCount("Partially indexed", data.disk_status_counts.partial || 0);
+      addCount("Still in staging", data.staging.audio_files || 0);
       $("warning").replaceChildren();
       if (!data.disk_scan_complete) {
-        $("warning").append(el("div", "notice", "Schijfinventaris is onvolledig: " +
-          (data.scan_errors || []).join("; ") + ". Deze resultaten zijn dus niet uitputtend."));
+        $("warning").append(el("div", "notice", "Disk inventory incomplete: " +
+          (data.scan_errors || []).join("; ") + ". Results may be incomplete."));
       }
       if (data.not_in_plex_album_folders && data.plex_total_media_files === 0) {
-        $("warning").append(el("div", "notice", "Plex gaf geen mediabestanden terug. Controleer de gekozen Plex Music-bibliotheek, toegangsrechten en de bibliotheekmap."));
+        $("warning").append(el("div", "notice", "Plex returned no media files. Check the Plex Music library, directory access and mounts."));
       }
       if (data.plex_music_locations?.length)
-        line($("warning"), "detail", "Plex Music-mappen: " + data.plex_music_locations.join(" ; "));
+        line($("warning"), "detail", "Plex Music folders: " + data.plex_music_locations.join(" ; "));
       $("limitations").textContent = data.caveats;
     }
-    const labels = {missing:"Op schijf, niet in Plex",partial:"Gedeeltelijk in Plex",
-      indexed:"Bestanden gevonden in Plex",ambiguous:"Ambigue bestandslocatie"};
+    const labels = {missing:"On disk, missing from Plex",partial:"Partially in Plex",
+      indexed:"Files indexed in Plex",ambiguous:"Ambiguous file location"};
     for (const album of data.items) {
       const card = el("article","card");
       card.append(el("h2","",album.artist_folder ? album.artist_folder +
         " — " + album.album_folder : album.album_folder));
       line(card,"status " + album.status,labels[album.status] || album.status);
       line(card,"path",album.folder);
-      line(card,"detail",album.files_not_in_plex + " bestand(en) ontbreken in Plex · " +
+      line(card,"detail",album.files_not_in_plex + " files missing from Plex · " +
         album.files_indexed + " / " + album.files_on_disk +
-        " in de Plex-index · " + album.size_bytes + " bytes op schijf");
+        " indexed in Plex · " + album.size_bytes + " bytes on disk");
       for (const match of album.plex_labels || []) {
-        line(card,"detail","Plex toont: " + (match.artist || "(zonder artiest)") +
-          " — " + (match.album || "(zonder album)"));
+        line(card,"detail","Plex shows: " + (match.artist || "(unknown artist)") +
+          " — " + (match.album || "(unknown album)"));
       }
       if (album.missing_files?.length) {
         const details = el("details");
-        details.append(el("summary","","Bestanden die Plex niet heeft opgenomen"));
+        details.append(el("summary","","Files absent from Plex"));
         const ul = el("ul","lists");
         for (const filepath of album.missing_files)
           ul.append(el("li","path",filepath));
@@ -148,10 +160,10 @@ input{min-width:180px;flex:1}
   function renderHistory(data, append) {
     if (!append) {
       $("summary").replaceChildren();
-      addCount("Gevonden downloadpogingen",data.total);
+      addCount("Download attempts found",data.total);
       $("warning").replaceChildren();
       $("warning").append(el("div","notice",
-        "Oude jobs die vóór deze versie al automatisch zijn gewist, zijn niet herstelbaar uit de jobdatabase. Nieuwe fouten blijven wel bewaard."));
+        "Download attempts removed before persistent history was introduced cannot be restored. New failures are retained."));
       $("limitations").textContent = data.limitation || "";
     }
     for (const job of data.items) {
@@ -159,17 +171,17 @@ input{min-width:180px;flex:1}
       card.append(el("h2","",job.artist ? job.artist + " — " + job.title : job.title || job.url));
       line(card,"status " + job.status,job.status.toUpperCase() +
         (job.http_403 ? " · HTTP 403" : "") +
-        (job.removed_from_queue ? " · uit de actieve lijst verwijderd" : ""));
+        (job.removed_from_queue ? " · removed from active list" : ""));
       line(card,"detail","Job " + job.job_id + " · " +
-        job.completed_items + " / " + job.total_items + " tracks bevestigd");
-      line(card,"strong",job.reason || "Geen foutmelding vastgelegd.");
-      if (job.final_dir) line(card,"path","Publicatie: " + job.final_dir);
+        job.completed_items + " / " + job.total_items + " confirmed tracks");
+      line(card,"strong",job.reason || "No error recorded.");
+      if (job.final_dir) line(card,"path","Published to: " + job.final_dir);
       const actions = el("div","detail");
       if (!job.removed_from_queue) actions.append(link(
-        downloader + "?job=" + encodeURIComponent(job.job_id),"Open job in yt-dlp"));
+        downloader + "?job=" + encodeURIComponent(job.job_id),"Open download job"));
       if (job.url && /^https?:\/\//i.test(job.url)) {
         if (actions.childNodes.length) actions.append(el("span",""," · "));
-        actions.append(link(job.url,"Open bron"));
+        actions.append(link(job.url,"Open source"));
       }
       card.append(actions);
       $("records").append(card);
@@ -181,18 +193,19 @@ input{min-width:180px;flex:1}
     const requestedTab = tab;
     loading = true; $("load-more").disabled = true;
     const search = $("query").value.trim();
+    if (!append) saveUrl();
     const params = new URLSearchParams({
       q:search,status:$("filter").value,offset:String(append?offset:0),limit:String(limit),
     });
     $("status-text").textContent = tab === "disk"
-      ? "Alle albumfolders op schijf met Plex vergelijken…"
-      : "Permanente downloadhistorie en fouten ophalen…";
+      ? "Comparing every album folder with Plex…"
+      : "Loading download history and errors…";
     try {
       const path = tab === "disk" ? "/api/disk-reconciliation?" : "/api/download-history?";
       const response = await fetch(path + params.toString(),{cache:"no-store"});
       const data = await response.json();
       if (serial !== requestSerial || requestedTab !== tab) return;
-      if (!response.ok) throw new Error(data.detail || data.error || "Controle mislukt");
+      if (!response.ok) throw new Error(data.detail || data.error || "Check failed");
       if(!append) $("records").replaceChildren();
       if (tab === "disk") {
         renderDisk(data,append);
@@ -203,15 +216,15 @@ input{min-width:180px;flex:1}
       }
       offset = (append?offset:0) + data.items.length;
       $("load-more").hidden = offset >= total;
-      $("status-text").textContent = total + " resultaten; " + offset + " getoond. " +
-        (tab === "disk" ? "Schijfinventaris " +
-          (data.disk_scan_complete ? "volledig." : "ONVOLLEDIG.") : "Alle downloadpogingen blijven bewaard.");
+      $("status-text").textContent = total + " results; " + offset + " displayed. " +
+        (tab === "disk" ? "Disk inventory " +
+          (data.disk_scan_complete ? "complete." : "INCOMPLETE.") : "Download attempts are retained.");
       if (!data.items.length && !append) {
         $("records").append(el("p","",
           tab === "disk"
-            ? "Geen bestanden op schijf gevonden die volgens deze controle in Plex ontbreken. " +
-              "Controleer de scanvolledigheid hierboven, of selecteer Alle albumfolders om de vergelijking te inspecteren."
-            : "Geen downloadpogingen voor deze zoekterm; de schijfcontrole is onafhankelijk van de downloadhistorie."));
+            ? "No unindexed files found for this filter. " +
+              "Check scan completeness above or select All album folders to inspect matching files."
+            : "No download attempts found for this search. The disk comparison does not depend on download history."));
       }
     } catch(error) {
       if (serial === requestSerial) {
