@@ -1153,3 +1153,122 @@ Expected:
 ```json
 {"ok":true,"server":"...","library":"Music","version":"..."}
 ```
+
+
+## Reliability and recovery (November 2026)
+
+### Playlist synchronization and import approvals
+
+All playlist sync endpoints, including legacy single-playlist, bulk and
+YAML-import flows, use identity-preserving in-place Plex updates for existing
+playlists. A failed ordering mutation attempts to restore the exact previous
+order, and unresolved rollback failures require explicit manual reconciliation.
+New playlists are created only when the requested name does not already exist.
+Smart/radio playlists, ambiguous case-insensitive names and duplicate Plex
+track IDs are blocked. Existing Plex playlist IDs and attached covers survive
+normal synchronization.
+
+Selecting a YAML file now **only previews** its exact new/updated definitions.
+The importer displays before/after item lists and requires a checked approval
+box and an explicit Apply action. The review token binds the file to the current
+saved YAML revision for 15 minutes; stale versions and unapproved writes fail
+closed. On approval, only the new/updated playlist names from **this file** are
+eligible for import-triggered Plex sync. Earlier pending changes are retained
+for a separate review. The global Sync pending action remains a deliberate
+separate operation.
+
+### Real album and AudioMuse completion evidence
+
+A background album verifier starts shortly after boot and checks every
+retained downloader job (including old jobs) against actual published disk
+paths and Plex's current indexed file paths. It persists per-album stages in
+`/data/album-verification.json`: downloading, metadata required, not
+published, missing on disk, awaiting index, scan requested/failed, indexed,
+partially downloaded, unverifiable or requires attention. It batches scan
+requests (one Plex scan per pass), observes the shared scan timestamp, waits
+10 minutes between attempts and stops after three automatic attempts.
+Successful publication or accepted Plex scan does **not** mean indexing
+completed. A partial source download is never labeled a complete album.
+The `/api/album-verification` endpoint is read-only; history cards link to
+the underlying album.
+
+Automatic AudioMuse tasks similarly require evidence that every intended
+Plex track has both valid MusiCNN and CLAP embeddings. The cache is
+synchronized after a task completes, missing album targets are retried up to
+three attempts, and exhausted targets are explicitly marked for manual review.
+The AudioMuse control API supports only the most recent *N* albums, not
+exact album IDs. Therefore retries may not include older targets; the
+application **reports this limitation** and never falsely certifies coverage.
+Use `GET /api/workspace/maintenance` to inspect actual coverage evidence.
+
+Saved playlist fingerprints are compared independently against live Plex
+identity, membership and ordering every five minutes. Missing/ambiguous,
+unverifiable and changed playlists remain visible without making any
+automatic Plex modifications. Review `GET /api/playlist-drift` and the
+playlist workspace's live verification status.
+
+### Diagnostics, performance and measured quality
+
+The Home page is the single operational view: queued/failed downloads,
+unindexed files, live playlist drift, AudioMuse coverage, cache health and
+background failures link to the relevant correction screens. Disk-to-Plex
+comparison reuses a complete 120-second snapshot when users change
+filters; Plex scan requests explicitly invalidate it.
+
+Playlist generator and collaboration approval screens now report artist and
+album concentration, consecutive repetitions, measured AudioMuse similarity,
+energy jumps, missing embedding coverage and exact-ID overlap with existing
+collections. These are relative metrics with explicit denominators, **not**
+validated probabilities of musical quality or invented missing measurements.
+
+### Deploy with an authenticated restore point
+
+Use the canonical deployment script from the existing checkout:
+
+```bash
+cd ~/media-stack/plex-playlist-manager
+bash deploy/apply_media_stack.sh
+```
+
+It refuses active downloads, fast-forwards `main`, verifies frontend
+contracts, creates a **checksum-verified private state backup** before
+modifying Compose, builds both services, waits for downloader health and
+smoke-tests the Home, playlist, genre-generation, Downloads and diagnostics
+pages and the status APIs. By default the verified backups are retained
+under `~/media-stack/private-state-backups/` (up to seven versions). This
+requires read access to `/srv/plex-playlist-manager` and
+`/srv/yt-dlp-server/state`; inability to back them up blocks deployment.
+Archives include sensitive downloader state and must stay on private,
+encrypted storage.
+
+Restoration requires stopping both containers first. The following is
+**read-only** and verifies every file checksum while showing exact paths:
+
+```bash
+python3 deploy/backup_music_workspace.py \
+  --manager-data /srv/plex-playlist-manager \
+  --downloader-state /srv/yt-dlp-server/state \
+  --restore /path/to/music-workspace-YYYYMMDDTHHMMSSZ.zip
+```
+
+Only add `--apply` after checking the plan and stopping services.
+Existing files receive a `.pre-restore` backup; the tool will not silently
+overwrite an existing rollback copy. SQLite files are exported via the
+SQLite backup API, including when the application is running.
+Never serve these archives from an HTTP download endpoint.
+
+The web application only accepts direct socket peers from RFC1918, loopback,
+Tailscale/CGNAT, local IPv6 or explicitly configured networks by default.
+Set `WORKSPACE_ALLOWED_CIDRS` to adjust trusted subnets. Setting it to
+`*` explicitly disables this safety control. A public reverse proxy must
+still enforce its own authentication; the app does not authenticate users
+within a trusted LAN.
+
+CI includes regression checks for the destructive-sync replacement,
+import-review signatures, live Plex drift, real album file matching and scan
+retries, AudioMuse coverage, UI polling, composition evidence and verified
+backups. Live Plex/AudioMuse acceptance is checked further by the deployment
+smoke tests, but physical playback and a real imported album still require
+on-server verification. GitHub branch protection must be enabled by a
+repository administrator because the active GitHub connector does not
+provide branch-protection mutations.
