@@ -168,6 +168,7 @@ def downloader(lines):
 def manager(lines):
     return merge_mapping(lines, "environment", {
         "YTDLP_SERVER_URL": '"http://yt-dlp-server:4545"',
+        "WORKSPACE_ALLOWED_CIDRS": '"127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,fc00::/7,fe80::/10"',
         "YTDLP_PUBLIC_URL": '"/downloads"',
         "DOWNLOAD_BRIDGE_SCAN_ENABLED": '"1"',
     })
