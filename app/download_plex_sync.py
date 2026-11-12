@@ -146,6 +146,8 @@ def scan_plex_library():
     """A scan is requested, not assumed complete or added to playlists."""
     _, music = connect()
     music.update()
+    from .music_snapshot import invalidate
+    invalidate()
 
 
 async def poll_once(*, state_file=None):
