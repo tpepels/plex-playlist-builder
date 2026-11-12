@@ -135,6 +135,8 @@ class ConfigBody(BaseModel):
 
 class ImportBody(ConfigBody):
     filename: str | None = None
+    approved: bool
+    review_token: str
 
 
 class PendingSyncBody(BaseModel):
@@ -320,11 +322,34 @@ def put_config(body: ConfigBody):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+# A preview token is bound to the submitted file, saved YAML revision, and
+# a short time window. A missing token or a stale preview never mutates YAML.
+_IMPORT_REVIEW_SECRET = secrets.token_bytes(32)
+_IMPORT_REVIEW_PERIOD = 15 * 60
+
+
+def _import_review_token(text: str, revision: str, period: int) -> str:
+    payload = (revision + "\\n" + text + "\\n" + str(period)).encode("utf-8")
+    return hmac.new(_IMPORT_REVIEW_SECRET, payload, hashlib.sha256).hexdigest()
+
+
+def _valid_import_review(text: str, revision: str, token: str) -> bool:
+    if not isinstance(token, str):
+        return False
+    period = int(time.time() // _IMPORT_REVIEW_PERIOD)
+    return any(hmac.compare_digest(token, _import_review_token(text, revision, i))
+               for i in (period, period - 1))
+
+
 @app.post("/api/inspect-config")
 def inspect_config(body: ConfigBody):
     """Preview changes in a YAML file without importing it."""
     try:
-        return inspect_import(body.text)
+        comparison = inspect_import(body.text)
+        comparison["review_token"] = _import_review_token(
+            body.text, comparison["current_id"],
+            int(time.time() // _IMPORT_REVIEW_PERIOD))
+        return comparison
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -333,7 +358,16 @@ def inspect_config(body: ConfigBody):
 def import_config(body: ImportBody):
     try:
         comparison = inspect_import(body.text)
-        data = merge_text(body.text, source_filename=body.filename)
+        if body.approved is not True or not _valid_import_review(
+            body.text, comparison["current_id"], body.review_token
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Explicit, current YAML import review approval is required.")
+        # The caller can approve only the exact file/revision shown during
+        # preview. Concurrent YAML changes fail rather than syncing stale plans.
+        data = merge_text(body.text, source_filename=body.filename,
+                          expected_revision=comparison["current_id"])
         payload = _config_payload(data)
         visible = set(payload["playlists"])
         return {
@@ -342,6 +376,8 @@ def import_config(body: ImportBody):
             "comparison": comparison,
             "changed": [name for name in comparison["new"] + comparison["updated"] if name in visible],
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
