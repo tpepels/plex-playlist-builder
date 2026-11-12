@@ -271,8 +271,18 @@ def playlist_workspace(request: Request):
 
 @app.get("/api/workspace/maintenance")
 def workspace_maintenance():
-    """Read-only status for the automatic local cache updaters."""
-    return background_maintenance.snapshot()
+    """One cheap, read-only operational summary for the whole Music workspace."""
+    result=background_maintenance.snapshot()
+    result["album_verification"]=album_verification.snapshot()
+    result["playlist_drift"]=playlist_drift.snapshot()
+    try:
+        features,state=cached_features()
+        result["audio_coverage"]={
+            "cached":len(features),"provider_available":state.get("available"),
+            "pending":state.get("pending"),"last_sync":state.get("last_sync")}
+    except Exception as exc:
+        result["audio_coverage"]={"error":str(exc)[:180]}
+    return result
 
 
 @app.get("/api/health")
