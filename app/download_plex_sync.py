@@ -134,7 +134,7 @@ def published_ids(jobs):
     for job in jobs:
         if not isinstance(job, dict):
             continue
-        if (job.get("status") == "succeeded"
+        if (job.get("status") in {"succeeded", "partial"}
                 and (job.get("final_dir") or job.get("files"))):
             key = job.get("request_id") or job.get("id")
             if isinstance(key, str) and 0 < len(key) <= 160:
