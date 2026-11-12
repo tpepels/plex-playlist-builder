@@ -186,6 +186,15 @@ input{min-width:180px;flex:1}
         line(card,"status","Plex verification: "+v.stage.replaceAll("_"," ")+
           " · "+v.indexed_files+"/"+v.published_files+" files indexed");
         line(card,"detail",v.reason);
+        if (v.analysis_handoff) {
+          const state=v.analysis_handoff==="queued"
+            ? "accepted by the automatic AudioMuse queue"
+            : v.analysis_handoff==="pending"
+              ? "awaiting automatic AudioMuse queue admission"
+              : "existing album (no automatic historical reanalysis)";
+          line(card,"detail","AudioMuse: "+state);
+          if (v.analysis_error)line(card,"detail","Analysis handoff error: "+v.analysis_error);
+        }
       }
       if (job.final_dir) line(card,"path","Published to: " + job.final_dir);
       const actions = el("div","detail");
