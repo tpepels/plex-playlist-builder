@@ -28,6 +28,8 @@ function node() {
 function runUI(jobs, search = "") {
   const dom = new Map();
   const historyChanges = [];
+  let nextJobs = jobs;
+  let jobPoll;
   const byId = id => {
     if (!dom.has(id)) dom.set(id, node());
     return dom.get(id);
@@ -46,13 +48,16 @@ function runUI(jobs, search = "") {
       location: {search, pathname: "/"}, confirm() {return true;},
       history: {replaceState(_state, _title, path) {historyChanges.push(path);}},
     },
-    URLSearchParams, URL, fetch: async () => ({ok: false}),
-    setInterval() {}, setTimeout() {}, clearTimeout() {},
+    URLSearchParams, URL, fetch: async (path) => path === "/api/jobs"
+      ? {ok:true,json:async()=>nextJobs} : {ok:false},
+    setInterval(callback,ms) {if(ms===5000)jobPoll=callback;},
+    setTimeout() {}, clearTimeout() {},
     requestAnimationFrame() {},
     AbortController: class {},
   };
   vm.runInNewContext(source, context, {timeout: 1500});
-  return {byId, historyChanges};
+  return {byId, historyChanges,
+    setJobs(next){nextJobs=next},pollJobs(){return jobPoll?.()}};
 }
 
 function job(id, status, source) {
@@ -114,4 +119,28 @@ test("static server help and tool versions are collapsed by default", () => {
   assert.match(template, /<details class="compact-help">\s*<summary>Supported sources/);
   assert.match(template, /<details class="compact-help version-details">/);
   assert.match(template, /<summary>Advanced options<\/summary>/);
+});
+
+function urlsFromTree(node, result=[]) {
+  if (node.href) result.push(node.href);
+  for (const child of node.children || []) urlsFromTree(child,result);
+  return result;
+}
+
+test("a queue poll with unchanged data does not rebuild the download page",async()=>{
+  const running=job("unchanged-job", "running", "yt-dlp");
+  const ui=runUI([running]);
+  const old=ui.byId("jobs").children[0];
+  await ui.pollJobs();
+  assert.equal(ui.byId("jobs").children[0],old,
+    "Unchanged network polling must preserve expanded cards, focus and scroll");
+  ui.setJobs([{...running,progress:"50%"}]);
+  await ui.pollJobs();
+  assert.notEqual(ui.byId("jobs").children[0],old);
+});
+
+test("every visible download has a direct Plex-import diagnostic link",()=>{
+  const ui=runUI([job("queued-job-id","queued","yt-dlp")]);
+  const urls=urlsFromTree(ui.byId("jobs"));
+  assert(urls.includes("/downloads-audit?tab=history&q=queued-job-id"));
 });
