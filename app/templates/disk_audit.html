@@ -185,6 +185,19 @@ input{min-width:180px;flex:1}
       const actions = el("div","detail");
       if (!job.removed_from_queue) actions.append(link(
         downloader + "?job=" + encodeURIComponent(job.job_id),"Open download job"));
+      if (job.final_dir) {
+        // The album directory is the most reliable disk-search term;
+        // Plex display tags may use an entirely different release title.
+        const folderName=String(job.final_dir).replaceAll("\\","/")
+          .split("/").filter(Boolean).at(-1);
+        const inspect=el("button","","Compare album files with Plex");
+        inspect.type="button";
+        inspect.addEventListener("click",()=>{
+          $("query").value=folderName;
+          setTab("disk");
+        });
+        actions.append(inspect);
+      }
       if (job.url && /^https?:\/\//i.test(job.url)) {
         if (actions.childNodes.length) actions.append(el("span",""," · "));
         actions.append(link(job.url,"Open source"));
