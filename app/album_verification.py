@@ -24,6 +24,7 @@ STATE_FILE = Path(os.getenv("ALBUM_VERIFICATION_STATE_FILE", "/data/album-verifi
 RECHECK_SECONDS = 3 * 60
 RETRY_SECONDS = 10 * 60
 MAX_RESCAN_ATTEMPTS = 3
+_LAST_ERROR = ""
 
 
 def _now() -> str:
@@ -99,6 +100,7 @@ def refresh(*, now=None) -> dict:
     Never assumes an accepted scan completed. The first run checks historical
     jobs too, addressing restarts/downtime and the downloader sync baseline.
     """
+    global _LAST_ERROR
     now = time.time() if now is None else float(now)
     jobs = download_audit.read_downloader_jobs()
     disk = download_audit.read_disk_audit()
@@ -175,6 +177,7 @@ def refresh(*, now=None) -> dict:
         data["last_checked"]=_now()
         data["counts"]=dict(Counter(x["stage"] for x in next_items.values()))
         _write(data)
+        _LAST_ERROR = ""
         return {"last_checked":data["last_checked"],"counts":data["counts"],
                 "items":list(next_items.values()),"total":len(next_items)}
 
@@ -185,7 +188,8 @@ def snapshot() -> dict:
         data=_read()
     except (OSError,ValueError,RuntimeError) as exc:
         return {"ok":False,"error":str(exc),"items":[],"counts":{},"last_checked":None}
-    return {"ok":True,"last_checked":data["last_checked"],
+    return {"ok":not bool(_LAST_ERROR), "error":_LAST_ERROR or None,
+            "last_checked":data["last_checked"],
             "counts":data.get("counts",{}),"items":list(data["items"].values()),
             "total":len(data["items"])}
 
@@ -200,6 +204,7 @@ async def loop():
             await asyncio.to_thread(refresh)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            # Persistent last-good snapshot remains available; next run retries.
-            pass
+        except Exception as exc:
+            global _LAST_ERROR
+            # Surface failed background checks while preserving last-good data.
+            _LAST_ERROR=str(exc)[:240]
