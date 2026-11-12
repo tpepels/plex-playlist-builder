@@ -1177,6 +1177,38 @@ eligible for import-triggered Plex sync. Earlier pending changes are retained
 for a separate review. The global Sync pending action remains a deliberate
 separate operation.
 
+### Immediate AudioMuse analysis after verified downloads
+
+When the downloader publishes music and requests a Plex scan, the scan bridge
+**wakes the existing album verifier**. It checks Plex's actual indexed file
+paths, rather than trusting the download job status or a successful scan
+request. While an import is unresolved, the verifier rechecks every 45 seconds;
+during idle periods it still checks every three minutes.
+
+On the first transition of a newly downloaded album to **fully indexed**, the
+verifier converts the exact Plex track rating keys and parent album keys to a
+durable admission into the **existing** automatic AudioMuse queue. It starts the
+normal AudioMuse controller immediately when the upstream is idle, and records
+the normal upstream task ID. If AudioMuse is already busy, the same queue waits
+for the existing two-minute worker. Unmatched/ambiguous file identities are
+never guessed from album names and remain retryable. Failed queue writes remain
+pending across restarts; repeated verification uses the same job ID so the
+album cannot be enqueued twice.
+
+The regular 15-minute Plex catalogue observer and two-minute AudioMuse queue
+worker remain in place for music added outside the downloader, missed events
+or downtime. An initial scan of the existing downloader archive is treated as
+historical, not an instruction to reanalyze the whole collection. If a new
+download coincides with first-start catalogue initialization, missing per-track
+embeddings still cause the album to be queued.
+
+Inspect `GET /api/album-verification` for `analysis_handoff` per download
+(`pending`, `queued`, or `historical`). The Downloads diagnostics page shows
+the same state. Inspect `GET /api/workspace/maintenance` for the actual
+AudioMuse queue, active task, and coverage verification. A queued task is not
+yet proof of completed analysis. Upstream AudioMuse currently accepts only
+`num_recent_albums`, so the verification/retry layer remains necessary.
+
 ### Real album and AudioMuse completion evidence
 
 A background album verifier starts shortly after boot and checks every
