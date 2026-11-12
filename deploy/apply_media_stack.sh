@@ -84,10 +84,14 @@ if [ "$?" -ne 0 ]; then
 fi
 
 step "Verified private backup of both persistent state volumes"
-python3 "$MANAGER/deploy/backup_music_workspace.py" \
-    --manager-data /srv/plex-playlist-manager \
-    --downloader-state /srv/yt-dlp-server/state \
-    --backup-dir "$STACK/private-state-backups" ||
+# /srv/... files are created by containers and may be root-owned mode 0600.
+# A host-user Python backup cannot read them. Run only the backup reader in
+# the already-installed Python image, with root inside an isolated container,
+# read-only source mounts, no network, and a private writable output mount.
+# Keep live file ownership and modes unchanged.
+python3 "$MANAGER/deploy/privileged_state_backup.py" \
+    --stack "$STACK" \
+    --manager "$MANAGER" ||
     error "Persistent state backup failed; refusing to rebuild containers"
 
 step "Validate proposed Compose build paths and VPN override"
