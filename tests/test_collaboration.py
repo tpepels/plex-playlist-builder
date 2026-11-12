@@ -281,6 +281,7 @@ def test_api_zip_export_and_signed_proposal_preview_apply(env,monkeypatch):
     monkeypatch.setattr(main,"cached_library",lambda:lib)
     monkeypatch.setattr(main,"cached_features",lambda:(features,{"last_sync":"now"}))
     monkeypatch.setattr(main,"_generation_context",lambda:(plex,lib))
+    monkeypatch.setattr(main,"connect",lambda:(plex,None))
     client=TestClient(main.app)
     exported=client.get("/api/collaboration/export.zip")
     assert exported.status_code==200,exported.text[:300] if not exported.is_success else ""
@@ -303,3 +304,21 @@ def test_api_zip_export_and_signed_proposal_preview_apply(env,monkeypatch):
     assert approved.status_code==200,approved.text
     assert approved.json()["ok"]
     assert original._ids==["3","2","4"]
+
+
+def test_export_includes_live_plex_order_separate_from_saved_yaml(env):
+    plex,original,lib,features=env
+    original._ids=["3","1","2"]  # Unsynced edit in Plex.
+    live={"Existing":{"strict":True,"items":[{"rating_key":x} for x in original._ids]}}
+    path,manifest=c.build_export_zip(
+        lib,features,config_store.load()["playlists"],live_playlists=live)
+    try:
+        assert manifest["live_plex_playlists"]["status"]=="included"
+        with zipfile.ZipFile(path) as archive:
+            data=yaml.safe_load(archive.read("playlists.yml"))
+            assert [x["rating_key"] for x in data["playlists"]["Existing"]["items"]]==[
+                "1","2","3"]
+            assert [x["rating_key"] for x in
+                    data["live_plex_playlists"]["Existing"]["items"]]==["3","1","2"]
+    finally:
+        path.unlink(missing_ok=True)
