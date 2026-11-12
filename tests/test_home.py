@@ -91,7 +91,7 @@ def test_playlist_revision_status_is_read_only_and_does_not_export_yaml(monkeypa
         "counts":{"total":1,"needs_sync":1,"synced":0,"unverified":0}
     })
     status = main.config_status()
-    assert set(status) == {"version"}
+    assert set(status) == {"version","live_verification"}
     assert status["version"]["id"] == "latest-version"
     assert status["version"]["counts"]["needs_sync"] == 1
     assert "definitions" not in status
