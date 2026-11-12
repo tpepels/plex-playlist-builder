@@ -42,8 +42,9 @@ def snapshot():
     try:
         report=json.loads(FILE.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {"ok":True,"checked_at":None,"playlists":{},
-                "counts":{},"status":"pending"}
+        return {"ok":not bool(_LAST_ERROR),"checked_at":None,"playlists":{},
+                "counts":{},"status":"pending" if not _LAST_ERROR else "error",
+                "error":_LAST_ERROR or None}
     except (OSError,ValueError) as exc:
         return {"ok":False,"checked_at":None,"playlists":{},
                 "counts":{},"error":str(exc),"status":"error"}
