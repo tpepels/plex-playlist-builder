@@ -110,6 +110,8 @@ def refresh(*, now=None) -> dict:
         data=_read()
         old_items=data["items"]
         next_items={}
+        scan_jobs=[]
+        bridge=download_plex_sync.snapshot()
         for job in jobs:
             if not isinstance(job,dict) or not job.get("id"):
                 continue
@@ -142,30 +144,33 @@ def refresh(*, now=None) -> dict:
                 last=float(item["last_scan_request"] or 0)
                 # Also respect another service's recent scan, avoiding duplicate
                 # requests while Plex is already processing it.
-                bridge=download_plex_sync.snapshot()
                 most_recent=max(last,float(bridge.get("last_scan") or 0))
                 if item["attempts"] >= MAX_RESCAN_ATTEMPTS:
                     item["stage"]="requires_attention"
                     item["reason"]="Plex still does not index all published files after bounded scan retries. Check library mounts, supported formats and permissions."
                 elif now-most_recent >= RETRY_SECONDS:
-                    # Commit the intention *before* the external call; a crash
-                    # after Plex accepts it must not create a scan storm.
+                    # Batch all eligible albums into ONE Plex scan per pass.
+                    # Reserve and persist the attempt before requesting it.
                     item["attempts"]+=1
                     item["last_scan_request"]=now
                     item["stage"]="scan_requested"
-                    next_items[job_id]=item
-                    data["items"]={**old_items,**next_items}
-                    _write(data)
-                    try:
-                        music.update()
-                        item["reason"]="Plex accepted a new scan request; indexing remains unverified"
-                    except Exception as exc:
-                        item["stage"]="scan_failed"
-                        item["reason"]="Plex scan request failed: "+str(exc)[:200]
+                    scan_jobs.append(job_id)
                 elif last:
                     item["stage"]="scan_requested"
                     item["reason"]="Waiting to verify indexing after Plex scan"
             next_items[job_id]=item
+        if scan_jobs:
+            data["items"]={**old_items,**next_items}
+            _write(data)
+            try:
+                music.update()
+                for key in scan_jobs:
+                    next_items[key]["reason"] = (
+                        "Plex accepted one batched scan request; indexing remains unverified")
+            except Exception as exc:
+                for key in scan_jobs:
+                    next_items[key]["stage"]="scan_failed"
+                    next_items[key]["reason"]="Plex scan request failed: "+str(exc)[:200]
         data["items"]=next_items
         data["last_checked"]=_now()
         data["counts"]=dict(Counter(x["stage"] for x in next_items.values()))
@@ -187,8 +192,10 @@ def snapshot() -> dict:
 
 async def loop():
     import asyncio
+    delay=15
     while True:
-        await asyncio.sleep(RECHECK_SECONDS)
+        await asyncio.sleep(delay)
+        delay=RECHECK_SECONDS
         try:
             await asyncio.to_thread(refresh)
         except asyncio.CancelledError:
