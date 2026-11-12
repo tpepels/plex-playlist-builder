@@ -1,29 +1,32 @@
-/* Shared Signal Console theme control. No dependencies or network calls. */
+/* One persisted appearance preference for the entire music workspace. */
 (() => {
+  "use strict";
   const key = "signal-console-theme-v1";
+  const themes = new Set(["cyber", "slate", "terminal"]);
   const root = document.documentElement;
-  const toggle = document.getElementById("signal-theme-toggle");
-  if (!toggle) return;
+  const select = document.getElementById("signal-theme-toggle");
+  if (!select) return;
+
   let current = "cyber";
   try {
-    current = localStorage.getItem(key) === "slate" ? "slate" : "cyber";
-  } catch (_) { /* Private browsing / disabled storage */ }
+    const stored = localStorage.getItem(key);
+    if (themes.has(stored)) current = stored;
+  } catch (_) { /* Storage may be disabled; keep the default. */ }
+
   function apply(value) {
+    if (!themes.has(value)) return;
+    current = value;
     root.dataset.signalTheme = value;
+    select.value = value;
     const mark = document.querySelector(".signal-mark");
     if (mark) {
-      const file = value === "cyber" ? "signal-mark.svg" : "signal-mark-static.svg";
-      // Only replace the literal filename in this same-origin asset path.
-      mark.src = mark.src.replace(/signal-mark(?:-static)?\.svg(?:\?.*)?$/, file);
+      const name = value === "cyber" ? "signal-mark.svg" : "signal-mark-static.svg";
+      mark.src = mark.src.replace(/signal-mark(?:-static)?\.svg(?:\?.*)?$/, name);
     }
-    toggle.setAttribute("aria-pressed", String(value === "cyber"));
-    toggle.textContent = value === "cyber" ? "CYBER: ON" : "CYBER: OFF";
-    toggle.title = value === "cyber" ? "Switch to quieter dark theme" : "Enable animated cyber theme";
+    // The header, all pages and the diagnostics inherit the same theme
+    // without a reload or a parallel navigation control.
+    try { localStorage.setItem(key, current); } catch (_) {}
   }
   apply(current);
-  toggle.addEventListener("click", () => {
-    current = current === "cyber" ? "slate" : "cyber";
-    apply(current);
-    try { localStorage.setItem(key, current); } catch (_) {}
-  });
+  select.addEventListener("change", () => apply(select.value));
 })();
