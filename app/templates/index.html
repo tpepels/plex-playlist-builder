@@ -765,7 +765,8 @@ $("collabApprove").onclick=async()=>{
   try{
     const result=await api("/api/collaboration/proposals/apply",{
       method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({...reviewedCollaboration,approved:true})
+      body:JSON.stringify({proposal:reviewedCollaboration.proposal,
+        review_token:reviewedCollaboration.review_token,approved:true})
     });
     const applied=result.results||[];
     const report=applied.map(x=>x.name+": "+(x.sync_state||x.status)).join("; ");
