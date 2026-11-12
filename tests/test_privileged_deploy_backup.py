@@ -182,3 +182,55 @@ def test_actual_deployment_calls_privileged_reader_not_host_user_backup():
     assert 'python3 "$MANAGER/deploy/privileged_state_backup.py"' in backup_section
     assert 'python3 "$MANAGER/deploy/backup_music_workspace.py"' not in backup_section
     assert 'error "Persistent state backup failed; refusing to rebuild containers"' in backup_section
+
+
+def test_host_backup_cli_permission_error_uses_isolated_reader(
+    tmp_path,monkeypatch,capsys
+):
+    # Regression for the user's exact traceback:
+    # /home/.../deploy/backup_music_workspace.py -> path.read_bytes
+    # PermissionError: /srv/plex-playlist-manager/album-verification.json
+    stack,manager,state,downloader=data(tmp_path)
+    output=stack/"private-state-backups"
+    invoked=[]
+    def denied(*args,**kwargs):
+        raise PermissionError(
+            13,"Permission denied",
+            str(state/"album-verification.json"))
+    monkeypatch.setattr(archive_tool,"create",denied)
+    def isolated(target_stack,target_manager,**options):
+        invoked.append((target_stack,target_manager,options))
+        return output/"verified.zip"
+    monkeypatch.setattr(runner,"backup",isolated)
+    monkeypatch.setattr(sys,"argv",[
+        "backup_music_workspace.py",
+        "--manager-data",str(state),
+        "--downloader-state",str(downloader),
+        "--backup-dir",str(output),
+    ])
+    archive_tool.main()
+    assert len(invoked)==1
+    assert invoked[0][2]["manager_data"]==state
+    assert invoked[0][2]["downloader_state"]==downloader
+    assert invoked[0][2]["backup_dir"]==output
+    assert "switching to isolated Docker backup reader" in capsys.readouterr().out
+
+
+def test_privileged_container_never_recursively_restarts_backup_on_denial(
+    tmp_path,monkeypatch
+):
+    stack,manager,state,downloader=data(tmp_path)
+    def denied(*args,**kwargs):
+        raise PermissionError(13,"Permission denied",str(state/"album-verification.json"))
+    monkeypatch.setattr(archive_tool,"create",denied)
+    monkeypatch.setattr(runner,"backup",lambda *a,**kw:
+                        pytest.fail("Privileged reader attempted recursion"))
+    monkeypatch.setattr(sys,"argv",[
+        "backup_music_workspace.py",
+        "--manager-data",str(state),
+        "--downloader-state",str(downloader),
+        "--backup-dir",str(stack/"private-state-backups"),
+        "--backup-owner-uid","1000","--backup-owner-gid","1000",
+    ])
+    with pytest.raises(PermissionError):
+        archive_tool.main()
