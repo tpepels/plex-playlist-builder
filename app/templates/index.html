@@ -825,6 +825,16 @@ $("proposalFile").onchange=async()=>{
       ' · Moved '+p.moved+(p.playlist_id?' · Existing Plex ID '+esc(p.playlist_id):
       ' · New Plex playlist')+'</p>'+
       (p.notes?'<p>Proposal notes: '+esc(p.notes)+'</p>':'')+
+      '<p>Quality: '+(p.quality?.unique_artists??0)+' artists · '+
+      (p.quality?.unique_albums??0)+' albums · '+
+      (p.quality?.full_embedding_coverage?.tracks??0)+'/'+
+      (p.quality?.full_embedding_coverage?.total??0)+' complete embedding pairs · '+
+      (p.quality?.audio_similarity?.mean??'unmeasured')+' mean adjacent similarity · '+
+      (p.quality?.energy_changes?.maximum??'unmeasured')+' maximum energy change</p>'+
+      (p.quality?.warnings?.length?'<p>Review: '+esc(p.quality.warnings.join('; '))+'</p>':'')+
+      (p.quality?.existing_overlaps?.length?'<p>Existing playlist overlap: '+
+         esc(p.quality.existing_overlaps.slice(0,3).map(x=>
+           x.name+' ('+Math.round(x.fraction_of_proposal*100)+'%)').join(', '))+'</p>':'')+
       '<ol>'+p.track_order.map((t,i)=>'<li>'+esc(t.artist)+' — '+esc(t.title)+
         ' · '+esc(t.album)+' · Plex ID '+esc(t.id)+'</li>').join('')+'</ol></div></details>'
     ).join("");
