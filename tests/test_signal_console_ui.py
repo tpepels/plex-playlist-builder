@@ -16,12 +16,21 @@ def test_shared_theme_assets_present_and_respect_reduced_motion():
     assert "prefers-reduced-motion:reduce" in animated
     assert "prefers-reduced-motion:reduce" in style
     assert "signal-mark-static.svg" in script
-    assert "aria-pressed" in script
+    assert '["cyber", "slate", "terminal"]' in script
+    assert "select.addEventListener(\"change\"" in script
+    assert "signal-console-theme-v1" in script
+    terminal = (STATIC / "site-navigation.css").read_text()
+    assert 'html[data-signal-theme="terminal"]' in terminal
+    assert "prefers-reduced-motion:reduce" in terminal
 
 
 def test_all_pages_load_theme_and_brand():
     navigation = (TEMPLATES / "_site_navigation.html").read_text()
     assert navigation.count('id="signal-theme-toggle"') == 1
+    assert '<select id="signal-theme-toggle"' in navigation
+    for theme in ("cyber","slate","terminal"):
+        assert f'<option value="{theme}">' in navigation
+    assert "aria-pressed" not in navigation
     assert "signal-mark.svg" in navigation
     for filename in ("index.html", "album_download.html", "disk_audit.html",
                      "download_audit.html", "home.html", "playlist_generator.html",
