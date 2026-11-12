@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import html
 import io
+import json
 import os
 import re
 import secrets
@@ -582,7 +583,7 @@ async def collaboration_proposal_apply(request: Request):
         raise HTTPException(status_code=403, detail="Same-origin approval required.")
     body = await _proposal_bytes(request)
     try:
-        data = __import__("json").loads(body)
+        data = json.loads(body)
         if not isinstance(data,dict) or set(data)!={"proposal","review_token","approved"}:
             raise collaboration.CollaborationError("Invalid approval body.")
         proposal=collaboration.normalize_proposal(data["proposal"])
