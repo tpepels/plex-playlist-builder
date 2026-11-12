@@ -135,6 +135,45 @@
       const line = $("maintenance-status");
       if (maintenance.status === "fulfilled") {
         const data = maintenance.value;
+        const verification=data.album_verification||{};
+        const verifiedCounts=verification.counts||{};
+        const unresolved=["awaiting_index","scan_requested","scan_failed",
+          "requires_attention","missing_on_disk","unverifiable",
+          "partially_downloaded"].reduce((count,key)=>count+(Number(verifiedCounts[key])||0),0);
+        $("unindexed-count").textContent=verification.ok===false?"—":String(unresolved);
+        $("unindexed-detail").textContent=!verification.last_checked?
+          "Verification pending first scan":
+          verification.ok===false?"Verification state unavailable":
+          unresolved?"Some imports need investigation or indexing":"All reported published albums verified";
+        if(verification.ok===false){
+          items.push({title:"Album verification state unavailable",
+            detail:String(verification.error||"Unknown error").slice(0,150),
+            link:"/downloads-audit",action:"Inspect imports",kind:"error"});
+        } else if(unresolved){
+          items.push({title:unresolved+" album import(s) need checking",
+            detail:(verifiedCounts.requires_attention||0)+" exhausted scan retries · "+
+              (verifiedCounts.missing_on_disk||0)+" missing on disk · "+
+              (verifiedCounts.awaiting_index||0)+" awaiting Plex",
+            link:"/downloads-audit",action:"Diagnose albums",kind:"warning"});
+        }
+        const drift=data.playlist_drift||{};
+        const driftCounts=drift.counts||{};
+        const changed=(Number(driftCounts.drift)||0)+(Number(driftCounts.missing)||0)+
+          (Number(driftCounts.ambiguous)||0);
+        $("drift-count").textContent=drift.ok===false?"—":String(changed);
+        $("drift-detail").textContent=!drift.checked_at?
+          "Waiting for first live Plex comparison":
+          changed?"Saved YAML differs from live Plex":"No detected live playlist differences";
+        if(changed)items.push({title:changed+" playlist(s) differ from Plex",
+          detail:"Review external edits, missing playlists or changed track order",
+          link:"/playlists",action:"Review differences",kind:"warning"});
+        if(drift.ok===false)items.push({title:"Live playlist drift monitor unavailable",
+          detail:String(drift.error||"State error").slice(0,150),
+          link:"/playlists",action:"Review",kind:"error"});
+        const coverage=data.audio_coverage||{};
+        if(coverage.error)items.push({title:"AudioMuse feature cache cannot be read",
+          detail:String(coverage.error).slice(0,150),
+          link:"/playlists?work=analysis",action:"Review",kind:"warning"});
         const auto = data.automatic_analysis || {};
         if (!data.enabled) {
           line.textContent = "Background music updates are disabled on the server.";
@@ -155,7 +194,10 @@
             (Number(audio.pending) > 0 ? " · " + audio.pending + " cache records queued" : "") +
             (auto.enabled === false ? " · New-music analysis disabled" :
               auto.inflight ? " · Audio analysis running" :
-              Number(auto.pending) > 0 ? " · " + auto.pending + " albums awaiting analysis" : "");
+              Number(auto.pending) > 0 ? " · " + auto.pending + " albums awaiting analysis" : "")+
+            (coverage.cached!=null?" · AudioMuse "+coverage.cached+
+              "/"+(coverage.provider_available??"?")+" cached":"")+
+            (Number(coverage.pending)>0?" · "+coverage.pending+" feature records pending":"");
           for (const [job, label, link] of [
             [audio, "Audio feature cache", "/playlists?work=analysis"],
             [library, "Plex music index", "/playlists"],
@@ -169,6 +211,10 @@
         }
       } else {
         line.textContent = "Automatic update status is unavailable.";
+        $("unindexed-count").textContent = "—";
+        $("drift-count").textContent = "—";
+        $("unindexed-detail").textContent = "Cannot inspect album verification";
+        $("drift-detail").textContent = "Cannot inspect playlist drift";
         complete = false;
         items.push({title:"Automatic update status could not be checked",
           detail:"Cannot verify music-cache jobs are running",
