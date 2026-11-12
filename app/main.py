@@ -90,7 +90,7 @@ from .disk_reconciliation import reconcile_inventory
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .downloader_bridge import router as downloader_router
 from .download_page import DownloadPageError, fetch_native_page
-from . import download_plex_sync, background_maintenance, collaboration, album_verification, playlist_drift
+from . import download_plex_sync, background_maintenance, collaboration, album_verification, playlist_drift, music_snapshot
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
     connect,
@@ -682,20 +682,17 @@ def api_disk_reconciliation(
 ):
     """Check ALL disk album folders, even if no download job survived."""
     try:
-        inventory = read_music_inventory()
+        checked=music_snapshot.get(read_music_inventory,connect)
+        result=reconcile_inventory(checked["inventory"],checked["tracks"],
+                                   query=q,status=status,offset=offset,limit=limit)
+        result["plex_music_locations"]=checked["locations"]
+        result["snapshot_fetched_at"]=checked["fetched_at"]
+        result["cached_snapshot"]=checked["cached"]
+        return result
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    try:
-        _, music = connect()
-        tracks = music.searchTracks()  # fresh, no 5-minute insight cache
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="Could not read Plex Music files.") from exc
-    result = reconcile_inventory(
-        inventory, tracks, query=q, status=status, offset=offset, limit=limit)
-    result["plex_music_locations"] = [
-        str(path) for path in (getattr(music, "locations", None) or []) if path
-    ]
-    return result
+        raise HTTPException(status_code=503, detail="Could not compare disk and Plex Music files.") from exc
 
 
 @app.get("/api/album-verification")
@@ -750,6 +747,7 @@ def scan_music_for_downloads():
     try:
         _, music = connect()
         music.update()
+        music_snapshot.invalidate()
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Could not request a Plex Music scan.") from exc
     return {"ok": True, "status": "scan_requested",
