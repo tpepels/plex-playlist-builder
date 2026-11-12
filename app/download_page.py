@@ -24,7 +24,8 @@ _ACTIONS = """<div class="workspace-page-heading">
   <p>Add a source or manage the queue, retries and completed imports.</p>
 </div>
 <div class="download-native-actions">
-  <button id="scan-plex" type="button">Scan Plex for new music</button>
+  <a href="/downloads-audit" class="download-reconciliation-link">Find albums missing from Plex</a>
+  <a href="/downloads-audit?tab=history">Download history and errors</a>
   <a href="/downloads/engine/chrome-extension.zip" download>Chrome extension</a>
 </div>
 <div id="engine-status" class="download-native-status" role="status" aria-live="polite">Checking the download queue…</div>
@@ -32,8 +33,10 @@ _ACTIONS = """<div class="workspace-page-heading">
 
 _ASSETS = """<link rel="stylesheet" href="/static/site-navigation.css">
 <link rel="stylesheet" href="/static/download-native.css">"""
-_SCRIPTS = """<script src="/static/site-navigation.js" defer></script>
-<script src="/static/download-portal.js" defer></script>"""
+# The offline recovery script reloads the page when the native form returns.
+# Never load it on a successful native document: it would detect its *own*
+# download form on every poll and reload the entire page indefinitely.
+_SCRIPTS = """<script src="/static/site-navigation.js" defer></script>"""
 
 
 class DownloadPageError(RuntimeError):
