@@ -139,20 +139,28 @@ The ZIP contains four UTF-8 files:
 
 | File | Contents |
 | --- | --- |
-| `tracks.csv` | Every currently indexed Plex track ID and artist, album, title, year, genre, disc/track and duration; known AudioMuse tempo, energy, musical key, scale, mood vector and **all non-embedding raw analysis fields** encoded in `audio_analysis_raw_json`. Each row explicitly labels missing, partial, complete or invalid embeddings. |
+| `tracks.csv` | Every currently indexed Plex track ID and artist, album, title, year, genre, disc/track and duration; enriched Plex Track XML attributes, moods, tags and media codec/bitrate data in `plex_metadata_json` (no filesystem path); known AudioMuse tempo, energy, musical key, scale, mood vector and **all non-embedding raw analysis fields** in `audio_analysis_raw_json`. Every row marks missing, partial, complete or invalid embeddings. |
 | `embeddings.jsonl` | One JSON line per Plex track **plus** orphan AudioMuse records. Full, *unnormalized* float32 MusiCNN and CLAP vectors, exact original base64 payloads, complete raw API record, each vector's availability/validity, and an `in_plex_library` flag. No embedding dimensions or extra analysis measurements are truncated. |
 | `playlists.yml` | Existing saved YAML definitions under `playlists`, alongside actual live Plex playlist order under `live_plex_playlists` when Plex is reachable. These can differ. A live Plex outage does not invent playlist ordering; the missing snapshot is declared in the manifest. |
 | `manifest.json` | Timestamp, snapshot revisions, cached-analysis provenance and complete coverage/missing-data counts. This is the authority for proposal source IDs. |
 
 The complete track catalogue comes from the last successfully indexed Plex
 snapshot (normally updated every 15 minutes). Its age appears in the
-manifest. Live playlist order is fetched during export when available.
+manifest. Legacy snapshots that lack enriched Plex metadata are counted
+explicitly and filled at the next successful background rescan. Live
+playlist order is fetched during export when available.
 The background AudioMuse sync now stores *every* field returned by its
 sync API, instead of discarding unknown fields. On first deployment it
 upgrades older cached records in batches of 500 without deleting existing
 analysis or blocking the UI. Missing measurements remain explicitly
-missing; this exporter cannot produce analysis that upstream AudioMuse
-has never computed.
+missing; `audio_sync_pending` and the coverage counters distinguish records
+still awaiting synchronization from never-analyzed tracks. Malformed or
+non-finite values are preserved with explicit markers. The exporter cannot
+produce analysis that upstream AudioMuse has never computed.
+
+The ZIP may contain metadata from your personal collection, including
+upstream-provided source paths in the *raw AudioMuse* records. Review it
+before sharing beyond your private assistant conversation.
 
 ### Returning a proposed playlist
 
