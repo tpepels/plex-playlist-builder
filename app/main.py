@@ -90,7 +90,7 @@ from .disk_reconciliation import reconcile_inventory
 from .ytdlp_submit import AlbumQueueError, downloader_ui_url, queue_album
 from .downloader_bridge import router as downloader_router
 from .download_page import DownloadPageError, fetch_native_page
-from . import download_plex_sync, background_maintenance, collaboration
+from . import download_plex_sync, background_maintenance, collaboration, album_verification
 from .plex_client import (
     DEFAULT_HIDDEN_PLAYLIST_TITLES,
     connect,
@@ -114,18 +114,22 @@ async def start_downloader_library_sync():
         app.state.downloader_sync_task = asyncio.create_task(
             download_plex_sync.sync_loop(), name="download-plex-sync",
         )
+        app.state.album_verification_task = asyncio.create_task(
+            album_verification.loop(), name="album-verification",
+        )
 
 
 @app.on_event("shutdown")
 async def stop_downloader_library_sync():
     await background_maintenance.stop_tasks(app)
-    task = getattr(app.state, "downloader_sync_task", None)
-    if task is not None:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+    for task in (getattr(app.state, "downloader_sync_task", None),
+                 getattr(app.state, "album_verification_task", None)):
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 
@@ -683,6 +687,12 @@ def api_disk_reconciliation(
     return result
 
 
+@app.get("/api/album-verification")
+def album_verification_status():
+    """Persisted per-album checkpoints; no live network calls in a GET."""
+    return album_verification.snapshot()
+
+
 @app.get("/api/download-history")
 def api_download_history(
     q: str = Query(default="", max_length=150),
@@ -691,8 +701,13 @@ def api_download_history(
     limit: int = Query(default=100, ge=1, le=200),
 ):
     try:
-        return read_download_history(query=q, status=status,
+        result=read_download_history(query=q, status=status,
                                      offset=offset, limit=limit)
+        indexed={str(item["job_id"]): item for item in
+                 album_verification.snapshot().get("items",[])}
+        for item in result.get("items",[]):
+            item["plex_verification"]=indexed.get(str(item.get("job_id") or ""))
+        return result
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
