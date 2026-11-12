@@ -17,7 +17,8 @@ from pathlib import Path
 import tempfile
 import time
 
-from . import download_audit, download_plex_sync
+from . import download_audit, download_plex_sync, automatic_analysis, background_maintenance
+from .insights import track_model
 from .plex_client import connect
 
 STATE_FILE = Path(os.getenv("ALBUM_VERIFICATION_STATE_FILE", "/data/album-verification.json"))
@@ -94,6 +95,45 @@ def _stage(report: dict, job: dict) -> tuple[str,str]:
     return "not_published", report["reason"]
 
 
+def _indexed_download_tracks(jobs: list[dict], tracks: list) -> tuple[dict, dict]:
+    """Resolve downloader files to exact Plex rating keys using the same
+    normalized import-relative file identity as the disk reconciliation.
+
+    A missing or ambiguous file identity is an error, never a best-guess
+    artist/album title match. Return the complete contemporaneous Plex album
+    mapping so the AudioMuse queue can verify every track in each release.
+    """
+    all_tracks = {}
+    by_file = {}
+    for track in tracks:
+        identity = track_model(track)
+        key, album = identity["key"], identity["album_key"]
+        if not key or not album:
+            continue
+        all_tracks[key] = album
+        for path in download_audit._track_parts(track):
+            relative = download_audit._path_key(path)
+            if relative:
+                by_file.setdefault(relative, set()).add(key)
+    downloads = {}
+    for job in jobs:
+        files = job.get("files") or []
+        if not files:
+            raise ValueError("Published job has no recorded audio paths.")
+        matched = {}
+        for filename in files:
+            relative = download_audit._path_key(filename)
+            choices = by_file.get(relative) if relative else None
+            if not choices or len(choices) != 1:
+                raise ValueError(
+                    "Published file has no unique Plex track identity: " +
+                    str(filename)[-140:])
+            key = next(iter(choices))
+            matched[key] = all_tracks[key]
+        downloads[str(job["id"])] = matched
+    return downloads, all_tracks
+
+
 def refresh(*, now=None) -> dict:
     """Reconcile all retained publications and request bounded scans if needed.
 
@@ -108,11 +148,14 @@ def refresh(*, now=None) -> dict:
     tracks = music.searchTracks()  # Actual Plex media paths, not album tags.
     reconciled = download_audit.reconcile(jobs,tracks,disk=disk)
     reports = {str(r["job_id"]):r for r in reconciled["items"]}
+    newly_queued = False
     with _lock():
         data=_read()
         old_items=data["items"]
         next_items={}
         scan_jobs=[]
+        verified_handoffs=[]
+        existing_observation = bool(data.get("last_checked"))
         bridge=download_plex_sync.snapshot()
         for job in jobs:
             if not isinstance(job,dict) or not job.get("id"):
@@ -142,6 +185,22 @@ def refresh(*, now=None) -> dict:
             }
             if stage == "indexed":
                 item["indexed_at"]=item["indexed_at"] or _now()
+                # Old indexed downloads predate this event integration. Do
+                # not retroactively enqueue the entire existing collection
+                # when the feature is deployed or the verifier is initialized.
+                prior_handoff=previous.get("analysis_handoff")
+                if prior_handoff:
+                    handoff=prior_handoff
+                elif previous.get("stage")=="indexed" and (
+                    previous.get("published_files")==item["published_files"]):
+                    handoff="historical"
+                elif existing_observation:
+                    handoff="pending"
+                else:
+                    handoff="historical"
+                item["analysis_handoff"]=handoff
+                if handoff=="pending":
+                    verified_handoffs.append(job)
             elif stage == "awaiting_index":
                 last=float(item["last_scan_request"] or 0)
                 # Also respect another service's recent scan, avoiding duplicate
@@ -178,10 +237,41 @@ def refresh(*, now=None) -> dict:
         data["items"]=next_items
         data["last_checked"]=_now()
         data["counts"]=dict(Counter(x["stage"] for x in next_items.values()))
+        # This first write makes every pending handoff durable. If the process
+        # crashes before the analysis queue accepts it, the next verification
+        # pass retries it. The analysis queue deduplicates by downloader job ID.
         _write(data)
+        if verified_handoffs and background_maintenance.enabled() and automatic_analysis.enabled():
+            try:
+                matched, all_plex_tracks = _indexed_download_tracks(verified_handoffs, tracks)
+                admission = automatic_analysis.observe_verified_downloads(
+                    matched, all_plex_tracks)
+                if not admission.get("disabled"):
+                    acknowledged=set(admission.get("acknowledged_jobs") or [])
+                    # Already accepted job IDs must also be acknowledged
+                    # locally after a crash between the two durable writes.
+                    acknowledged.update(matched)
+                    for job_id in acknowledged:
+                        next_items[job_id]["analysis_handoff"]="queued"
+                        next_items[job_id].pop("analysis_error", None)
+                    newly_queued=bool(admission.get("pending"))
+            except Exception as exc:
+                for job in verified_handoffs:
+                    next_items[str(job["id"])]["analysis_error"]=str(exc)[:200]
+                # Keep pending: failure cannot erase the analysis trigger.
+            _write(data)
         _LAST_ERROR = ""
-        return {"last_checked":data["last_checked"],"counts":data["counts"],
+        result={"last_checked":data["last_checked"],"counts":data["counts"],
                 "items":list(next_items.values()),"total":len(next_items)}
+    # A confirmed indexed album launches the existing AudioMuse controller
+    # immediately; the periodic two-minute worker still reconciles failures,
+    # upstream busy state, and tracks from all other import sources.
+    if newly_queued:
+        try:
+            result["analysis_trigger"]=automatic_analysis.run_once()
+        except Exception as exc:
+            result["analysis_trigger_error"]=str(exc)[:200]
+    return result
 
 
 def snapshot() -> dict:
