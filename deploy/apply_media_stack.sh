@@ -54,8 +54,24 @@ step "Preflight: refuse migration while downloads are active or queued"
 require_idle_downloader
 
 step "Fast-forward the single monorepo checkout"
+before_revision="$(git -C "$MANAGER" rev-parse HEAD)" ||
+    error "Cannot identify current monorepo revision"
 git -C "$MANAGER" pull --ff-only ||
     error "Monorepo git pull failed; no Compose changes made"
+after_revision="$(git -C "$MANAGER" rev-parse HEAD)" ||
+    error "Cannot identify updated monorepo revision"
+if [ "$before_revision" != "$after_revision" ]; then
+    # Bash can continue executing a previously opened copy of this script
+    # after git pull replaces it on disk. A freshly pulled Python backup
+    # script with an OLD shell caller caused the observed host PermissionError.
+    # Always re-exec the just-pulled deployment script before any backup,
+    # Compose changes, builds or container replacement.
+    if [ "${MEDIA_STACK_DEPLOY_REEXEC:-0}" = "1" ]; then
+        error "Checkout changed twice during one deployment; refusing a re-exec loop"
+    fi
+    step "Restart deployment with the updated script (no containers changed)"
+    MEDIA_STACK_DEPLOY_REEXEC=1 exec bash "$MANAGER/deploy/apply_media_stack.sh" "$@"
+fi
 [ -f "$ENGINE/Dockerfile" ] ||
     error "Monorepo checkout is missing yt-dlp-server after pull"
 
