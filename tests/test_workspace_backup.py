@@ -76,3 +76,26 @@ def test_tampered_or_traversal_archive_is_rejected_before_restore(tmp_path):
         backup.verify_archive(tampered)
     with pytest.raises(RuntimeError,match="checksum"):
         backup.restore(tampered,manager,downloader,apply=True)
+
+
+def test_cli_restore_refuses_running_containers(monkeypatch):
+    from types import SimpleNamespace
+    calls=[]
+    def inspect(args,**kwargs):
+        calls.append(args[-1])
+        return SimpleNamespace(returncode=0,stdout="true\\n",stderr="")
+    monkeypatch.setattr(backup.subprocess,"run",inspect)
+    with pytest.raises(RuntimeError,match="Stop plex-playlist-manager"):
+        backup.require_stopped_containers()
+    assert calls==["plex-playlist-manager"]
+
+
+def test_cli_restore_accepts_only_confirmed_stopped_containers(monkeypatch):
+    from types import SimpleNamespace
+    calls=[]
+    def inspect(args,**kwargs):
+        calls.append(args[-1])
+        return SimpleNamespace(returncode=0,stdout="false\\n",stderr="")
+    monkeypatch.setattr(backup.subprocess,"run",inspect)
+    backup.require_stopped_containers()
+    assert calls==["plex-playlist-manager","yt-dlp-server"]
