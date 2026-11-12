@@ -82,7 +82,15 @@ def verify_archive(archive: Path):
     return metadata
 
 
-def create(manager: Path, downloader: Path, backup_dir: Path, *, keep=7):
+def create(manager: Path, downloader: Path, backup_dir: Path, *, keep=7,
+           backup_owner_uid: int | None = None,
+           backup_owner_gid: int | None = None):
+    if (backup_owner_uid is None) != (backup_owner_gid is None):
+        raise ValueError("Backup owner UID and GID must be provided together.")
+    if backup_owner_uid is not None and (
+        backup_owner_uid < 0 or backup_owner_gid < 0
+    ):
+        raise ValueError("Backup owner UID and GID cannot be negative.")
     backup_dir.mkdir(parents=True,exist_ok=True)
     os.chmod(backup_dir,0o700)
     stamp=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -110,6 +118,11 @@ def create(manager: Path, downloader: Path, backup_dir: Path, *, keep=7):
             archive.writestr("manifest.json",json.dumps(metadata,indent=2))
         verify_archive(Path(temp))
         os.replace(temp,destination)
+        if backup_owner_uid is not None:
+            # The isolated root backup reader returns a private, mode-0600
+            # archive to the ordinary deployment user without altering any
+            # owner/mode on the live Docker state files.
+            os.chown(destination, backup_owner_uid, backup_owner_gid)
         fd=os.open(backup_dir,os.O_RDONLY)
         try:os.fsync(fd)
         finally:os.close(fd)
@@ -177,6 +190,8 @@ def main():
     parser.add_argument("--manager-data",type=Path,default=Path("/srv/plex-playlist-manager"))
     parser.add_argument("--downloader-state",type=Path,default=Path("/srv/yt-dlp-server/state"))
     parser.add_argument("--backup-dir",type=Path,default=Path("/srv/music-workspace-backups"))
+    parser.add_argument("--backup-owner-uid",type=int)
+    parser.add_argument("--backup-owner-gid",type=int)
     parser.add_argument("--restore",type=Path)
     parser.add_argument("--apply",action="store_true",help="Explicitly overwrite with retained pre-restore copies")
     args=parser.parse_args()
@@ -186,7 +201,9 @@ def main():
         print(json.dumps(restore(args.restore,args.manager_data,args.downloader_state,
                                  apply=args.apply),indent=2))
     else:
-        archive=create(args.manager_data,args.downloader_state,args.backup_dir)
+        archive=create(args.manager_data,args.downloader_state,args.backup_dir,
+                       backup_owner_uid=args.backup_owner_uid,
+                       backup_owner_gid=args.backup_owner_gid)
         print("Verified private backup:",archive)
 
 
