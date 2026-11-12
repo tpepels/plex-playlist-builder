@@ -14,7 +14,7 @@ from .config_store import fingerprint, load, mark_synced, save_text
 from .playlist_curator import CurationConflict, compute_operations, signature, yaml_items
 import yaml
 
-_WRITE_LOCK = threading.Lock()
+_WRITE_LOCK = threading.RLock()  # permits one approved multi-playlist import to serialize writes
 
 
 def find_live(plex, name: str):
