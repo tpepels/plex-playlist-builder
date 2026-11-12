@@ -86,7 +86,12 @@ def backup(stack: Path, manager_checkout: Path, *,
     docker_cmd = [
         "docker", "run", "--rm", "--network", "none", "--read-only",
         "--user", "0:0", "--security-opt", "no-new-privileges",
-        "--cap-drop", "ALL", "--cap-add", "DAC_READ_SEARCH",
+        "--cap-drop", "ALL",
+        # DAC_READ_SEARCH permits reading mode-0600 Docker state; output
+        # lives in a host-user-owned mode-0700 directory, so root inside
+        # this isolated reader also needs DAC_OVERRIDE to create the archive.
+        # Both source mounts are read-only, preventing modification there.
+        "--cap-add", "DAC_READ_SEARCH", "--cap-add", "DAC_OVERRIDE",
         "--cap-add", "FOWNER", "--cap-add", "CHOWN",
         "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=536870912",
         "--mount", _mount(backup_script.parent, "/backup-tools", readonly=True),
