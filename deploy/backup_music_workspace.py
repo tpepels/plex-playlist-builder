@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import tempfile
 import zipfile
 
@@ -155,6 +156,22 @@ def restore(archive: Path,manager:Path,downloader:Path,*,apply=False):
     return {"dry_run":False,"files":plan}
 
 
+def require_stopped_containers():
+    """Refuse a CLI restore while either service can rewrite restored state."""
+    for service in ("plex-playlist-manager","yt-dlp-server"):
+        try:
+            result=subprocess.run(
+                ["docker","inspect","--format","{{.State.Running}}",service],
+                capture_output=True,text=True,timeout=8,check=False)
+        except (FileNotFoundError,subprocess.TimeoutExpired) as exc:
+            raise RuntimeError("Cannot verify Docker services are stopped.") from exc
+        if result.returncode == 0 and result.stdout.strip() == "true":
+            raise RuntimeError(
+                "Stop "+service+" before restoring persisted state. No files changed.")
+        if result.returncode not in (0,1):
+            raise RuntimeError("Cannot safely inspect Docker state for "+service)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manager-data",type=Path,default=Path("/srv/plex-playlist-manager"))
@@ -164,6 +181,8 @@ def main():
     parser.add_argument("--apply",action="store_true",help="Explicitly overwrite with retained pre-restore copies")
     args=parser.parse_args()
     if args.restore:
+        if args.apply:
+            require_stopped_containers()
         print(json.dumps(restore(args.restore,args.manager_data,args.downloader_state,
                                  apply=args.apply),indent=2))
     else:
