@@ -181,6 +181,12 @@ input{min-width:180px;flex:1}
       line(card,"detail","Job " + job.job_id + " · " +
         job.completed_items + " / " + job.total_items + " confirmed tracks");
       line(card,"strong",job.reason || "No error recorded.");
+      if (job.plex_verification) {
+        const v=job.plex_verification;
+        line(card,"status","Plex verification: "+v.stage.replaceAll("_"," ")+
+          " · "+v.indexed_files+"/"+v.published_files+" files indexed");
+        line(card,"detail",v.reason);
+      }
       if (job.final_dir) line(card,"path","Published to: " + job.final_dir);
       const actions = el("div","detail");
       if (!job.removed_from_queue) actions.append(link(
