@@ -27,7 +27,8 @@ async function makeHarness(sources){
   const ids=[
     "overview-updated","plex-indicator","plex-value","plex-detail",
     "playlist-count","playlist-detail","sync-count","sync-detail",
-    "download-indicator","download-count","download-detail","maintenance-status","attention-list"
+    "download-indicator","download-count","download-detail","maintenance-status","attention-list",
+    "unindexed-count","unindexed-detail","drift-count","drift-detail"
   ];
   const elements=Object.fromEntries(ids.map(id=>[id,makeNode(id)]));
   const calls=[];
@@ -163,4 +164,23 @@ test("slow Plex response cannot block local playlist counts or maintenance state
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(h.elements["plex-value"].textContent,"Connected");
 
+});
+
+test("operational home identifies unindexed albums, Plex drift and missing AudioMuse features",async()=>{
+  const h=await makeHarness({
+    "/api/health":{ok:true,server:"Plex",library:"Music"},
+    "/api/config/summary":{version:{counts:{total:6,needs_sync:0}}},
+    "/api/downloads/bridge/status":{ok:true,counts:{}},
+    "/api/workspace/maintenance":{enabled:true,jobs:{audio:{},library:{}},
+      album_verification:{ok:true,last_checked:"2026-11-12T12:00:00Z",
+        counts:{awaiting_index:2,requires_attention:1,missing_on_disk:1}},
+      playlist_drift:{ok:true,checked_at:"2026-11-12T12:00:00Z",
+        counts:{drift:2,missing:1}},
+      audio_coverage:{cached:290,provider_available:330,pending:40}}
+  });
+  assert.equal(h.elements["unindexed-count"].textContent,"4");
+  assert.equal(h.elements["drift-count"].textContent,"3");
+  assert.match(flatten(h.elements["attention-list"]),/4 album import/);
+  assert.match(flatten(h.elements["attention-list"]),/3 playlist/);
+  assert.match(h.elements["maintenance-status"].textContent,/AudioMuse 290\/330 cached/);
 });
