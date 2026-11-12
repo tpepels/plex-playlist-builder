@@ -59,7 +59,17 @@ def _now() -> str:
 
 
 def _json(value) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"),
+    # Standard JSON cannot encode NaN/Infinity. Retain even those invalid
+    # upstream measurements with an explicit, reversible marker.
+    def safe(item):
+        if isinstance(item,float) and not math.isfinite(item):
+            return {"__nonfinite_float__": str(item)}
+        if isinstance(item,dict):
+            return {str(key):safe(entry) for key,entry in item.items()}
+        if isinstance(item,(list,tuple)):
+            return [safe(entry) for entry in item]
+        return item
+    return json.dumps(safe(value), ensure_ascii=False, separators=(",", ":"),
                       default=str, allow_nan=False)
 
 
@@ -255,6 +265,7 @@ def build_export_zip(library: dict, features: dict, definitions: dict,
                     "The library is the last complete Plex catalogue snapshot, not an instantaneous live scan",
                     "AudioMuse raw values and original base64 embeddings are preserved exactly",
                     "Decoded embedding arrays are full-length unnormalized float32 measurements",
+                    "Non-finite upstream numeric values are marked explicitly as __nonfinite_float__",
                     "Extra cached AudioMuse records not in the Plex catalogue are retained in embeddings.jsonl",
                     "playlists.yml has both saved definitions and live_plex_playlists when reachable",
                     "An unavailable live Plex snapshot is explicitly identified in the manifest",
