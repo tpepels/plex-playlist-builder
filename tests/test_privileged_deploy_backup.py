@@ -234,3 +234,21 @@ def test_privileged_container_never_recursively_restarts_backup_on_denial(
     ])
     with pytest.raises(PermissionError):
         archive_tool.main()
+
+
+def test_deployment_reexecs_the_new_shell_script_after_git_pull():
+    # A running Bash process may keep the old deployment instructions even
+    # after the repository replaces apply_media_stack.sh. New Python files
+    # must never be used with a stale caller after a fast-forward.
+    script=(DEPLOY/"apply_media_stack.sh").read_text()
+    update_block=script.split('step "Fast-forward the single monorepo checkout"',1)[1]
+    update_block=update_block.split(
+        'step "Verify playlist interface controls',1)[0]
+    assert 'before_revision="$(git -C "$MANAGER" rev-parse HEAD)"' in update_block
+    assert 'after_revision="$(git -C "$MANAGER" rev-parse HEAD)"' in update_block
+    assert 'if [ "$before_revision" != "$after_revision" ]; then' in update_block
+    assert 'MEDIA_STACK_DEPLOY_REEXEC=1 exec bash "$MANAGER/deploy/apply_media_stack.sh" "$@"' in update_block
+    assert 'refusing a re-exec loop' in update_block
+    # Any backup, Compose mutation or container recreation comes later.
+    assert update_block.index('exec bash') < script.index(
+        'step "Verified private backup of both persistent state volumes"')
