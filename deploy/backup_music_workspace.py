@@ -29,7 +29,8 @@ def _sources(manager: Path, downloader: Path):
         for path in sorted(root.rglob("*")):
             if path.is_symlink() or not path.is_file():
                 continue
-            if path.suffix in SKIP or path.name.startswith(".backup-"):
+            if (path.suffix in SKIP or path.name.endswith(("-wal","-shm"))
+                or path.name.startswith(".backup-")):
                 continue
             if path.stat().st_size>MAX_STATE_FILE:
                 raise RuntimeError("State file exceeds safety bound: "+str(path))
