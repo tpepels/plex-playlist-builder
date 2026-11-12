@@ -129,6 +129,100 @@ The playlist editor also checks `GET /api/config/status` every 90 seconds
 when visible and idle, updating external changes without losing unsaved YAML
 edits, filters or expanded rows. Report and analysis views refresh themselves.
 
+## Playlist collaboration export and proposal import
+
+Open **Playlists & library** (`/playlists`), then select
+**Export for ChatGPT (ZIP)**. This is a read-only snapshot intended for
+working with an assistant on track selection, analysis and ordering.
+
+The ZIP contains four UTF-8 files:
+
+| File | Contents |
+| --- | --- |
+| `tracks.csv` | Every currently indexed Plex track ID and artist, album, title, year, genre, disc/track and duration; known AudioMuse tempo, energy, musical key, scale, mood vector and **all non-embedding raw analysis fields** encoded in `audio_analysis_raw_json`. Each row explicitly labels missing, partial, complete or invalid embeddings. |
+| `embeddings.jsonl` | One JSON line per Plex track **plus** orphan AudioMuse records. Full, *unnormalized* float32 MusiCNN and CLAP vectors, exact original base64 payloads, complete raw API record, each vector's availability/validity, and an `in_plex_library` flag. No embedding dimensions or extra analysis measurements are truncated. |
+| `playlists.yml` | Existing saved YAML definitions under `playlists`, alongside actual live Plex playlist order under `live_plex_playlists` when Plex is reachable. These can differ. A live Plex outage does not invent playlist ordering; the missing snapshot is declared in the manifest. |
+| `manifest.json` | Timestamp, snapshot revisions, cached-analysis provenance and complete coverage/missing-data counts. This is the authority for proposal source IDs. |
+
+The complete track catalogue comes from the last successfully indexed Plex
+snapshot (normally updated every 15 minutes). Its age appears in the
+manifest. Live playlist order is fetched during export when available.
+The background AudioMuse sync now stores *every* field returned by its
+sync API, instead of discarding unknown fields. On first deployment it
+upgrades older cached records in batches of 500 without deleting existing
+analysis or blocking the UI. Missing measurements remain explicitly
+missing; this exporter cannot produce analysis that upstream AudioMuse
+has never computed.
+
+### Returning a proposed playlist
+
+Upload the ZIP to the assistant and ask it to return **proposal.json**
+using the exact track rating keys. Import that file using
+**Import playlist proposal**. You may also put `proposal.json` at the
+top level of a ZIP and upload that. The schema is:
+
+```json
+{
+  "format": "plex-playlist-proposal-v1",
+  "source": {
+    "library_revision": "COPY manifest.json library_revision",
+    "playlist_revision": "COPY manifest.json playlist_revision"
+  },
+  "playlists": [
+    {
+      "name": "Hard Bop Selection",
+      "action": "create",
+      "rating_keys": ["123", "456", "789"],
+      "description": "Original proposal and editorial intent",
+      "notes": "Reasoning to display during review"
+    },
+    {
+      "name": "Existing Playlist",
+      "action": "update",
+      "rating_keys": ["123", "789", "456"],
+      "notes": "A smoother track order"
+    }
+  ]
+}
+```
+
+Use actual hexadecimal revision strings from `manifest.json`; the
+example identifiers are placeholders. `rating_keys` are strings and
+give the **complete target ordered track list**, not just additions.
+Only `create` and `update` are supported. A new playlist may
+contain 1–120 tracks, an updated playlist 1–1000, and each package up
+to 30 playlists. Track IDs must be unique and must exist in the current
+Plex catalogue. Existing descriptions and artwork are preserved;
+`description` is supported for new playlists only.
+
+The preview reads the **current live Plex track order**. It refuses
+stale catalogue/playlist revisions, unknown Plex IDs, case-insensitive
+name collisions, hidden smart/radio playlists, and updates that do not
+match a saved YAML definition and an existing live Plex playlist.
+Review each exact target track list, explicitly tick the approval
+checkbox, then choose **Approve and apply proposed changes**.
+
+- Existing playlists use the same in-place curation transaction as
+  Playlist Intelligence: their Plex playlist IDs and covers survive;
+  YAML is updated after Plex verifies the order, with rollback attempts
+  on failure.
+- New playlists go through the existing durable draft and
+  generation-publication transaction, which checks IDs, creates the
+  playlist and saves the corresponding YAML.
+- Unmentioned playlists are never modified. Preview does not write
+  to Plex, YAML or the draft database.
+- A multi-playlist approval is **sequential, not all-or-nothing**.
+  If one operation fails, later playlists are not attempted and the
+  result names every successfully applied, failed and untouched item.
+  Re-export and review again before retrying a partial application.
+  Approval tokens become invalid if Plex, saved YAML, the submitted
+  proposal or the application process changes.
+
+API: `GET /api/collaboration/export.zip`,
+`POST /api/collaboration/proposals/preview` (UTF-8 JSON or ZIP body),
+`POST /api/collaboration/proposals/apply` (same-origin JSON with
+`proposal`, `review_token`, `approved: true`).
+
 ## Genre-aware playlist creation (AudioMuse)
 
 Open **Playlists & library → Create** at `http://media-server:5051/playlists?work=create` to create a
