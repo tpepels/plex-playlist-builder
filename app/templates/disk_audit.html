@@ -49,6 +49,12 @@ input{min-width:180px;flex:1}
   <select id="filter" aria-label="Filterstatus"></select>
   <span class="detail">Updated automatically</span>
 </form>
+<details class="panel" style="padding:12px 15px;margin:0 0 12px">
+  <summary>Album files are on disk but missing from Plex?</summary>
+  <p class="detail">Check the album folder against Plex's Music library locations below. If Plex can access that folder, you can request a library scan. A scan request does not guarantee indexing; unsupported files, missing mounts or permissions still need investigation.</p>
+  <button id="request-plex-scan" type="button">Request Plex Music scan</button>
+  <span id="plex-scan-status" class="detail" role="status" aria-live="polite"></span>
+</details>
 <p id="status-text" role="status" aria-live="polite">Comparing disk files with Plex…</p>
 <div id="summary" class="summary"></div>
 <div id="warning"></div>
@@ -247,6 +253,26 @@ input{min-width:180px;flex:1}
   });
   $("filter").addEventListener("change",() => {offset=0;void load(false);});
   $("load-more").addEventListener("click",() => void load(true));
+  $("request-plex-scan").addEventListener("click",async()=>{
+    const control=$("request-plex-scan");
+    const message=$("plex-scan-status");
+    if(control.disabled)return;
+    control.disabled=true;
+    message.textContent="Requesting Plex Music library scan…";
+    try{
+      const response=await fetch("/api/download-audit/scan",{
+        method:"POST",cache:"no-store"
+      });
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.detail||data.error||"Plex rejected the scan");
+      message.textContent="Plex accepted the scan request. Indexing is not yet verified; "+
+        "this comparison will refresh after the scan starts.";
+      if(typeof setTimeout==="function")
+        setTimeout(()=>{if(!document.hidden)void load(false)},15000);
+    }catch(error){
+      message.textContent="Could not request Plex scan: "+error.message;
+    }finally{control.disabled=false}
+  });
   $("disk-tab").addEventListener("click",() => setTab("disk"));
   $("history-tab").addEventListener("click",() => setTab("history"));
   if (typeof window!=="undefined"&&typeof window.setInterval==="function")
