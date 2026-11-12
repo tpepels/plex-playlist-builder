@@ -22,6 +22,7 @@ MAX_INDEX_PAGES = 100
 MAX_CHANGED_TRACKS = 50000
 BATCH_SIZE = 100
 MAX_PER_REQUEST = 500  # Keep each synchronization bounded as the library grows.
+RAW_RECORD_VERSION = 2  # v2 caches every field returned by AudioMuse, without filtering.
 _SYNC_LOCK = threading.Lock()
 _FEATURES_LOCK = threading.RLock()
 _FEATURES_HOT: dict = {}  # full decoded SQLite snapshot, keyed by file signature
@@ -70,6 +71,14 @@ def _open_cache() -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS audio_features "
         "(track_id TEXT PRIMARY KEY, fp TEXT NOT NULL, data TEXT NOT NULL)"
     )
+    # Upgrade earlier feature caches incrementally without deleting any
+    # analysis: every v1 record will be reacquired once through the normal
+    # bounded background sync, even if its upstream fingerprint is unchanged.
+    columns={row[1] for row in connection.execute("PRAGMA table_info(audio_features)")}
+    if "raw_version" not in columns:
+        connection.execute(
+            "ALTER TABLE audio_features ADD COLUMN raw_version INTEGER NOT NULL DEFAULT 1"
+        )
     connection.execute(
         "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
     )
@@ -119,8 +128,11 @@ def _synchronize_locked() -> dict:
     url, token = _settings()
     index = _get_index(url, token)
     with closing(_open_cache()) as conn:
-        stored = dict(conn.execute("SELECT track_id, fp FROM audio_features"))
-        all_changed = [key for key, fp in index.items() if stored.get(key) != fp]
+        stored = {key:(fp,version) for key,fp,version in
+                  conn.execute("SELECT track_id, fp, raw_version FROM audio_features")}
+        all_changed = [key for key, fp in index.items()
+                       if key not in stored or stored[key][0] != fp or
+                       stored[key][1] < RAW_RECORD_VERSION]
         removed = [key for key in stored if key not in index]
         if len(all_changed) > MAX_CHANGED_TRACKS:
             raise RuntimeError("AudioMuse change set exceeds safety limit.")
@@ -138,18 +150,18 @@ def _synchronize_locked() -> dict:
                 track = details[track_id]
                 if track.get("fp") != index[track_id]:
                     raise RuntimeError("AudioMuse track changed during sync; cache unchanged.")
-                # A track with no embedding is still useful for coverage statistics.
-                features = {key: track.get(key) for key in
-                            ("title", "artist", "album", "energy", "tempo",
-                             "key", "scale", "mood_vector", "other_features",
-                             "embedding", "clap_embedding")}
+                # Preserve every API measurement, including future provider
+                # fields unknown to this application and records with missing
+                # embeddings. Never silently drop raw analysis.
                 updated.append((track_id, index[track_id],
-                                json.dumps(features, separators=(",", ":"), ensure_ascii=False)))
+                                json.dumps(track, separators=(",", ":"), ensure_ascii=False),
+                                RAW_RECORD_VERSION))
         # SQLite changes are committed only after every API call succeeded.
         with conn:
             conn.executemany(
-                "INSERT INTO audio_features(track_id,fp,data) VALUES(?,?,?) "
-                "ON CONFLICT(track_id) DO UPDATE SET fp=excluded.fp,data=excluded.data",
+                "INSERT INTO audio_features(track_id,fp,data,raw_version) VALUES(?,?,?,?) "
+                "ON CONFLICT(track_id) DO UPDATE SET fp=excluded.fp,"
+                "data=excluded.data,raw_version=excluded.raw_version",
                 updated,
             )
             conn.executemany("DELETE FROM audio_features WHERE track_id=?",
