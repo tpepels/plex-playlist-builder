@@ -159,6 +159,7 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
   <p id="identity" class="muted"></p>
   <div class="metric-grid" id="summary"></div>
   <div id="warnings"></div>
+  <p id="compositionStatus" class="muted" role="status"></p>
   <details><summary class="muted" style="cursor:pointer;margin-top:14px">How candidates were selected</summary><div id="selection" class="muted" style="padding:9px"></div></details>
   <table id="quality" class="quality"><thead><tr><th>Quality dimension</th><th>Score</th><th>Coverage</th></tr></thead><tbody></tbody></table>
   <p class="muted">Heuristic scores and metadata are not proof of recording quality. Missing analysis is shown rather than estimated.</p>
@@ -187,6 +188,7 @@ fieldset{border:1px solid var(--line);border-radius:9px;padding:12px;margin-top:
   <p id="publicationSummary"></p>
   <div id="publishWarnings"></div>
   <table id="publicationQuality" class="quality"></table>
+  <div id="publishComposition" class="muted" role="status"></div>
   <p id="publishEvidence" class="muted" aria-live="polite"></p>
   <p class="muted">Approved track order and genre evidence</p><div id="publishTracks"></div>
   <fieldset><label><input type="checkbox" id="publishApproval"> I approve creating this new playlist in Plex and saving it in the YAML collection.</label></fieldset>
@@ -532,6 +534,15 @@ function draw(){
     data.selection.shortlisted+' considered during generation. Exclusions: '+
     Object.entries(data.selection.excluded||{}).map(([k,n])=>k+': '+n).join(', ');
   metricTable($('quality'),d.metrics);
+  const comp=d.composition||{};
+  const sim=comp.audio_similarity||{}, energy=comp.energy_changes||{};
+  $('compositionStatus').textContent=
+    'Composition: '+(comp.unique_artists??'—')+' artists · '+
+    (comp.unique_albums??'—')+' albums · '+
+    (sim.mean==null?'similarity unmeasured':sim.mean+' mean adjacent similarity')+
+    ' ('+(sim.measured_transitions||0)+'/'+(sim.total_transitions||0)+' transitions) · '+
+    (energy.maximum==null?'energy gaps unmeasured':energy.maximum+' maximum energy jump')+
+    (comp.warnings?.length?' · '+comp.warnings.join('; '):'');
   $('trackCount').textContent=data.tracks.length+' tracks · drag-free order controls';
   $('trackList').replaceChildren();
   data.tracks.forEach((t,i)=>$('trackList').append(itemView(t,i)));
@@ -705,6 +716,15 @@ $('review').onclick=async()=>{
     for(const warning of plan.warnings)
       $('publishWarnings').append(node('div',warning,'flag'));
     metricTable($('publicationQuality'),plan.quality.metrics);
+    const c=plan.composition||{};
+    const overlaps=(c.existing_overlaps||[]).slice(0,4).map(x=>
+      x.name+' ('+Math.round(x.fraction_of_proposal*100)+'% of proposed tracks)').join(', ');
+    $('publishComposition').textContent=
+      'Artists: '+(c.unique_artists??'unknown')+
+      ' · Albums: '+(c.unique_albums??'unknown')+
+      ' · Embeddings: '+(c.full_embedding_coverage?.tracks??0)+'/'+(c.full_embedding_coverage?.total??0)+
+      ' · Overlap: '+(overlaps||'none detected by exact track ID')+
+      (c.warnings?.length?' · Warnings: '+c.warnings.join('; '):'');
     const evidence=plan.genre_evidence||{};
     const withEvidence=plan.track_order.filter(t=>Boolean(evidence[t.id]));
     const unreviewed=withEvidence.filter(t=>(evidence[t.id].evidence?.review_status||'unreviewed')==='unreviewed');
