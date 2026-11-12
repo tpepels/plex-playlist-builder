@@ -142,6 +142,9 @@ def build_export_zip(library: dict, features: dict, definitions: dict,
         "partial_embeddings": 0,
         "complete_embeddings": 0,
         "invalid_embeddings": 0,
+        "tracks_without_enriched_plex_metadata": sum(
+            "plex_metadata" not in row for row in library.values()
+        ),
     }
     fields = [
         "rating_key", "album_rating_key", "artist", "album", "title",
@@ -226,6 +229,8 @@ def build_export_zip(library: dict, features: dict, definitions: dict,
                 "library_updated_at": catalogue_updated,
                 "audio_last_sync": cache_state.get("last_sync"),
                 "audio_manifest_version": cache_state.get("manifest_version"),
+                "audio_sync_pending": cache_state.get("pending"),
+                "audio_sync_available": cache_state.get("available"),
                 "library_revision": catalogue_revision(library),
                 "playlist_revision": fingerprint(definitions),
                 "audio_revision": feature_revision(features,cache_state.get("manifest_version")),
@@ -253,6 +258,7 @@ def build_export_zip(library: dict, features: dict, definitions: dict,
                     "Extra cached AudioMuse records not in the Plex catalogue are retained in embeddings.jsonl",
                     "playlists.yml has both saved definitions and live_plex_playlists when reachable",
                     "An unavailable live Plex snapshot is explicitly identified in the manifest",
+                    "Legacy Plex catalogues may lack enriched raw tags until the next background rescan; the count is explicit",
                     "No audio media bytes are exported; raw metadata may contain source paths or other personal metadata; inspect the ZIP before sharing",
                 ],
             }
