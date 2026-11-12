@@ -283,7 +283,7 @@ def test_api_zip_export_and_signed_proposal_preview_apply(env,monkeypatch):
     monkeypatch.setattr(main,"_generation_context",lambda:(plex,lib))
     client=TestClient(main.app)
     exported=client.get("/api/collaboration/export.zip")
-    assert exported.status_code==200,exported.text[:300] if not exported.ok else ""
+    assert exported.status_code==200,exported.text[:300] if not exported.is_success else ""
     assert exported.headers["content-type"]=="application/zip"
     with zipfile.ZipFile(io.BytesIO(exported.content)) as archive:
         manifest=json.loads(archive.read("manifest.json"))
