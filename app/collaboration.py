@@ -372,6 +372,9 @@ def preview_proposal(proposal: dict, library: dict, definitions: dict, plex) -> 
     for item in live:
         by_name.setdefault(str(item.title).casefold(), []).append(item)
     defs_casefold = {name.casefold():name for name in definitions}
+    from .audiomuse_client import cached_features
+    from .playlist_quality import evaluate
+    evidence, _ = cached_features()
     previews=[]
     for item in proposal["playlists"]:
         name, action, keys = item["name"], item["action"], item["rating_keys"]
@@ -415,6 +418,8 @@ def preview_proposal(proposal: dict, library: dict, definitions: dict, plex) -> 
             "added":len(after_set-before_set),
             "removed":len(before_set-after_set), "moved":moved,
             "notes":item["notes"],
+            "quality":evaluate(keys,library,evidence,definitions,
+                               exclude_name=name if action=="update" else None),
             "track_order":[{
                 "id":key, "artist":library[key]["artist"], "album":library[key]["album"],
                 "title":library[key]["title"],"year":library[key].get("year")
