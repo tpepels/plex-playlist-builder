@@ -166,6 +166,7 @@ small{color:var(--muted)}
     <strong class="version-name" id="versionName">Reading saved definitions…</strong>
     <span class="version-detail" id="versionDetail"></span>
     <span class="version-detail" id="collectionAutoStatus" role="status" aria-live="polite"></span>
+    <span class="version-detail" id="liveDriftStatus" role="status" aria-live="polite"></span>
     <details class="collection-info">
       <summary>Details</summary>
       <span class="id" id="versionId" title="Content fingerprint (not a date)">—</span>
@@ -453,25 +454,34 @@ function renderCards(definitions, statuses={}) {
   for (const [name, spec] of entries) {
     const items = spec.items || [];
     const status = statuses[name] || "unverified";
+    const checked=config?.live_verification||{};
+    const verified=checked.yaml_revision===config?.version?.id &&
+      checked.checked_at && Date.now()-Date.parse(checked.checked_at)<30*60*1000;
+    const live=verified?checked.playlists?.[name]:null;
     const disabled = spec.enabled === false;
     const label = disabled ? "Disabled" : status === "needs_sync" ? "Pending"
-      : status === "synced" ? "Synced" : "Unverified";
+      : live?.state==="drift" ? "Plex differs"
+      : live?.state==="missing" ? "Missing in Plex"
+      : status === "synced" && live?.state==="in_sync" ? "Verified in Plex"
+      : status === "synced" ? "Sync recorded (unverified)" : "Unverified";
     const row = document.createElement("details");
     row.className = "playlist";
     row.dataset.name = name;
-    row.dataset.status = status;
+    row.dataset.status = live?.state==="drift"||live?.state==="missing"?
+      "drift":status;
     row.dataset.disabled = String(disabled);
     row.innerHTML = `
       <summary>
         <span class="playlist-name">${esc(name)}</span>
         <span class="playlist-meta">${items.length} item${items.length === 1 ? "" : "s"}</span>
-        <span class="chip ${disabled ? "" : status}">${label}</span>
+        <span class="chip ${disabled ? "" : row.dataset.status}">${label}</span>
       </summary>
       <div class="playlist-body">
         ${spec.description ? `<div class="description">${esc(spec.description)}</div>` : ""}
         <ul>${cardItems(items)}</ul>
         ${items.length > 5 ? `<div class="more">+ ${items.length - 5} more items</div>` : ""}
-        <button class="primary build" ${disabled ? "disabled" : ""}>${status === "needs_sync" ? "Update Plex playlist" : "Rebuild in Plex"}</button>
+        ${live && live.state!=="in_sync"?'<p class="album-meta">Live Plex check: '+esc(live.reason||live.state)+'</p>':''}
+        <button class="primary build" ${disabled ? "disabled" : ""}>${status === "needs_sync" ? "Update Plex playlist" : "Update Plex in place"}</button>
         <div class="result" role="status"></div>
       </div>`;
     const button = row.querySelector(".build");
@@ -482,6 +492,10 @@ function renderCards(definitions, statuses={}) {
         showNotice("Save or discard your unsaved YAML editor changes before syncing. Plex uses the saved version.", true);
         return;
       }
+      if (live && ["drift","missing"].includes(live.state) &&
+          typeof window!=="undefined" && typeof window.confirm==="function" &&
+          !window.confirm("Live Plex differs from saved YAML for "+name+
+            ". Apply the saved order and overwrite those external changes?"))return;
       syncing = true;
       updateActions();
       result.className = "result info";
@@ -535,6 +549,15 @@ async function loadConfig() {
   editorDirty = false;
   $("saveState").textContent = "";
   renderVersion(config.version);
+  const drift=config.live_verification||{};
+  const driftCount=drift.yaml_revision===config.version.id?
+    (drift.counts?.drift||0)+(drift.counts?.missing||0):0;
+  $("liveDriftStatus").textContent=!drift.checked_at?
+    "Live Plex ordering has not been verified yet.":
+    drift.yaml_revision!==config.version.id?
+    "Live Plex ordering check is stale after YAML changes.":
+    driftCount?driftCount+" playlist(s) differ from live Plex.":
+    "Live Plex ordering last checked "+drift.checked_at+".";
   renderCards(config.definitions, config.version.sync_statuses);
 }
 async function checkHealth() {
