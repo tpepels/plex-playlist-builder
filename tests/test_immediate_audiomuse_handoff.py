@@ -184,3 +184,35 @@ def test_downloader_bridge_wakes_verifier_after_accepted_plex_scan(
     assert wakes==["wake"]
     asyncio.run(download_plex_sync.poll_once(state_file=path))
     assert wakes==["wake"]
+
+
+def test_download_after_first_automatic_catalogue_baseline_is_still_analyzed(system,monkeypatch):
+    # A newly installed manager can baseline the track before the downloader
+    # verification catches up; exact files still require analysis if the
+    # embeddings are absent.
+    assert auto.observe({"456":{"album_key":"789"}})["baseline"]
+    monkeypatch.setattr(auto.audiomuse_client,"cached_features",
+                        lambda:({},{"pending":9636}))
+    verify.refresh(now=15000)
+    system["tracks"]=[file_track()]
+    result=verify.refresh(now=15010)
+    assert result["items"][0]["analysis_handoff"]=="queued"
+    assert result["analysis_trigger"]["started"]=="task-1"
+    assert system["starts"]==[6]
+
+
+def test_download_already_fully_analyzed_is_acknowledged_without_reprocessing(system,monkeypatch):
+    from base64 import b64encode
+    from struct import pack
+    valid=b64encode(pack("<4f",1,2,3,4)).decode()
+    assert auto.observe({"456":{"album_key":"789"}})["baseline"]
+    monkeypatch.setattr(auto.audiomuse_client,"cached_features",
+                        lambda:({"456":{"embedding":valid,"clap_embedding":valid}},
+                                {"pending":0}))
+    verify.refresh(now=15000)
+    system["tracks"]=[file_track()]
+    result=verify.refresh(now=15010)
+    assert result["items"][0]["analysis_handoff"]=="queued"
+    assert system["starts"]==[]
+    assert auto.snapshot()["pending"]==0
+    assert auto._read()["verified_download_jobs"]==["download-1"]
