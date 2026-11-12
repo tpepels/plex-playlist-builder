@@ -134,6 +134,7 @@ def test_full_export_preserves_every_raw_audio_field_and_full_embeddings(env):
             assert rows[0]["analysis_status"]=="complete_embeddings"
             assert rows[0]["tempo"]=="124"
             assert rows[0]["genres_json"]=='["Jazz","Hard bop"]'
+            assert json.loads(rows[0]["plex_metadata_json"])=={}
             assert json.loads(rows[0]["audio_analysis_raw_json"])["unrecognized_future_field"]=={"foo":"bar"}
             assert next(r for r in rows if r["rating_key"]=="4")["analysis_status"]=="missing_analysis"
             assert next(r for r in rows if r["rating_key"]=="2")["analysis_status"]=="partial_embeddings"
