@@ -153,7 +153,6 @@ class ConfigBody(BaseModel):
 
 class ImportBody(ConfigBody):
     filename: str | None = None
-    approved: bool
     review_token: str
 
 
@@ -393,14 +392,15 @@ def inspect_config(body: ConfigBody):
 def import_config(body: ImportBody):
     try:
         comparison = inspect_import(body.text)
-        if body.approved is not True or not _valid_import_review(
+        if not _valid_import_review(
             body.text, comparison["current_id"], body.review_token
         ):
             raise HTTPException(
                 status_code=409,
-                detail="Explicit, current YAML import review approval is required.")
-        # The caller can approve only the exact file/revision shown during
-        # preview. Concurrent YAML changes fail rather than syncing stale plans.
+                detail="YAML changed or the validation token expired; upload the file again.")
+        # Import immediately after successful validation. The signed token binds
+        # the exact YAML bytes to the saved revision, preventing stale imports.
+        # No separate end-user approval is required.
         data = merge_text(body.text, source_filename=body.filename,
                           expected_revision=comparison["current_id"])
         payload = _config_payload(data)
