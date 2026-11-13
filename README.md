@@ -37,13 +37,15 @@ against the Plex Music library and syncs them idempotently.
 Open `http://media-server:5051/`. Home is a functional entry point, with
 two prominent actions:
 
-1. **Import playlist YAML** — select or drag in a `.yml` / `.yaml` file
-   (maximum 2 MB). The app validates it without modifying storage, shows
-   new/updated/unchanged/retained playlist counts, and requires explicit
-   confirmation. **Import & sync changes** merges definitions without
-   deleting playlists absent from the upload. Each changed playlist is
-   synced individually using the saved collection revision; progress and
-   failures are shown. A Plex outage does not discard the imported YAML.
+1. **Import playlist YAML** — select or drop a `.yml` / `.yaml` file
+   (maximum 2 MB). The app validates it first. Valid files are then merged
+   into the saved collection and the changed playlists are automatically
+   synced to Plex, with **no checkbox or second confirmation**. Unmentioned
+   playlists and unrelated pending changes are preserved. The interface
+   shows new/updated/unchanged/retained counts, progress and per-playlist
+   failures. Invalid YAML never changes the saved collection; a Plex outage
+   leaves the validated imported definitions saved for retry. The validation
+   token binds the exact file bytes to the current collection revision.
 2. **Download music** — paste a source URL, optionally choose album/playlist
    and force-download settings, and submit directly to the internal
    downloader. The resulting job opens in `/downloads`.
@@ -65,8 +67,9 @@ The playlist editor remains at `/playlists`. Its library sections have
 direct URLs such as `/playlists?view=health`,
 `/playlists?view=newmusic`, `/playlists?view=isc` and
 `/playlists?view=duplicates`. Existing `/?view=...` bookmarks work.
-The advanced YAML editor, cover ZIP upload, playlist-preview, and approval
-controls remain in the playlist workspace.
+The advanced YAML editor, cover ZIP upload and playlist-preview remain in the
+playlist workspace. Manual proposal publishing and generator drafts still
+have their separate review controls.
 
 The YAML configuration API does not require Plex connectivity. If Plex or
 the downloader is unavailable, their status is shown independently; the
@@ -113,8 +116,9 @@ full-library analysis. If old music is still unanalyzed, run an explicit backfil
 Automatic requests use AudioMuse's recent-albums API, so its recent-album ordering
 must correspond to the same Plex library; the actual analyzed coverage is exposed
 separately. Neither these workers nor the existing downloader-to-Plex scan can
-publish or replace playlists or YAML definitions. Those changes still require
-approval. Enable the existing downloader scan using
+publish or replace playlists or YAML definitions. Validated YAML uploads
+automatically synchronize their changed playlists; manual curation proposals
+and generated drafts retain their explicit review controls. Enable the existing downloader scan using
 `DOWNLOAD_BRIDGE_SCAN_ENABLED=1` in the parent Compose configuration.
 
 `GET /api/workspace/maintenance` reports queue depth, active analysis,
