@@ -11,7 +11,7 @@ function harness({inspect, importResult, syncResponse}={}) {
   const ids=[
     "home-playlist-file","home-playlist-drop","home-file-label",
     "home-import-status","home-import-preview","home-import-summary",
-    "home-import-description","home-import-confirm","home-import-cancel",
+    "home-import-description",
     "home-import-progress-panel","home-import-progress","home-import-current",
     "home-import-errors",
   ];
@@ -34,7 +34,8 @@ function harness({inspect, importResult, syncResponse}={}) {
   let refreshes=0;
 
   const fakeInspect=inspect ?? {new:["New"],updated:["Changed"],
-    unchanged:["Same"],retained:["Local"],already_loaded:false};
+    unchanged:["Same"],retained:["Local"],already_loaded:false,
+    review_token:"signed-import"};
   const fakeImport=importResult ?? {changed:["New","Changed"],version:{id:"v42"}};
   const fetch=async (url,options)=>{
     const body=JSON.parse(options.body||"{}");
@@ -73,26 +74,24 @@ test("Home serves the two complete intake paths without extra navigation",()=>{
   assert.match(html, /id="home-download-url" type="url" name="url" required/);
   assert.match(html, /id="home-download-playlist" type="checkbox" name="playlist" checked/);
   assert.match(html, /id="home-playlist-file" type="file"/);
-  assert.match(html, /id="home-import-confirm"/);
+  assert.doesNotMatch(html, /id="home-import-confirm"|id="home-import-cancel"/);
   assert.match(html, /src="\/static\/home-intake.js"/);
   assert.doesNotMatch(html, /home-top-nav|class="home-hero"/);
 });
 
-test("YAML is inspected before any changes and syncs only changed entries",async()=>{
+test("Home validates then automatically imports and syncs changed playlists",async()=>{
   const h=harness();
   await h.select();
-  assert.deepEqual(h.calls.map(c=>c.url),["/api/inspect-config"]);
-  assert.equal(h.get("home-import-preview").hidden,false);
-  assert.equal(h.get("home-import-confirm").disabled,false);
-  assert.match(h.get("home-import-description").textContent,/retained/);
-  assert.equal(h.get("home-import-summary").children.length,4);
-  await h.get("home-import-confirm").listeners.click();
   assert.deepEqual(h.calls.map(c=>c.url),[
     "/api/inspect-config", "/api/import-config",
     "/api/sync-pending/New", "/api/sync-pending/Changed",
   ]);
   assert.equal(h.calls[1].body.filename,"playlists.yml");
+  assert.equal(h.calls[1].body.review_token,"signed-import");
   assert.equal(h.calls[2].body.version_id,"v42");
+  assert.equal(h.get("home-import-preview").hidden,false);
+  assert.match(h.get("home-import-description").textContent,/retained/);
+  assert.equal(h.get("home-import-summary").children.length,4);
   assert.equal(h.get("home-import-progress").value,2);
   assert.match(h.get("home-import-current").textContent,/2 synced/);
   assert.equal(h.refreshes,1);
@@ -101,7 +100,7 @@ test("YAML is inspected before any changes and syncs only changed entries",async
 test("Already-loaded YAML has no import or sync action",async()=>{
   const h=harness({inspect:{new:[],updated:[],unchanged:["A"],retained:[],already_loaded:true}});
   await h.select();
-  assert.equal(h.get("home-import-confirm").disabled,true);
+  assert.equal(h.get("home-import-preview").hidden,false);
   assert.match(h.get("home-import-status").textContent,/No new or modified/);
   assert.equal(h.calls.length,1);
 });
@@ -128,18 +127,9 @@ test("Plex syncing failure leaves saved import and reports retry path",async()=>
   const h=harness({syncResponse:name=>name==="Changed"
     ? new Error("Plex offline") : {status:"synced"}});
   await h.select();
-  await h.get("home-import-confirm").listeners.click();
   assert.equal(h.get("home-import-progress").value,2);
   assert.match(h.get("home-import-errors").textContent,/Changed: Plex offline/);
   assert.match(h.get("home-import-status").textContent,/definitions were saved/);
   assert.equal(h.get("home-import-status").className.includes("error"),true);
 });
 
-test("Cancel clears preview without importing",async()=>{
-  const h=harness();
-  await h.select();
-  h.get("home-import-cancel").listeners.click();
-  assert.equal(h.get("home-import-preview").hidden,true);
-  assert.equal(h.get("home-import-confirm").disabled,true);
-  assert.equal(h.calls.length,1);
-});
