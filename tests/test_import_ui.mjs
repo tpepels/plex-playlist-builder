@@ -300,7 +300,24 @@ test("invalid file never imports or syncs", async () => {
   assert.equal(h.synced, false);
   assert.ok(!h.calls.includes("/api/import-config"));
   assert.ok(!h.calls.some((url) => url.startsWith("/api/sync-pending/")));
-  assert.match(h.$("yamlImportStatus").textContent, /Invalid YAML or failed preview: Invalid playlist YAML/);
+  assert.match(h.$("yamlImportStatus").textContent, /Import rejected without saving: Invalid playlist YAML/);
+});
+
+test("workspace rejects wrong extension and empty YAML before validation or sync",async()=>{
+  for(const file of [
+    {name:"not-playlists.txt",size:42,text:async()=>"playlists: {}"},
+    {name:"empty.yml",size:0,text:async()=>""},
+    {name:"too-large.yaml",size:2*1024*1024+1,text:async()=>"playlists: {}"}
+  ]){
+    const h=makeHarness();
+    await new Promise(resolve=>setImmediate(resolve));
+    h.$("packFile").files=[file];
+    await h.$("packFile").onchange();
+    assert(!h.calls.includes("/api/inspect-config"));
+    assert(!h.calls.includes("/api/import-config"));
+    assert(!h.calls.some(url=>url.startsWith("/api/sync-pending/")));
+    assert.match(h.$("notice").textContent,/Choose a nonempty/);
+  }
 });
 
 test("unchanged YAML validates without import or Plex writes", async () => {
