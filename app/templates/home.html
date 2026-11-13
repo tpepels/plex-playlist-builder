@@ -17,7 +17,7 @@
     <section class="home-intro" aria-labelledby="home-title">
       <span class="home-eyebrow">MUSIC LIBRARY / START HERE</span>
       <h1 id="home-title">Add music. Build playlists.</h1>
-      <p>Import an existing playlist collection or send a recording to the downloader. Then review, organise and sync it with Plex.</p>
+      <p>Import an existing playlist collection or send a recording to the downloader. Validated playlist YAML syncs automatically to Plex.</p>
     </section>
 
     <div class="home-intake-grid">
@@ -25,7 +25,7 @@
         <div class="home-task-top">
           <span class="home-step">01 / PLAYLISTS</span>
           <h2 id="home-import-title">Import playlist YAML</h2>
-          <p>Merge a <code>.yml</code> or <code>.yaml</code> file into the saved collection. Review new and changed playlists before syncing to Plex.</p>
+          <p>Merge a <code>.yml</code> or <code>.yaml</code> file into the saved collection. Valid files are imported and changed playlists sync automatically to Plex.</p>
         </div>
         <div class="home-task-body">
           <label class="home-file-picker" for="home-playlist-file" id="home-playlist-drop">
@@ -36,13 +36,9 @@
           </label>
           <div id="home-import-status" class="home-form-status" role="status" aria-live="polite"></div>
           <div id="home-import-preview" class="home-import-preview" hidden>
-            <div class="home-preview-title">Review import</div>
+            <div class="home-preview-title">Import summary</div>
             <div id="home-import-summary" class="home-preview-metrics"></div>
             <p id="home-import-description"></p>
-            <div class="home-form-actions">
-              <button id="home-import-confirm" class="home-primary-button" type="button" disabled>Import definitions and update Plex</button>
-              <button id="home-import-cancel" class="home-secondary-button" type="button">Cancel</button>
-            </div>
           </div>
           <div id="home-import-progress-panel" class="home-import-progress" hidden>
             <label for="home-import-progress">Syncing changed playlists</label>
@@ -91,7 +87,7 @@
         <a class="home-task-link" href="/playlists?work=improve">Review and improve an existing playlist</a>
         <a class="home-task-link" href="/playlists?view=isc">Discover music for the library</a>
       </div>
-      <p class="home-form-hint">Audio analysis of newly discovered music, feature synchronization and library indexing run automatically. Plex playlist changes require approval.</p>
+      <p class="home-form-hint">Audio analysis of newly discovered music, feature synchronization and library indexing run automatically. Validated YAML imports sync changed playlists without another confirmation.</p>
     </section>
 
     <section class="home-overview" aria-labelledby="overview-title">
