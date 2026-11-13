@@ -681,7 +681,7 @@ $("packFile").onchange=async()=>{
     showNotice("Finish the active operation or save unsaved edits before importing.",true);
     return;
   }
-  if(!/\\.ya?ml$/i.test(file.name)||!file.size||file.size>2*1024*1024){
+  if(!/\.ya?ml$/i.test(file.name)||!file.size||file.size>2*1024*1024){
     showNotice("Choose a nonempty .yml or .yaml file up to 2 MB.",true);
     return;
   }
@@ -709,9 +709,9 @@ $("packFile").onchange=async()=>{
       header.textContent=change.name+" · "+change.action+" · "+
         change.before_count+" → "+change.after_count+" items";
       const before=document.createElement("pre");
-      before.textContent="Before:\\n"+JSON.stringify(change.before,null,2);
+      before.textContent="Before:\n"+JSON.stringify(change.before,null,2);
       const after=document.createElement("pre");
-      after.textContent="After:\\n"+JSON.stringify(change.after,null,2);
+      after.textContent="After:\n"+JSON.stringify(change.after,null,2);
       item.append(header,before,after);wrap.append(item);
     }
     if(!changes.length){
