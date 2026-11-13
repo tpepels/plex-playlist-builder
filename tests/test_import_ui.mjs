@@ -234,8 +234,8 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
       }
     } else if (url === "/api/import-config") {
       const incoming=JSON.parse(options.body||"{}");
-      if(incoming.approved!==true||incoming.review_token!=="signed-import"){
-        status=409;body={detail:"Explicit review approval required"};
+      if(incoming.review_token!=="signed-import"){
+        status=409;body={detail:"Validation token expired"};
       }else{
         imported = true;
         body = {comparison:{new:alreadyLoaded?[]:["Beta"],updated:[]},
@@ -268,17 +268,11 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     ...(windowObj?{window:windowObj,URL,URLSearchParams}:{}) };
   vm.runInNewContext(script + "\n;globalThis.__switchView = showWorkspaceView;globalThis.__loadDuplicates = loadDuplicates;globalThis.__loadIsc = loadIsc;", context);
 
-  async function chooseFile({approve=false}={}) {
-    // Choosing a file only previews. The user must explicitly approve.
+  async function chooseFile() {
     await new Promise((resolve) => setImmediate(resolve));
     const input = $("packFile");
-    input.files = [{ name: filename, text: async () => "playlists:\n  Beta: {}\n" }];
+    input.files = [{name:filename,size:40,text:async()=>"playlists:\n  Beta: {}\n"}];
     await input.onchange();
-    if(approve && $("yamlImportApprove").onclick){
-      $("yamlImportConfirmed").checked=true;
-      $("yamlImportConfirmed").onchange();
-      await $("yamlImportApprove").onclick();
-    }
   }
   return { chooseFile, calls, requests, $, document, windowObj, timers,
     externalUpdate(){externalChanged=true},
@@ -288,9 +282,9 @@ function makeHarness({ invalid = false, alreadyLoaded = false, syncFails = false
     get proposalApplied(){return proposalApplied;} };
 }
 
-test("reviewed YAML import saves and syncs only its changed playlists", async () => {
+test("validated YAML import automatically saves and syncs only changed playlists", async () => {
   const h = makeHarness();
-  await h.chooseFile({approve:true});
+  await h.chooseFile();
   const relevant = h.calls.filter((c) => ["/api/inspect-config", "/api/import-config"].includes(c) || c.startsWith("/api/sync-pending/"));
   assert.deepEqual(relevant, ["/api/inspect-config", "/api/import-config", "/api/sync-pending/Beta"]);
   assert.equal(h.imported, true);
@@ -309,18 +303,19 @@ test("invalid file never imports or syncs", async () => {
   assert.match(h.$("yamlImportStatus").textContent, /Invalid YAML or failed preview: Invalid playlist YAML/);
 });
 
-test("identical pack imports without needlessly syncing Plex", async () => {
+test("unchanged YAML validates without import or Plex writes", async () => {
   const h = makeHarness({ alreadyLoaded: true });
-  await h.chooseFile({approve:true});
-  assert.equal(h.imported, true);
+  await h.chooseFile();
+  assert.equal(h.imported, false);
   assert.equal(h.synced, false);
+  assert.ok(!h.calls.includes("/api/import-config"));
   assert.ok(!h.calls.some((url) => url.startsWith("/api/sync-pending/")));
   assert.match(h.$("notice").textContent, /Nothing to sync/);
 });
 
 test("failed Plex sync keeps import and reports a retryable error", async () => {
   const h = makeHarness({ syncFails: true });
-  await h.chooseFile({approve:true});
+  await h.chooseFile();
   assert.equal(h.imported, true);
   assert.equal(h.synced, false);
   assert.ok(h.calls.includes("/api/sync-pending/Beta"));
@@ -686,28 +681,24 @@ test("invalid proposal file is refused without contacting Plex or modifying YAML
   assert.equal(h.proposalApplied,false);
 });
 
-test("selecting a YAML file never imports or synchronizes without explicit approval",async()=>{
+test("selecting valid YAML automatically imports without a checkbox or second action",async()=>{
   const h=makeHarness({oldPending:true});
   await h.chooseFile();
-  assert.equal(h.imported,false);
-  assert(!h.calls.includes("/api/import-config"));
-  assert(!h.calls.some(x=>x.startsWith("/api/sync-pending/")));
+  assert.equal(h.imported,true);
+  assert.equal(h.synced,true);
   assert.equal(h.$("yamlImportReview").hidden,false);
-  assert.equal(h.$("yamlImportApprove").disabled,true);
   assert.match(h.$("yamlImportDiff").children[0].children[0].textContent,/Beta/);
-  await h.$("yamlImportApprove").onclick();
-  assert.equal(h.imported,false);
-  h.$("yamlImportCancel").onclick();
-  assert.equal(h.$("yamlImportReview").hidden,true);
+  assert(!html.includes('id="yamlImportConfirmed"'));
+  assert(!html.includes('id="yamlImportApprove"'));
 });
 
-test("reviewed import leaves unrelated prior pending edits untouched",async()=>{
+test("automatic import leaves unrelated prior pending edits untouched",async()=>{
   const h=makeHarness({oldPending:true});
-  await h.chooseFile({approve:true});
+  await h.chooseFile();
   assert(h.calls.includes("/api/sync-pending/Beta"));
   assert(!h.calls.includes("/api/sync-pending/Alpha"));
   const approval=h.requests.find(x=>x.url==="/api/import-config");
   const payload=JSON.parse(approval.options.body);
-  assert.equal(payload.approved,true);
   assert.equal(payload.review_token,"signed-import");
+  assert.equal("approved" in payload,false);
 });
