@@ -178,19 +178,11 @@ small{color:var(--muted)}
   </div>
 </section>
 <div id="notice" class="notice" role="status" hidden></div>
-<section id="yamlImportReview" class="panel" aria-label="Review YAML import before saving or changing Plex" hidden>
-  <div class="section-title"><h2>Review YAML import</h2>
+<section id="yamlImportReview" class="panel" aria-label="YAML import results" hidden>
+  <div class="section-title"><h2>YAML import</h2>
     <small id="yamlImportSummary" role="status">No import selected</small></div>
-  <p class="album-meta">No YAML or Plex changes occur until you explicitly approve this review.
-    Only the playlists changed by this file can be synchronized as part of this import.
-    Other pending playlists remain untouched.</p>
+  <p class="album-meta">Valid playlist YAML imports automatically. Only new and changed playlists from the file are synchronized; unmentioned playlists and unrelated pending edits are preserved.</p>
   <div id="yamlImportDiff" class="cover-import-details"></div>
-  <label class="row"><input type="checkbox" id="yamlImportConfirmed">
-    I reviewed these exact playlist changes and approve saving them and syncing only these playlists.</label>
-  <div class="row">
-    <button type="button" class="primary" id="yamlImportApprove" disabled>Approve import and apply changed playlists</button>
-    <button type="button" id="yamlImportCancel">Cancel</button>
-  </div>
   <p id="yamlImportStatus" role="status" aria-live="polite"></p>
 </section>
 <section id="collabReview" class="panel" aria-label="Review playlist proposals" hidden>
@@ -672,34 +664,33 @@ $("save").onclick = async () => {
 };
 $("reload").onclick = () => loadConfig().catch(e => $("saveState").textContent = "Error: " + e.message);
 
-// YAML import is a separate reviewed transaction. Merely choosing a file
-// only previews; only the corresponding approved revision may be persisted.
-let yamlImportPlan=null;
-function cancelYamlImport(){
-  yamlImportPlan=null;
-  $("yamlImportReview").hidden=true;
-  $("yamlImportConfirmed").checked=false;
-  $("yamlImportApprove").disabled=true;
-  $("yamlImportDiff").replaceChildren();
-  $("yamlImportStatus").textContent="";
-}
+// YAML upload is the only action. Validation, revision-bound merge, and
+// synchronization of this file's changed playlists run automatically.
 $("importPack").onclick=()=>{
-  if(syncing||coverUploading||editorDirty||yamlImportPlan){
-    showNotice("Finish existing changes or cancel the open import review first.",true);
+  if(syncing||coverUploading||editorDirty){
+    showNotice("Finish the active operation or save unsaved edits before importing.",true);
     return;
   }
   $("packFile").click();
 };
 $("packFile").onchange=async()=>{
   const file=$("packFile").files?.[0];
+  $("packFile").value="";
   if(!file)return;
-  cancelYamlImport();
   if(syncing||coverUploading||editorDirty){
     showNotice("Finish the active operation or save unsaved edits before importing.",true);
-    $("packFile").value="";return;
+    return;
   }
+  if(!/\\.ya?ml$/i.test(file.name)||!file.size||file.size>2*1024*1024){
+    showNotice("Choose a nonempty .yml or .yaml file up to 2 MB.",true);
+    return;
+  }
+  syncing=true;updateActions();
   $("yamlImportReview").hidden=false;
-  $("yamlImportSummary").textContent="Previewing "+file.name+"…";
+  $("yamlImportSummary").textContent="Validating "+file.name+"…";
+  $("yamlImportStatus").textContent="Validating YAML before any changes…";
+  $("yamlImportDiff").replaceChildren();
+  let imported=false;
   try{
     const text=await file.text();
     const comparison=await api("/api/inspect-config",{
@@ -707,68 +698,45 @@ $("packFile").onchange=async()=>{
       body:JSON.stringify({text})
     });
     const changes=comparison.changes||[];
-    yamlImportPlan={text,filename:file.name,comparison};
     $("yamlImportSummary").textContent=changes.length+" changed · "+
       (comparison.new?.length||0)+" new · "+(comparison.updated?.length||0)+
       " updated · "+(comparison.retained?.length||0)+" retained";
     const wrap=$("yamlImportDiff");
-    wrap.replaceChildren();
     for(const change of changes){
       const item=document.createElement("details");
-      item.open=true;
+      item.open=false;
       const header=document.createElement("summary");
       header.textContent=change.name+" · "+change.action+" · "+
         change.before_count+" → "+change.after_count+" items";
       const before=document.createElement("pre");
-      before.textContent="Before:\n"+JSON.stringify(change.before,null,2);
+      before.textContent="Before:\\n"+JSON.stringify(change.before,null,2);
       const after=document.createElement("pre");
-      after.textContent="After:\n"+JSON.stringify(change.after,null,2);
+      after.textContent="After:\\n"+JSON.stringify(change.after,null,2);
       item.append(header,before,after);wrap.append(item);
     }
-    if(!changes.length)wrap.textContent="No new or updated playlists. No Plex changes required.";
-    $("yamlImportStatus").textContent="Nothing has been saved; inspect all differences before approval.";
-  }catch(error){
-    yamlImportPlan=null;
-    $("yamlImportSummary").textContent="Import rejected";
-    $("yamlImportStatus").textContent="Invalid YAML or failed preview: "+error.message;
-  }finally{$("packFile").value=""}
-};
-$("yamlImportConfirmed").onchange=()=>{
-  $("yamlImportApprove").disabled=!yamlImportPlan ||
-    !$("yamlImportConfirmed").checked||syncing||editorDirty||coverUploading;
-};
-$("yamlImportCancel").onclick=cancelYamlImport;
-$("yamlImportApprove").onclick=async()=>{
-  if(!yamlImportPlan||!$("yamlImportConfirmed").checked||
-    syncing||editorDirty||coverUploading)return;
-  const {text,filename,comparison}=yamlImportPlan;
-  syncing=true;updateActions();
-  $("yamlImportApprove").disabled=true;
-  $("yamlImportCancel").disabled=true;
-  let imported=false;
-  try{
+    if(!changes.length){
+      wrap.textContent="No new or updated playlists.";
+      $("yamlImportStatus").textContent="Already up to date. Nothing to sync.";
+      showNotice("YAML validated. Nothing to sync.");
+      return;
+    }
+    $("yamlImportStatus").textContent="YAML valid. Importing and syncing "+changes.length+" changed playlists…";
     const result=await api("/api/import-config",{
       method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({text,filename,approved:true,
+      body:JSON.stringify({text,filename:file.name,
         review_token:comparison.review_token})
     });
     imported=true;
     await loadConfig();
-    cancelYamlImport();
-    $("yamlImportReview").hidden=false;
-    $("yamlImportSummary").textContent=filename+" · saved with review approval";
-    $("yamlImportStatus").textContent="Only imported changes are eligible for synchronization.";
-    syncing=false;updateActions();
-    await syncPendingPlaylists({fromImport:true,filename,names:result.changed});
-    $("yamlImportStatus").textContent="Import finished. Other pending playlists were not synchronized.";
+    await syncPendingPlaylists({fromImport:true,filename:file.name,names:result.changed});
+    $("yamlImportStatus").textContent="Import completed. See Plex update results below.";
   }catch(error){
     $("yamlImportStatus").textContent=imported
-      ? "YAML saved, but Plex synchronization failed: "+error.message
-      : "Import was not saved: "+error.message;
+      ? "YAML was saved, but Plex synchronization could not finish: "+error.message
+      : "Import rejected without saving: "+error.message;
     showNotice($("yamlImportStatus").textContent,true);
   }finally{
-    syncing=false;$("yamlImportCancel").disabled=false;updateActions();
-    yamlImportPlan=null;
+    syncing=false;updateActions();
   }
 };
 
