@@ -63,7 +63,7 @@
     summary.replaceChildren();
     errors.textContent = "";
     message("");
-    if (!/\\.ya?ml$/i.test(file.name)) {
+    if (!/\.ya?ml$/i.test(file.name)) {
       message("Choose a .yml or .yaml file.", "error");
       return;
     }
@@ -133,7 +133,7 @@
         }
         progress.value = i + 1;
       }
-      errors.textContent = failures.join("\\n");
+      errors.textContent = failures.join("\n");
       current.textContent = changed.length
         ? synced + " synced · " + skipped + " skipped · " + failures.length + " errors"
         : "No playlist changes to sync";
